@@ -35,6 +35,8 @@ Oprogramowanie będzie rozwijane warstwowo. Logika sterowania działa w niezale�
 
 GUI nie komunikuje się bezpośrednio z Modbusem, DAC ani czujnikami. Restart lub aktualizacja interfejsu nie może zatrzymywać automatyki wentylacji.
 
+MQTT jest przewidziany jako opcjonalny kanał telemetrii, zdarzeń i integracji z Home Assistant, Node-RED lub innymi systemami. Nie stanowi podstawowego kanału sterowania i jego awaria nie może wpływać na lokalne działanie automatyki.
+
 ## Architektura sprzętowa
 
 - Raspberry Pi w rozdzielni DIN,
@@ -51,6 +53,7 @@ GUI nie komunikuje się bezpośrednio z Modbusem, DAC ani czujnikami. Restart lu
 
 - [Architektura systemu](docs/SYSTEM_ARCHITECTURE_PL.md)
 - [Architektura oprogramowania](docs/SOFTWARE_ARCHITECTURE_PL.md)
+- [Integracja MQTT](docs/MQTT_INTEGRATION_PL.md)
 - [Lista elementów](docs/HARDWARE_COMPONENTS_PL.md)
 - [Moduł czujnika](docs/SENSOR_NODE_PL.md)
 - [Założenia Modbus](docs/MODBUS_MAP_PL.md)
