@@ -107,3 +107,39 @@ Ręczne przewietrzanie nie może pozostawiać systemu bezterminowo poza automaty
 ## D-027 — Modułowa rozbudowa pulpitu warsztatu
 
 Interfejs zostanie przygotowany na kolejne strefy i moduły, takie jak energia, serwis filtrów, kompresor czy piec. Nie oznacza to łączenia kodu z ECU Platform lub CRT; projekty pozostają technicznie niezależne.
+
+## D-028 — Obowiązkowa architektura warstwowa
+
+Oprogramowanie jest rozwijane warstwowo: prezentacja, API, warstwa aplikacyjna, domena, abstrakcja sprzętu i sterowniki urządzeń. Pomijanie warstw przez bezpośrednie połączenie GUI ze sprzętem jest niedozwolone.
+
+## D-029 — Rdzeń działa niezależnie od GUI
+
+Automatyka wentylacji działa w osobnej usłudze `ventilation-core`. Restart, awaria lub aktualizacja interfejsu webowego, HMI albo lokalnego wyświetlacza nie może zatrzymywać sterowania.
+
+## D-030 — Wiele interfejsów jako równorzędni klienci
+
+Interfejs webowy, HMI, lokalny wyświetlacz, aplikacja mobilna i narzędzia serwisowe korzystają ze wspólnego API oraz tego samego modelu stanu. Żaden klient nie posiada własnej wersji logiki sterowania.
+
+## D-031 — Jedno źródło prawdy
+
+Autorytatywny stan systemu znajduje się w rdzeniu. Klient wysyła intencję, a nie zakłada wykonania polecenia. Stan jest aktualizowany dopiero po walidacji i wykonaniu operacji przez rdzeń.
+
+## D-032 — Abstrakcja urządzeń
+
+Czujniki, wentylatory, Tacho i rekuperatory są ukryte za interfejsami funkcjonalnymi. Zmiana modelu sprzętu lub producenta nie może wymagać przebudowy GUI ani podstawowej logiki strefy.
+
+## D-033 — API domenowe zamiast rejestrów
+
+Zwykłe interfejsy operują pojęciami takimi jak stan strefy, przewietrzanie, alarm i jakość powietrza. Surowe rejestry Modbus oraz wartości DAC są dostępne wyłącznie w kontrolowanym trybie serwisowym.
+
+## D-034 — Testowalność bez sprzętu
+
+Każde urządzenie musi mieć atrapę lub symulator. Logika domenowa, przypadki użycia i kontrakty API mają być testowane bez fizycznego sprzętu oraz bez uruchamiania GUI.
+
+## D-035 — Rozszerzanie przez adaptery
+
+Nowy czujnik, rekuperator lub element wykonawczy jest dodawany przez adapter implementujący istniejący interfejs. Nie dodajemy do GUI ani domeny rozgałęzień zależnych od konkretnego producenta, jeżeli urządzenie realizuje już obsługiwaną funkcję.
+
+## D-036 — Rozstrzyganie konfliktów w rdzeniu
+
+Rdzeń rozstrzyga priorytety pomiędzy automatyką, harmonogramem, alarmem i sterowaniem ręcznym. Każde wymuszenie ma źródło, czas rozpoczęcia i termin wygaśnięcia.
