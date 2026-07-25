@@ -143,3 +143,27 @@ Nowy czujnik, rekuperator lub element wykonawczy jest dodawany przez adapter imp
 ## D-036 — Rozstrzyganie konfliktów w rdzeniu
 
 Rdzeń rozstrzyga priorytety pomiędzy automatyką, harmonogramem, alarmem i sterowaniem ręcznym. Każde wymuszenie ma źródło, czas rozpoczęcia i termin wygaśnięcia.
+
+## D-037 — MQTT jako opcjonalny kanał integracyjny
+
+MQTT służy do publikowania telemetrii, stanów i zdarzeń oraz do integracji z Home Assistant, Node-RED i innymi systemami. Nie jest wymagany do lokalnego działania automatyki.
+
+## D-038 — MQTT nie zastępuje podstawowych kanałów
+
+Komunikacja ze sprzętem pozostaje na Modbus RTU i innych adapterach sprzętowych, komendy klientów korzystają z API aplikacyjnego, a aktualizacje UI z WebSocket lub SSE. MQTT nie zastępuje tych kanałów.
+
+## D-039 — Pierwszy etap MQTT jest tylko publikacyjny
+
+W pierwszym etapie system publikuje przez MQTT potwierdzony stan domenowy i zdarzenia. Nie przyjmuje komend sterujących przez MQTT.
+
+## D-040 — Brak bezpośredniego sterowania sprzętem przez MQTT
+
+Żaden temat MQTT nie może prowadzić bezpośrednio do zapisu Modbus, DAC ani urządzenia. Ewentualne przyszłe komendy MQTT muszą przechodzić przez warstwę aplikacyjną, domenę, autoryzację, walidację i audyt.
+
+## D-041 — Awaria MQTT nie wpływa na automatykę
+
+Brak brokera, utrata sieci lub błąd publikacji nie może zatrzymywać `ventilation-core`, sterowania lokalnego ani zapisu podstawowej historii systemu.
+
+## D-042 — MQTT jako adapter za abstrakcją
+
+Implementacja MQTT znajduje się za portem integracyjnym, np. `IEventPublisher` lub `ITelemetryPublisher`. Domena nie zależy od konkretnej biblioteki MQTT ani brokera, a przy wyłączonym MQTT używana jest implementacja neutralna.
