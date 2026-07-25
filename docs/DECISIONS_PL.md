@@ -79,3 +79,31 @@ Przed wdrożeniem Modbus trzeba sprawdzić, czy konkretny firmware NANO COLOR 2 
 ## D-020 — Pierwsza walidacja tylko do odczytu
 
 Pierwsze podłączenie zostanie wykonane przez izolowany interfejs RS-485. Najpierw odczytamy rejestry stanu i porównamy je z panelem. Zapis sterujący zostanie wykonany dopiero po potwierdzeniu poprawnej komunikacji i przypisania zacisków.
+
+## D-021 — UI jako pulpit jakości powietrza
+
+Interfejs użytkownika nie będzie technicznym panelem wentylatorów i rekuperatora. Ekran główny ma przedstawiać stan jakości powietrza oraz reakcję systemu w sposób zrozumiały bez znajomości zastosowanego sprzętu.
+
+## D-022 — Żywy plan warsztatu
+
+Preferowany ekran główny pokazuje uproszczony plan dwóch pomieszczeń, dominujący status każdej strefy, aktualny sposób działania wentylacji i ostatnie ważne zdarzenie.
+
+## D-023 — Nazwy użytkowe zamiast nazw urządzeń
+
+W codziennym interfejsie stosujemy nazwy `Mycie i wygrzewanie ECU`, `Pomieszczenie lutowania` i `Przewietrzanie`. Nazwy AERO, SEN55, C14, DAC, Modbus oraz numery rejestrów są widoczne wyłącznie w trybie serwisowym.
+
+## D-024 — Wyjaśnialna automatyka
+
+Każda automatyczna zmiana wentylacji powinna zapisywać czas, powód, stan przed zmianą, wykonaną akcję i wynik. Historia ma tłumaczyć decyzje systemu, a nie ograniczać się do wykresów parametrów.
+
+## D-025 — Oddzielny tryb serwisowy
+
+Surowe rejestry, diagnostyka RS-485, wartości DAC, Tacho, wersje firmware i testy wykonawcze zostaną odseparowane od podstawowego interfejsu użytkownika.
+
+## D-026 — Ręczne wymuszenia są czasowe
+
+Ręczne przewietrzanie nie może pozostawiać systemu bezterminowo poza automatyką. UI pokazuje źródło sterowania i pozostały czas wymuszenia, a po jego zakończeniu przywraca tryb AUTO.
+
+## D-027 — Modułowa rozbudowa pulpitu warsztatu
+
+Interfejs zostanie przygotowany na kolejne strefy i moduły, takie jak energia, serwis filtrów, kompresor czy piec. Nie oznacza to łączenia kodu z ECU Platform lub CRT; projekty pozostają technicznie niezależne.
