@@ -29,7 +29,13 @@ Ekran główny pokaże uproszczony plan dwóch pomieszczeń, stan każdej strefy
 
 Techniczne parametry Modbus, DAC, Tacho i RS-485 pozostaną dostępne w oddzielnym trybie serwisowym.
 
-## Architektura
+## Architektura oprogramowania
+
+Oprogramowanie będzie rozwijane warstwowo. Logika sterowania działa w niezależnym rdzeniu usługowym, a interfejs webowy, lokalny wyświetlacz, HMI i przyszłe aplikacje są wyłącznie klientami wspólnego API.
+
+GUI nie komunikuje się bezpośrednio z Modbusem, DAC ani czujnikami. Restart lub aktualizacja interfejsu nie może zatrzymywać automatyki wentylacji.
+
+## Architektura sprzętowa
 
 - Raspberry Pi w rozdzielni DIN,
 - zasilacz 5 V na szynę DIN,
@@ -44,6 +50,7 @@ Techniczne parametry Modbus, DAC, Tacho i RS-485 pozostaną dostępne w oddzieln
 ## Dokumentacja
 
 - [Architektura systemu](docs/SYSTEM_ARCHITECTURE_PL.md)
+- [Architektura oprogramowania](docs/SOFTWARE_ARCHITECTURE_PL.md)
 - [Lista elementów](docs/HARDWARE_COMPONENTS_PL.md)
 - [Moduł czujnika](docs/SENSOR_NODE_PL.md)
 - [Założenia Modbus](docs/MODBUS_MAP_PL.md)
@@ -55,4 +62,4 @@ Techniczne parametry Modbus, DAC, Tacho i RS-485 pozostaną dostępne w oddzieln
 
 ## Status
 
-Etap koncepcyjny sprzętu, integracji i interfejsu użytkownika. Szczegóły algorytmów sterowania zostaną ustalone podczas implementacji i testów w rzeczywistych pomieszczeniach. Integracja AERO 4A2 wymaga jeszcze potwierdzenia wersji firmware panelu, przypisania zacisków Modbus oraz wykonania bezpiecznego testu odczytu.
+Etap koncepcyjny sprzętu, integracji, interfejsu użytkownika i architektury oprogramowania. Szczegóły algorytmów sterowania zostaną ustalone podczas implementacji i testów w rzeczywistych pomieszczeniach. Integracja AERO 4A2 wymaga jeszcze potwierdzenia wersji firmware panelu, przypisania zacisków Modbus oraz wykonania bezpiecznego testu odczytu.
