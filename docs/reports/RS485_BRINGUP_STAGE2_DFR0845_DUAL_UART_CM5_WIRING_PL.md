@@ -4,45 +4,55 @@ Data: 2026-08-01
 
 Gałąź: `agent/rs485-bringup-stage2`
 
-## Decyzja architektoniczna
+## Status bezpieczeństwa — obowiązująca korekta
 
-W projekcie są dostępne dwa moduły DFRobot DFR0845. Stage 2 nie zakłada już konwertera USB–RS-485. Każdy DFR0845 jest izolowanym konwerterem UART ↔ RS-485 i otrzymuje własny sprzętowy UART CM5.
+Bezpośrednie połączenie linii UART DFR0845 z CM5 przy zasilaniu DFR0845 napięciem **5 V jest zabronione**.
 
-Dzięki temu możliwe są dwie niezależne magistrale RS-485:
+Powód:
 
-- `RS485_BUS_1` — pierwszy DFR0845,
-- `RS485_BUS_2` — drugi DFR0845.
+- UART CM5 pracuje w logice 3,3 V i nie jest odporny na 5 V,
+- schemat DFR0845 pokazuje, że strona zewnętrzna translatora UART jest odniesiona i podciągnięta do `VCC_IN`,
+- przy `VCC_IN = 5 V` nie można uznać wyjścia `T` za bezpieczne dla wejścia RX CM5.
 
-Każdy port jest otwierany przez osobny proces `rs485-worker`. Nie ma współdzielenia deskryptora portu ani kolejek pomiędzy magistralami.
+Wcześniejsze zalecenie podłączenia `+` DFR0845 bezpośrednio do 5 V CM5IO przy jednoczesnym bezpośrednim połączeniu `T/R` z GPIO zostało wycofane.
 
-## Zasilanie DFR0845 — zweryfikowana decyzja
+## Zweryfikowana obserwacja sprzętowa
 
-DFR0845 zasilamy z szyny **5 V**, nie z 3,3 V CM5IO.
+Zasilanie DFR0845 bezpośrednio z pinu 3,3 V CM5IO powodowało zbyt duże obciążenie podczas startu i CM5 nie uruchamiał się prawidłowo.
 
-Podczas próby zasilania DFR0845 z pinu 3,3 V użytkownik potwierdził, że obciążenie uniemożliwiało prawidłowy start CM5. Po przełączeniu zasilania modułu na 5 V CM5 uruchomił się poprawnie.
+Nie oznacza to, że należy zasilać moduł z 5 V przy bezpośrednim UART. Oznacza to, że DFR0845 wymaga osobnego, wydajnego źródła 3,3 V.
 
-Jest to zgodne z charakterem modułu: DFR0845 zawiera izolowany transceiver i izolowaną przetwornicę. Producent dopuszcza zasilanie modułu 3,3–5 V oraz deklaruje zgodność strony UART z logiką 3,3 V i 5 V. W naszym wdrożeniu 5 V jest więc obowiązującym źródłem zasilania modułów, natomiast same linie UART CM5 pozostają liniami logicznymi 3,3 V.
+## Obowiązująca architektura zasilania
 
-Nie należy ponownie zasilać DFR0845 z pinu 3,3 V CM5IO.
+Dwa DFR0845 będą zasilane z osobnego gotowego stabilizatora step-down:
 
-## Warunek elektryczny CM5IO
+```text
+CM5IO 5 V / zasilacz 5 V
+          |
+          v
+stabilizator 5 V -> 3,3 V, zalecane minimum 2 A, preferowane 3 A
+          |
+          +---- DFR0845 nr 1: + = 3,3 V
+          |
+          +---- DFR0845 nr 2: + = 3,3 V
+```
 
-Napięcie logiki GPIO na Compute Module 5 IO Board musi być ustawione na **3,3 V**, nie 1,8 V.
+Masa wyjścia stabilizatora 3,3 V musi być połączona z masą UART CM5 i pinami `-` obu DFR0845.
 
-To ustawienie dotyczy poziomów sygnałów UART, a nie zasilania DFR0845. DFR0845 otrzymuje zasilanie 5 V z dedykowanych pinów zasilających 40-pinowego złącza.
+Przy takim zasilaniu zewnętrzna strona UART DFR0845 pracuje w domenie 3,3 V i może być bezpośrednio połączona z UART CM5.
 
-## Złącze Gravity DFR0845 — poprawne oznaczenia
+Alternatywa techniczna — pozostawienie zasilania DFR0845 na 5 V i dodanie pełnych konwerterów poziomów 3,3 V ↔ 5 V dla każdej linii UART — nie jest obecnie preferowana, ponieważ zwiększa liczbę elementów i punktów awarii.
 
-Dla przewodu widocznego na module:
+## Złącze Gravity DFR0845
 
-| Kolor | Oznaczenie DFR0845 | Funkcja modułu |
+| Kolor | Oznaczenie | Funkcja modułu |
 |---|---|---|
-| czerwony | `+` | zasilanie VCC |
+| czerwony | `+` | VCC; docelowo 3,3 V z osobnego stabilizatora |
 | czarny | `-` | masa UART |
 | niebieski | `R` | wejście RX modułu |
 | zielony | `T` | wyjście TX modułu |
 
-Sygnały UART należy skrzyżować funkcjonalnie:
+Połączenia sygnałowe są skrzyżowane funkcjonalnie:
 
 - TX CM5 → `R` DFR0845 — przewód niebieski,
 - RX CM5 ← `T` DFR0845 — przewód zielony.
@@ -51,29 +61,39 @@ Sygnały UART należy skrzyżować funkcjonalnie:
 
 Overlay: `uart0-pi5`
 
-| DFR0845 | Kolor | CM5 GPIO / zasilanie | Pin fizyczny 40-pin |
-|---|---|---|---:|
-| `+` | czerwony | 5 V | 2 |
-| `-` | czarny | GND | 6 |
-| `R` | niebieski | GPIO14 / TXD0 | 8 |
-| `T` | zielony | GPIO15 / RXD0 | 10 |
+| DFR0845 | Kolor | CM5 / zasilanie |
+|---|---|---|
+| `+` | czerwony | 3,3 V z osobnego stabilizatora |
+| `-` | czarny | wspólna masa UART |
+| `R` | niebieski | pin 8, GPIO14 / TXD0 |
+| `T` | zielony | pin 10, GPIO15 / RXD0 |
+
+Urządzenie Linux potwierdzone na CM5:
+
+```text
+/dev/serial0 -> /dev/ttyAMA0
+```
 
 ## DFR0845 nr 2 — UART2
 
 Overlay: `uart2-pi5`
 
-| DFR0845 | Kolor | CM5 GPIO / zasilanie | Pin fizyczny 40-pin |
-|---|---|---|---:|
-| `+` | czerwony | 5 V | 4 |
-| `-` | czarny | GND | 14 |
-| `R` | niebieski | GPIO4 / TXD2 | 7 |
-| `T` | zielony | GPIO5 / RXD2 | 29 |
+| DFR0845 | Kolor | CM5 / zasilanie |
+|---|---|---|
+| `+` | czerwony | 3,3 V z osobnego stabilizatora |
+| `-` | czarny | wspólna masa UART |
+| `R` | niebieski | pin 7, GPIO4 / TXD2 |
+| `T` | zielony | pin 29, GPIO5 / RXD2 |
 
-Piny GND można zastąpić innymi pinami masy. Piny 2 i 4 są wspólną szyną 5 V; rozdzielenie ich pomiędzy dwa moduły ułatwia jednoznaczne prowadzenie przewodów.
+Urządzenie Linux potwierdzone na CM5:
 
-## Konfiguracja Raspberry Pi OS
+```text
+/dev/ttyAMA2
+```
 
-W `/boot/firmware/config.txt` należy dodać:
+## Konfiguracja Raspberry Pi OS — zweryfikowana
+
+W `/boot/firmware/config.txt` aktywne są:
 
 ```ini
 enable_uart=1
@@ -81,67 +101,46 @@ dtoverlay=uart0-pi5
 dtoverlay=uart2-pi5
 ```
 
-Nie używamy parametrów `rs485` ani linii RTS/DE. DFR0845 udostępnia zwykłe TX/RX po stronie UART i sam realizuje automatyczną konwersję na dwuprzewodową magistralę RS-485.
+Potwierdzone funkcje pinów:
 
-Po zmianie wymagany jest restart:
-
-```bash
-sudo reboot
+```text
+GPIO14 = TXD0
+GPIO15 = RXD0
+GPIO4  = TXD2
+GPIO5  = RXD2
 ```
 
-## Identyfikacja urządzeń Linux
-
-Nazwy typu `/dev/ttyAMA0` i `/dev/ttyAMA2` są prawdopodobne, ale nie należy zakładać ich bez sprawdzenia. Po restarcie wykonać:
-
-```bash
-ls -l /dev/serial* /dev/ttyAMA* /dev/ttyS* 2>/dev/null
-pinctrl get 4 5 14 15
-
-cd ~/workshop-ventilation-controller
-PYTHONPATH=src python3 -m ventilation_core.rs485ctl ports
-```
-
-Narzędzie wykrywa:
-
-- `/dev/serial0`, `/dev/serial1`,
-- `/dev/ttyAMA*`,
-- `/dev/ttyS*`,
-- porty USB jako opcję pomocniczą.
-
-## Sprawdzenie dwóch portów bez transmisji
-
-Po ustaleniu rzeczywistych nazw portów można otworzyć oba jednocześnie bez wysyłania ramek:
-
-```bash
-PYTHONPATH=src python3 -m ventilation_core.rs485ctl check-ports \
-  --port /dev/ttyAMA0 \
-  --port /dev/ttyAMA2
-```
-
-Polecenie:
-
-- uruchamia osobny worker dla każdego UART-u,
-- otwiera oba porty,
-- sprawdza procesy lokalnym `ping`,
-- nie zapisuje żadnych bajtów na UART,
-- zwraca `transmitted: false`.
-
-Rzeczywiste ścieżki należy podstawić zgodnie z wynikiem `rs485ctl ports`.
+`/dev/ttyAMA10` jest debug UART-em i nie jest używany do RS-485.
 
 ## Zaciski RS-485
 
-Na początku zaciski `A`, `B`, `RS485 GND`, `12V` oraz `12V-IN` pozostają niepodłączone.
+Dla dwóch modułów pracujących w teście punkt-punkt:
 
-Przełącznik terminacji `120Ω` na obu DFR0845 ustawiamy początkowo na `OFF`. Terminację włączymy dopiero po zaprojektowaniu rzeczywistego odcinka magistrali i ustaleniu, który moduł znajduje się na jej końcu.
+```text
+A   <-> A
+B   <-> B
+GND <-> GND strony izolowanej RS-485
+```
 
-## Kolejność uruchomienia
+Zaciski `12V` oraz `12V-IN` nie uczestniczą w teście.
 
-1. Wyłączyć CM5 przed podłączaniem przewodów Gravity — DFR0845 nie obsługuje hot-plug.
-2. Podłączyć tylko DFR0845 nr 1, zasilany z 5 V.
-3. Włączyć CM5 i potwierdzić UART nr 1.
-4. Wyłączyć CM5.
-5. Podłączyć DFR0845 nr 2, również zasilany z 5 V.
-6. Potwierdzić oba UART-y poleceniem `check-ports`.
-7. Dopiero później podłączyć zaciski `A/B` pierwszego urządzenia RS-485.
+Terminacja 120 Ω pozostaje wyłączona podczas krótkiego testu stanowiskowego, chyba że późniejszy pomiar lub dokumentacja urządzenia wykażą potrzebę jej włączenia.
 
-Testy wykonujemy pojedynczo, mimo że kod od początku obsługuje dwie niezależne magistrale.
+## Procedura natychmiastowa po wykryciu ryzyka
+
+1. Wyłączyć CM5.
+2. Odłączyć zasilanie `+` obu DFR0845 od 5 V.
+3. Odłączyć co najmniej przewody `T` od wejść RX CM5; preferowane jest całkowite odłączenie przewodów Gravity do czasu dodania stabilizatora 3,3 V.
+4. Nie wykonywać kolejnych prób `rs485ctl loopback` w konfiguracji 5 V bez konwersji poziomów.
+5. Po zamontowaniu osobnego stabilizatora 3,3 V ponownie zweryfikować napięcie multimetrem przed podłączeniem linii UART.
+
+## Stan Stage 2
+
+Warstwa systemowa została potwierdzona:
+
+- oba UART-y istnieją,
+- oba porty otwierają się osobno i równocześnie,
+- workery działają bez kolizji,
+- testy jednostkowe przechodzą.
+
+Test elektryczny DFR0845 pozostaje wstrzymany do czasu bezpiecznego zasilenia ich strony UART napięciem 3,3 V.
