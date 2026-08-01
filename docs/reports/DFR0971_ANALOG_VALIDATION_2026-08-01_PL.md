@@ -96,7 +96,22 @@ Potwierdzono:
 - wspólna masa sterowania i sygnał 0–10 V zostały podłączone poprawnie,
 - nie stwierdzono problemu z podstawową kompatybilnością elektryczną wejścia sterującego wentylatora i wyjścia DFR0971.
 
-Jest to pierwszy pozytywny test wykonawczy systemu. Dokładne napięcie startu, minimalne napięcie podtrzymania oraz charakterystyka napięcie–prędkość nie zostały jeszcze wyznaczone.
+Jest to pierwszy pozytywny test wykonawczy systemu.
+
+## Przyjęty próg startu wentylatora
+
+W teście zimnego startu potwierdzono:
+
+- przy `0,5 V` wentylator nie rozpoczyna obrotów,
+- przy `1,0 V` wentylator rozpoczyna pracę.
+
+Dalsze zawężanie progu krokami po 0,1 V nie jest wymagane dla tego lokalnego wdrożenia. Jako praktyczny i obowiązujący próg startu przyjmujemy `1,0 V`.
+
+Decyzja dla sterowania:
+
+- `0 V` oznacza zatrzymanie,
+- polecenie uruchomienia wentylatora nie powinno zadawać mniej niż `1,0 V`,
+- dokładniejsza kalibracja może zostać wykonana później tylko wtedy, gdy pojawi się rzeczywista potrzeba eksploatacyjna.
 
 ## Wnioski
 
@@ -109,14 +124,14 @@ Jest to pierwszy pozytywny test wykonawczy systemu. Dokładne napięcie startu, 
 - pełny zanik zasilania powoduje start obu kanałów od 0 V,
 - `ventilation-core` musi jawnie przejąć kontrolę nad DAC po starcie i ustawić stan zgodny z polityką bezpieczeństwa,
 - funkcji `store` nie należy używać do bieżącego sterowania wentylatorami,
-- pierwszy wentylator EC został skutecznie uruchomiony z CM5 przez DFR0971.
+- pierwszy wentylator EC został skutecznie uruchomiony z CM5 przez DFR0971,
+- praktyczny próg startu pierwszego wentylatora wynosi `1,0 V`.
 
 ## Ograniczenia obecnej walidacji
 
 Walidacja nie obejmuje jeszcze:
 
 - zachowania przy awaryjnym przerwaniu procesu bez restartu systemu,
-- dokładnego minimalnego napięcia startu wentylatora,
 - minimalnego napięcia podtrzymania obrotów,
 - pełnej charakterystyki napięcie–prędkość,
 - testu drugiego wentylatora,
@@ -125,9 +140,9 @@ Walidacja nie obejmuje jeszcze:
 
 ## Następny etap
 
-1. wyznaczyć minimalne napięcie startu pierwszego wentylatora małymi krokami,
-2. wyznaczyć minimalne napięcie podtrzymania po wcześniejszym rozpędzeniu,
-3. sprawdzić zachowanie przy 0 V, 2 V, 5 V, 8 V i 10 V,
-4. zanotować obserwowaną zmianę prędkości i hałasu,
-5. po zakończeniu testu zawsze sprowadzić oba kanały do 0 V,
+1. sprawdzić zachowanie pierwszego wentylatora przy 2 V, 5 V, 8 V i 10 V,
+2. potwierdzić, że 0 V zatrzymuje wentylator,
+3. zanotować obserwowaną zmianę prędkości i hałasu,
+4. po zakończeniu testu zawsze sprowadzić oba kanały do 0 V,
+5. następnie przygotować integrację sterowania DAC z `ventilation-core`,
 6. nie podłączać jeszcze drugiego wentylatora ani sygnału Tacho.
