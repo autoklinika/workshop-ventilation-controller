@@ -207,3 +207,33 @@ Model otrzymuje uporządkowane wyniki, interpretuje je, łączy z profilem insta
 ## 11. Zasada końcowa
 
 AI jest doradcą i warstwą analityczną. `ventilation-core` pozostaje jedynym źródłem prawdy i jedynym komponentem uprawnionym do wykonywania logiki sterowania. System musi zachować pełną funkcjonalność automatyki nawet po trwałym usunięciu całej warstwy AI.
+
+## 12. Diagnostyka dwukanałowa węzłów
+
+AI może korzystać z przygotowanych przez CM5 wyników diagnostyki krzyżowej RS-485 i prywatnego Wi-Fi węzłów KAmod.
+
+Dane diagnostyczne mogą obejmować:
+
+- stan komunikacji Modbus,
+- heartbeat Wi-Fi,
+- czas ostatniego zapytania Modbus widziany przez KAmod,
+- stan SEN55,
+- liczniki błędów I²C i RS-485,
+- uptime i przyczynę restartu,
+- RSSI,
+- historię OTA i rollbacków,
+- lokalny bufor zdarzeń węzła.
+
+AI może na tej podstawie przygotować zrozumiałą diagnozę, na przykład odróżnić:
+
+- prawdopodobną awarię przewodu lub magistrali RS-485,
+- utratę kanału serwisowego Wi-Fi,
+- brak zasilania węzła,
+- awarię SEN55 przy działającym KAmod,
+- niestabilność firmware lub powtarzające się restarty.
+
+Wniosek o przyczynie awarii pozostaje rekomendacją diagnostyczną. Alarm komunikacyjny, reakcja na brak świeżych danych i strategia bezpieczna są zawsze wyznaczane deterministycznie przez CM5.
+
+AI nie otrzymuje bezpośredniego dostępu do usług serwisowych KAmod. Korzysta wyłącznie z danych zebranych, zweryfikowanych i udostępnionych przez `ventilation-core` lub kontrolowany `AI Gateway`.
+
+Szczegóły komunikacji i macierz stanów definiuje dokument `DUAL_CHANNEL_NODE_COMMUNICATION_PL.md`.
