@@ -44,6 +44,24 @@ def rs485_worker_main(
                             "frame_hex": response.hex(),
                         }
                     )
+                elif command == "raw_write":
+                    written = transport.write_raw(bytes.fromhex(request["frame_hex"]))
+                    response_queue.put(
+                        {
+                            "request_id": request_id,
+                            "ok": True,
+                            "written": written,
+                        }
+                    )
+                elif command == "raw_read":
+                    response = transport.read_exact(int(request["size"]))
+                    response_queue.put(
+                        {
+                            "request_id": request_id,
+                            "ok": True,
+                            "frame_hex": response.hex(),
+                        }
+                    )
                 elif command == "ping":
                     response_queue.put({"request_id": request_id, "ok": True})
                 elif command == "shutdown":
@@ -139,6 +157,14 @@ class ProcessRS485Master:
 
     def ping(self) -> None:
         self._request("ping")
+
+    def write_raw(self, frame: bytes) -> int:
+        response = self._request("raw_write", frame_hex=frame.hex())
+        return int(response["written"])
+
+    def read_exact(self, size: int) -> bytes:
+        response = self._request("raw_read", size=int(size))
+        return bytes.fromhex(response["frame_hex"])
 
     def transact(self, frame: bytes) -> bytes:
         response = self._request("transact", frame_hex=frame.hex())
