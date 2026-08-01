@@ -5,6 +5,7 @@ import queue
 import threading
 import uuid
 from multiprocessing.queues import Queue
+from pathlib import Path
 from typing import Any
 
 from .serial_transport import PySerialModbusTransport, SerialSettings
@@ -67,7 +68,12 @@ def rs485_worker_main(
 
 
 class ProcessRS485Master:
-    """Application-side proxy for the dedicated RS-485 serial owner process."""
+    """Application-side proxy for one dedicated RS-485 serial owner process.
+
+    Each instance owns exactly one UART/serial port. Multiple instances may run
+    concurrently, which allows separate DFR0845 adapters to serve independent
+    RS-485 buses without sharing file descriptors or command queues.
+    """
 
     def __init__(self, settings: SerialSettings, timeout_seconds: float = 3.0) -> None:
         self._settings = settings
@@ -76,9 +82,10 @@ class ProcessRS485Master:
         self._lock = threading.RLock()
         self._command_queue: Any = self._context.Queue()
         self._response_queue: Any = self._context.Queue()
+        port_name = Path(settings.port).name.replace(" ", "-") or "port"
         self._process = self._context.Process(
             target=rs485_worker_main,
-            name="ventilation-rs485-worker",
+            name=f"ventilation-rs485-{port_name}",
             args=(settings, self._command_queue, self._response_queue),
             daemon=True,
         )
@@ -93,6 +100,10 @@ class ProcessRS485Master:
             raise RS485WorkerError(
                 response.get("error", "RS-485 worker failed to start")
             )
+
+    @property
+    def port(self) -> str:
+        return self._settings.port
 
     @property
     def ready(self) -> bool:
@@ -125,6 +136,9 @@ class ProcessRS485Master:
             if not response.get("ok"):
                 raise RS485WorkerError(response.get("error", "RS-485 command failed"))
             return response
+
+    def ping(self) -> None:
+        self._request("ping")
 
     def transact(self, frame: bytes) -> bytes:
         response = self._request("transact", frame_hex=frame.hex())
