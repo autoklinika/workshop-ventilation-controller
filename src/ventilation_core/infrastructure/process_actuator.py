@@ -28,11 +28,16 @@ class ProcessIsolatedActuator:
         self._command_queue: Any = None
         self._response_queue: Any = None
         self._ready = False
+        self._last_error: str | None = None
         self._start_worker()
 
     @property
     def ready(self) -> bool:
         return self._ready and self._process is not None and self._process.is_alive()
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
 
     def _start_worker(self) -> None:
         self._command_queue = self._context.Queue()
@@ -52,7 +57,8 @@ class ProcessIsolatedActuator:
         if response.get("request_id") != "__startup__" or not response.get("ok"):
             self._terminate_worker()
             raise HardwareWorkerError(response.get("error", "Hardware worker failed to start"))
-        self._ready = True
+        self._ready = bool(response.get("hardware_ready"))
+        self._last_error = response.get("error")
 
     def _terminate_worker(self) -> None:
         process = self._process
@@ -62,14 +68,22 @@ class ProcessIsolatedActuator:
             process.join(timeout=1.0)
         self._process = None
 
-    def _ensure_worker(self) -> None:
+    def _ensure_worker(self) -> bool:
         if self._process is None or not self._process.is_alive():
             self._ready = False
             self._start_worker()
+            return True
+        return False
 
     def _request(self, command: str, **payload: Any) -> None:
         with self._lock:
-            self._ensure_worker()
+            worker_restarted = self._ensure_worker()
+            if worker_restarted and command not in ("recover", "shutdown"):
+                self._ready = False
+                self._last_error = (
+                    "Hardware worker restarted; safe recovery is required before commands"
+                )
+                raise HardwareWorkerError(self._last_error)
             request_id = uuid.uuid4().hex
             self._command_queue.put(
                 {"request_id": request_id, "command": command, **payload}
@@ -77,15 +91,19 @@ class ProcessIsolatedActuator:
             try:
                 response = self._response_queue.get(timeout=self._timeout)
             except queue.Empty as exc:
+                self._last_error = f"Hardware command timed out: {command}"
                 self._terminate_worker()
-                raise HardwareWorkerError(
-                    f"Hardware command timed out: {command}"
-                ) from exc
+                raise HardwareWorkerError(self._last_error) from exc
             if response.get("request_id") != request_id:
+                self._last_error = "Hardware response correlation failed"
                 self._terminate_worker()
-                raise HardwareWorkerError("Hardware response correlation failed")
+                raise HardwareWorkerError(self._last_error)
             if not response.get("ok"):
-                raise HardwareWorkerError(response.get("error", "Hardware command failed"))
+                self._ready = False
+                self._last_error = response.get("error", "Hardware command failed")
+                raise HardwareWorkerError(self._last_error)
+            self._ready = True
+            self._last_error = None
 
     def apply(self, setpoints: FanSetpoints) -> None:
         self._request(
@@ -98,7 +116,10 @@ class ProcessIsolatedActuator:
         self._request("stop")
 
     def health_check(self) -> None:
-        self._request("ping")
+        self._request("health")
+
+    def recover(self) -> None:
+        self._request("recover")
 
     def close(self) -> None:
         with self._lock:

@@ -23,8 +23,19 @@ def hardware_worker_main(
     actuator: DFR0971Actuator | None = None
     try:
         actuator = DFR0971Actuator(bus=bus, address=address)
-        actuator.start()
-        response_queue.put({"request_id": "__startup__", "ok": True})
+        startup_error: str | None = None
+        try:
+            actuator.start()
+        except Exception as exc:
+            startup_error = str(exc)
+        response_queue.put(
+            {
+                "request_id": "__startup__",
+                "ok": True,
+                "hardware_ready": actuator.ready,
+                "error": startup_error,
+            }
+        )
 
         while True:
             request = command_queue.get()
@@ -42,7 +53,11 @@ def hardware_worker_main(
                 elif command == "stop":
                     actuator.stop_all()
                     _reply(response_queue, request_id, ok=True)
-                elif command == "ping":
+                elif command == "health":
+                    actuator.health_check()
+                    _reply(response_queue, request_id, ok=True)
+                elif command == "recover":
+                    actuator.recover()
                     _reply(response_queue, request_id, ok=True)
                 elif command == "shutdown":
                     actuator.stop_all()

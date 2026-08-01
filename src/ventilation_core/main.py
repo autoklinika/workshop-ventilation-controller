@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--maximum-voltage", type=float, default=10.0)
     parser.add_argument("--command-timeout", type=float, default=3.0)
     parser.add_argument("--health-interval", type=float, default=1.0)
+    parser.add_argument("--hardware-failure-threshold", type=int, default=3)
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -41,6 +42,7 @@ async def run_core(args: argparse.Namespace) -> None:
             minimum_running_voltage=args.minimum_running_voltage,
             maximum_voltage=args.maximum_voltage,
         ),
+        hardware_failure_threshold=args.hardware_failure_threshold,
     )
     server = CoreServer(
         service=service,
