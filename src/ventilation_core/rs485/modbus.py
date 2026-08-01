@@ -66,11 +66,14 @@ def validate_crc(frame: bytes) -> None:
         )
 
 
-def build_read_holding_registers_request(
+def _build_read_registers_request(
+    function: int,
     slave: int,
     address: int,
     count: int,
 ) -> bytes:
+    if function not in {0x03, 0x04}:
+        raise ValueError("read register function must be 0x03 or 0x04")
     slave_id = _validate_u8("slave", slave, minimum=1)
     register_address = _validate_u16("address", address)
     register_count = int(count)
@@ -79,7 +82,7 @@ def build_read_holding_registers_request(
     payload = bytes(
         (
             slave_id,
-            0x03,
+            function,
             (register_address >> 8) & 0xFF,
             register_address & 0xFF,
             (register_count >> 8) & 0xFF,
@@ -89,11 +92,28 @@ def build_read_holding_registers_request(
     return append_crc(payload)
 
 
-def parse_read_holding_registers_response(
+def build_read_holding_registers_request(
+    slave: int,
+    address: int,
+    count: int,
+) -> bytes:
+    return _build_read_registers_request(0x03, slave, address, count)
+
+
+def build_read_input_registers_request(
+    slave: int,
+    address: int,
+    count: int,
+) -> bytes:
+    return _build_read_registers_request(0x04, slave, address, count)
+
+
+def _parse_read_registers_response(
     frame: bytes,
     *,
     expected_slave: int,
     expected_count: int,
+    expected_function: int,
 ) -> list[int]:
     validate_crc(frame)
     if frame[0] != expected_slave:
@@ -101,11 +121,11 @@ def parse_read_holding_registers_response(
             f"Unexpected slave address {frame[0]}, expected {expected_slave}"
         )
     function = frame[1]
-    if function == 0x83:
+    if function == (expected_function | 0x80):
         if len(frame) != 5:
             raise ModbusError("Malformed Modbus exception response")
-        raise ModbusExceptionResponse(frame[0], 0x03, frame[2])
-    if function != 0x03:
+        raise ModbusExceptionResponse(frame[0], expected_function, frame[2])
+    if function != expected_function:
         raise ModbusError(f"Unexpected Modbus function 0x{function:02X}")
     expected_bytes = int(expected_count) * 2
     if frame[2] != expected_bytes:
@@ -119,3 +139,31 @@ def parse_read_holding_registers_response(
         (data[index] << 8) | data[index + 1]
         for index in range(0, len(data), 2)
     ]
+
+
+def parse_read_holding_registers_response(
+    frame: bytes,
+    *,
+    expected_slave: int,
+    expected_count: int,
+) -> list[int]:
+    return _parse_read_registers_response(
+        frame,
+        expected_slave=expected_slave,
+        expected_count=expected_count,
+        expected_function=0x03,
+    )
+
+
+def parse_read_input_registers_response(
+    frame: bytes,
+    *,
+    expected_slave: int,
+    expected_count: int,
+) -> list[int]:
+    return _parse_read_registers_response(
+        frame,
+        expected_slave=expected_slave,
+        expected_count=expected_count,
+        expected_function=0x04,
+    )
