@@ -12,18 +12,26 @@ class SerialPortInfo:
     resolved_path: str
     stable_path: bool
     interface_type: str
+    usable_for_rs485: bool
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
 def _interface_type(path: str, resolved_path: str) -> str:
-    names = (Path(path).name, Path(resolved_path).name)
+    resolved_name = Path(resolved_path).name
+    names = (Path(path).name, resolved_name)
+    if resolved_name == "ttyAMA10":
+        return "debug-uart"
     if any(name.startswith(("ttyAMA", "ttyS", "serial")) for name in names):
         return "onboard-uart"
     if any(name.startswith(("ttyUSB", "ttyACM")) for name in names):
         return "usb-serial"
     return "serial"
+
+
+def _usable_for_rs485(interface_type: str) -> bool:
+    return interface_type != "debug-uart"
 
 
 def _path_priority(path: str) -> int:
@@ -48,6 +56,8 @@ def discover_serial_ports(candidates: Iterable[str] | None = None) -> list[Seria
     Multiple aliases that resolve to the same character device are deduplicated.
     A stable by-id/by-path name is preferred for USB interfaces, while serial0/
     serial1 aliases are preferred over raw ttyAMA/ttyS names for onboard UARTs.
+    Raspberry Pi 5 ttyAMA10 is reported as a debug UART and explicitly marked as
+    unsuitable for the DFR0845 RS-485 interface.
     """
 
     if candidates is None:
@@ -71,11 +81,13 @@ def discover_serial_ports(candidates: Iterable[str] | None = None) -> list[Seria
 
         path_text = str(path)
         stable = path_text.startswith(("/dev/serial/by-id/", "/dev/serial/by-path/"))
+        interface_type = _interface_type(path_text, resolved)
         info = SerialPortInfo(
             path=path_text,
             resolved_path=resolved,
             stable_path=stable,
-            interface_type=_interface_type(path_text, resolved),
+            interface_type=interface_type,
+            usable_for_rs485=_usable_for_rs485(interface_type),
         )
         current = by_resolved_path.get(resolved)
         if current is None or _path_priority(info.path) < _path_priority(current.path):
