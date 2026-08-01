@@ -44,6 +44,8 @@ class SerialTransportError(ModbusError):
 
 
 def _read_exact(serial_port: SerialLike, size: int) -> bytes:
+    if size <= 0:
+        raise ValueError("RS-485 read size must be positive")
     data = bytearray()
     while len(data) < size:
         chunk = serial_port.read(size - len(data))
@@ -71,7 +73,7 @@ def read_modbus_rtu_frame(serial_port: SerialLike) -> bytes:
 
 
 class PySerialModbusTransport:
-    """Owns one serial port and performs synchronous Modbus RTU transactions."""
+    """Owns one serial port and performs Modbus or controlled raw test I/O."""
 
     def __init__(
         self,
@@ -104,15 +106,25 @@ class PySerialModbusTransport:
                 f"Cannot open RS-485 port {settings.port}: {exc}"
             ) from exc
 
-    def transact(self, request: bytes) -> bytes:
-        self._serial.reset_input_buffer()
+    def write_raw(self, payload: bytes) -> int:
+        if not payload:
+            raise ValueError("RS-485 raw payload cannot be empty")
         self._serial.reset_output_buffer()
-        written = self._serial.write(request)
-        if written != len(request):
+        written = self._serial.write(payload)
+        if written != len(payload):
             raise SerialTransportError(
-                f"Short RS-485 write: {written} of {len(request)} bytes"
+                f"Short RS-485 write: {written} of {len(payload)} bytes"
             )
         self._serial.flush()
+        return written
+
+    def read_exact(self, size: int) -> bytes:
+        self._serial.reset_input_buffer()
+        return _read_exact(self._serial, size)
+
+    def transact(self, request: bytes) -> bytes:
+        self._serial.reset_input_buffer()
+        self.write_raw(request)
         return read_modbus_rtu_frame(self._serial)
 
     def close(self) -> None:
