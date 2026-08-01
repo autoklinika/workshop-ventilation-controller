@@ -5,6 +5,7 @@ from pathlib import Path
 from ventilation_core.rs485.ports import (
     _interface_type,
     _path_priority,
+    _usable_for_rs485,
     discover_serial_ports,
 )
 
@@ -33,6 +34,15 @@ class RS485PortDiscoveryTest(unittest.TestCase):
             _interface_type("/dev/ttyAMA2", "/dev/ttyAMA2"),
             "onboard-uart",
         )
+
+    def test_pi5_debug_uart_is_not_usable_for_rs485(self) -> None:
+        interface_type = _interface_type("/dev/serial0", "/dev/ttyAMA10")
+        self.assertEqual(interface_type, "debug-uart")
+        self.assertFalse(_usable_for_rs485(interface_type))
+
+    def test_regular_uart_is_usable_for_rs485(self) -> None:
+        self.assertTrue(_usable_for_rs485("onboard-uart"))
+        self.assertTrue(_usable_for_rs485("usb-serial"))
 
     def test_usb_serial_is_classified(self) -> None:
         self.assertEqual(
