@@ -16,7 +16,7 @@ Gałąź: `agent/cm5-hardware-bringup-stage1`
 - adres I²C `0x58`,
 - zasilanie modułu DAC z 3,3 V,
 - pomiar wyjść multimetrem,
-- wentylatory całkowicie odłączone podczas walidacji.
+- wentylatory całkowicie odłączone podczas walidacji samego DAC.
 
 ## Walidacja komunikacji
 
@@ -85,6 +85,19 @@ Potwierdzone zachowanie:
 
 Wniosek: pełny zanik zasilania przywraca DFR0971 do bezpiecznego stanu 0 V. Zachowanie po miękkim restarcie i po pełnym zaniku zasilania jest różne i musi być uwzględnione przez `ventilation-core`.
 
+## Pierwsze uruchomienie wentylatora EC
+
+Po zakończeniu walidacji samego DAC do kanału 0 podłączono jeden wentylator EC przez wejście sterujące 0–10 V. Drugi kanał DAC oraz sygnał Tacho pozostały niewykorzystane.
+
+Potwierdzono:
+
+- wentylator poprawnie zareagował na napięcie sterujące z DFR0971,
+- tor `CM5 → I²C → DFR0971 → 0–10 V → wentylator EC` działa na rzeczywistym obciążeniu,
+- wspólna masa sterowania i sygnał 0–10 V zostały podłączone poprawnie,
+- nie stwierdzono problemu z podstawową kompatybilnością elektryczną wejścia sterującego wentylatora i wyjścia DFR0971.
+
+Jest to pierwszy pozytywny test wykonawczy systemu. Dokładne napięcie startu, minimalne napięcie podtrzymania oraz charakterystyka napięcie–prędkość nie zostały jeszcze wyznaczone.
+
 ## Wnioski
 
 - oba kanały DAC generują poprawne napięcia w całym badanym zakresie 0–10 V,
@@ -95,22 +108,26 @@ Wniosek: pełny zanik zasilania przywraca DFR0971 do bezpiecznego stanu 0 V. Zac
 - miękki restart systemu nie powoduje automatycznego przejścia wyjść do 0 V,
 - pełny zanik zasilania powoduje start obu kanałów od 0 V,
 - `ventilation-core` musi jawnie przejąć kontrolę nad DAC po starcie i ustawić stan zgodny z polityką bezpieczeństwa,
-- funkcji `store` nie należy używać do bieżącego sterowania wentylatorami.
+- funkcji `store` nie należy używać do bieżącego sterowania wentylatorami,
+- pierwszy wentylator EC został skutecznie uruchomiony z CM5 przez DFR0971.
 
 ## Ograniczenia obecnej walidacji
 
 Walidacja nie obejmuje jeszcze:
 
 - zachowania przy awaryjnym przerwaniu procesu bez restartu systemu,
-- pracy z obciążeniem wejść 0–10 V wentylatorów,
-- minimalnego napięcia startu wentylatorów,
-- charakterystyki napięcie–prędkość,
+- dokładnego minimalnego napięcia startu wentylatora,
+- minimalnego napięcia podtrzymania obrotów,
+- pełnej charakterystyki napięcie–prędkość,
+- testu drugiego wentylatora,
+- sygnału Tacho,
 - sprzętowego mechanizmu wymuszenia bezpiecznego stanu.
 
 ## Następny etap
 
-1. podłączyć jeden wentylator EC do kanału 0 przy wyłączonym zasilaniu,
-2. rozpocząć od potwierdzonego stanu 0 V,
-3. ustalać minimalne napięcie startu małymi krokami,
-4. zanotować zachowanie przy 0 V, napięciu startu, 5 V i 10 V,
-5. nie podłączać jeszcze drugiego wentylatora ani sygnału Tacho.
+1. wyznaczyć minimalne napięcie startu pierwszego wentylatora małymi krokami,
+2. wyznaczyć minimalne napięcie podtrzymania po wcześniejszym rozpędzeniu,
+3. sprawdzić zachowanie przy 0 V, 2 V, 5 V, 8 V i 10 V,
+4. zanotować obserwowaną zmianę prędkości i hałasu,
+5. po zakończeniu testu zawsze sprowadzić oba kanały do 0 V,
+6. nie podłączać jeszcze drugiego wentylatora ani sygnału Tacho.
