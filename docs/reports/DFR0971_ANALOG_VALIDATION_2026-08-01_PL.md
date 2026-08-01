@@ -49,21 +49,40 @@ Pełna sekwencja 0 V, 2 V, 5 V, 8 V i 10 V została wykonana pozytywnie. W każd
 | 8 V | 8 V | 0 V | PASS |
 | 10 V | 10 V | 0 V | PASS |
 
+## Test miękkiego restartu CM5
+
+Przed restartem ustawiono:
+
+- `VOUT0 = 5 V`,
+- `VOUT1 = 0 V`.
+
+Następnie wykonano `sudo reboot` bez odłączania zasilania CM5 IO Board i modułu DAC.
+
+Potwierdzone zachowanie:
+
+- podczas całego restartu `VOUT0` pozostawało na 5 V,
+- podczas całego restartu `VOUT1` pozostawało na 0 V,
+- po ponownym uruchomieniu systemu, przed uruchomieniem skryptu sterującego, wyjścia nadal miały 5 V i 0 V,
+- po uruchomieniu polecenia `zero` oba kanały poprawnie przeszły do 0 V.
+
+Wniosek: miękki restart CM5 nie resetuje DFR0971, ponieważ moduł DAC pozostaje zasilany. Ostatnie napięcia wyjściowe są utrzymywane do chwili otrzymania kolejnej komendy I²C albo do zaniku zasilania modułu.
+
 ## Wnioski
 
 - oba kanały DAC generują poprawne napięcia w całym badanym zakresie 0–10 V,
 - kanały są sterowane niezależnie,
 - polecenie `zero` poprawnie sprowadza oba wyjścia do 0 V,
 - sterownik Python i narzędzie CLI poprawnie komunikują się z rzeczywistym modułem,
-- część analogowa DFR0971 jest gotowa do dalszych testów integracyjnych.
+- część analogowa DFR0971 jest gotowa do dalszych testów integracyjnych,
+- miękki restart systemu nie powoduje automatycznego przejścia wyjść do 0 V,
+- `ventilation-core` musi jawnie przejąć kontrolę nad DAC po starcie i ustawić stan zgodny z polityką bezpieczeństwa.
 
 ## Ograniczenia obecnej walidacji
 
 Walidacja nie obejmuje jeszcze:
 
-- zachowania wyjść podczas restartu CM5,
-- zachowania po odłączeniu i ponownym podaniu zasilania,
-- zachowania przy przerwaniu procesu sterującego,
+- zachowania po pełnym odłączeniu i ponownym podaniu zasilania,
+- zachowania przy awaryjnym przerwaniu procesu bez miękkiego restartu,
 - pracy z obciążeniem wejść 0–10 V wentylatorów,
 - minimalnego napięcia startu wentylatorów,
 - charakterystyki napięcie–prędkość,
@@ -72,7 +91,7 @@ Walidacja nie obejmuje jeszcze:
 ## Następny etap
 
 1. ustawić kontrolowane napięcie testowe bez użycia funkcji `store`,
-2. sprawdzić stan obu wyjść podczas restartu systemu,
-3. sprawdzić stan wyjść po pełnym odłączeniu i ponownym podaniu zasilania,
-4. ustalić wymagania bezpiecznego startu `ventilation-core`,
+2. wykonać pełne odłączenie zasilania CM5 IO Board i DFR0971,
+3. ponownie podać zasilanie i zmierzyć wyjścia przed uruchomieniem jakiegokolwiek skryptu,
+4. ustalić docelową politykę startu `ventilation-core`,
 5. dopiero potem podłączyć jeden wentylator EC i rozpocząć charakterystykę 0–10 V.
