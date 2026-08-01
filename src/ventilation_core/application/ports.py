@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from ventilation_core.domain.models import FanSetpoints
+
+
+class VentilationActuator(Protocol):
+    @property
+    def ready(self) -> bool: ...
+
+    def apply(self, setpoints: FanSetpoints) -> None: ...
+
+    def stop_all(self) -> None: ...
+
+    def health_check(self) -> None: ...
+
+    def close(self) -> None: ...
