@@ -99,8 +99,8 @@ def _check_ports(args: argparse.Namespace) -> dict[str, Any]:
                 _settings(args, port),
                 timeout_seconds=max(3.0, args.timeout + 1.0),
             )
-            master.ping()
             masters.append(master)
+            master.ping()
         return {
             "ok": True,
             "ports": [{"port": master.port, "ready": master.ready} for master in masters],
