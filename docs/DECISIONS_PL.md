@@ -167,3 +167,13 @@ Brak brokera, utrata sieci lub błąd publikacji nie może zatrzymywać `ventila
 ## D-042 — MQTT jako adapter za abstrakcją
 
 Implementacja MQTT znajduje się za portem integracyjnym, np. `IEventPublisher` lub `ITelemetryPublisher`. Domena nie zależy od konkretnej biblioteki MQTT ani brokera, a przy wyłączonym MQTT używana jest implementacja neutralna.
+
+## D-043 — Rozdzielenie kanałów komunikacyjnych węzłów
+
+RS-485 Modbus RTU stanowi jedyny kanał produkcyjny pomiędzy CM5 a węzłami SEN55 + KAmod. Prywatne Wi-Fi CM5 jest niezależnym kanałem serwisowym przeznaczonym wyłącznie do OTA, provisioningu, heartbeatów, diagnostyki, pobierania logów, odczytu wersji firmware i kontrolowanego restartu węzła.
+
+Wi-Fi nie może przenosić zastępczych pomiarów do logiki sterowania ani udostępniać bezpośredniego sterowania wentylacją. Utrata jednego kanału nie może blokować działania drugiego.
+
+CM5 wykonuje diagnostykę krzyżową obu kanałów. Brak Modbus przy działającym heartbeacie Wi-Fi wskazuje przede wszystkim na problem magistrali RS-485, przewodu, terminacji lub interfejsu master. Działający Modbus przy braku Wi-Fi oznacza wyłącznie utratę funkcji serwisowych. Brak obu kanałów wskazuje na możliwą utratę zasilania, awarię węzła albo całkowitą utratę łączności.
+
+Szczegóły definiuje dokument `DUAL_CHANNEL_NODE_COMMUNICATION_PL.md`.
