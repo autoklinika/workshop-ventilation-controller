@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from ventilation_core.rs485.modbus import (
@@ -98,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--settle",
         type=float,
         default=0.05,
-        help="seconds between arming the receiver and starting transmission",
+        help="seconds after clearing the receiver before transmission",
     )
 
     holding = subparsers.add_parser(
@@ -159,17 +158,17 @@ def _one_way_loopback(
     payload: bytes,
     *,
     settle_seconds: float,
-    result_timeout: float,
 ) -> bytes:
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        pending_read = executor.submit(receiver.read_exact, len(payload))
+    # Clear the receiver synchronously before transmission. Bytes then accumulate
+    # in the UART kernel buffer until the read command consumes them. This avoids
+    # the old race where a delayed read command could clear already received data.
+    receiver.clear_input()
+    if settle_seconds:
         time.sleep(settle_seconds)
-        written = sender.write_raw(payload)
-        if written != len(payload):
-            raise RuntimeError(
-                f"Loopback sender wrote {written} of {len(payload)} bytes"
-            )
-        return pending_read.result(timeout=result_timeout)
+    written = sender.write_raw(payload)
+    if written != len(payload):
+        raise RuntimeError(f"Loopback sender wrote {written} of {len(payload)} bytes")
+    return receiver.read_exact(len(payload), clear_buffer=False)
 
 
 def _loopback(args: argparse.Namespace) -> dict[str, Any]:
@@ -190,13 +189,15 @@ def _loopback(args: argparse.Namespace) -> dict[str, Any]:
         master_b = ProcessRS485Master(
             _settings(args, args.port_b), timeout_seconds=worker_timeout
         )
-        received_b = _one_way_loopback(
-            master_a,
-            master_b,
-            payload,
-            settle_seconds=args.settle,
-            result_timeout=worker_timeout + 1.0,
-        )
+        try:
+            received_b = _one_way_loopback(
+                master_a,
+                master_b,
+                payload,
+                settle_seconds=args.settle,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"RS-485 loopback A->B failed: {exc}") from exc
         if received_b != payload:
             raise RuntimeError(
                 "RS-485 loopback A->B mismatch: "
@@ -204,13 +205,15 @@ def _loopback(args: argparse.Namespace) -> dict[str, Any]:
             )
 
         time.sleep(max(args.settle, 0.05))
-        received_a = _one_way_loopback(
-            master_b,
-            master_a,
-            payload,
-            settle_seconds=args.settle,
-            result_timeout=worker_timeout + 1.0,
-        )
+        try:
+            received_a = _one_way_loopback(
+                master_b,
+                master_a,
+                payload,
+                settle_seconds=args.settle,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"RS-485 loopback B->A failed: {exc}") from exc
         if received_a != payload:
             raise RuntimeError(
                 "RS-485 loopback B->A mismatch: "
