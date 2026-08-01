@@ -67,6 +67,24 @@ Potwierdzone zachowanie:
 
 Wniosek: miękki restart CM5 nie resetuje DFR0971, ponieważ moduł DAC pozostaje zasilany. Ostatnie napięcia wyjściowe są utrzymywane do chwili otrzymania kolejnej komendy I²C albo do zaniku zasilania modułu.
 
+## Test pełnego zaniku zasilania
+
+Przed odłączeniem zasilania ustawiono:
+
+- `VOUT0 = 5 V`,
+- `VOUT1 = 0 V`.
+
+Następnie całkowicie odłączono zasilanie CM5 IO Board i DFR0971, odczekano około 10 sekund i ponownie podano zasilanie.
+
+Potwierdzone zachowanie:
+
+- po zaniku zasilania napięcia wyjściowe spadły do 0 V,
+- po ponownym podaniu zasilania DFR0971 uruchomił oba kanały w stanie 0 V,
+- oba kanały utrzymywały 0 V bez uruchamiania jakiegokolwiek skryptu,
+- poprzednia wartość 5 V nie została przywrócona, ponieważ podczas testów nie używano funkcji nieulotnego zapisu `store`.
+
+Wniosek: pełny zanik zasilania przywraca DFR0971 do bezpiecznego stanu 0 V. Zachowanie po miękkim restarcie i po pełnym zaniku zasilania jest różne i musi być uwzględnione przez `ventilation-core`.
+
 ## Wnioski
 
 - oba kanały DAC generują poprawne napięcia w całym badanym zakresie 0–10 V,
@@ -75,14 +93,15 @@ Wniosek: miękki restart CM5 nie resetuje DFR0971, ponieważ moduł DAC pozostaj
 - sterownik Python i narzędzie CLI poprawnie komunikują się z rzeczywistym modułem,
 - część analogowa DFR0971 jest gotowa do dalszych testów integracyjnych,
 - miękki restart systemu nie powoduje automatycznego przejścia wyjść do 0 V,
-- `ventilation-core` musi jawnie przejąć kontrolę nad DAC po starcie i ustawić stan zgodny z polityką bezpieczeństwa.
+- pełny zanik zasilania powoduje start obu kanałów od 0 V,
+- `ventilation-core` musi jawnie przejąć kontrolę nad DAC po starcie i ustawić stan zgodny z polityką bezpieczeństwa,
+- funkcji `store` nie należy używać do bieżącego sterowania wentylatorami.
 
 ## Ograniczenia obecnej walidacji
 
 Walidacja nie obejmuje jeszcze:
 
-- zachowania po pełnym odłączeniu i ponownym podaniu zasilania,
-- zachowania przy awaryjnym przerwaniu procesu bez miękkiego restartu,
+- zachowania przy awaryjnym przerwaniu procesu bez restartu systemu,
 - pracy z obciążeniem wejść 0–10 V wentylatorów,
 - minimalnego napięcia startu wentylatorów,
 - charakterystyki napięcie–prędkość,
@@ -90,8 +109,8 @@ Walidacja nie obejmuje jeszcze:
 
 ## Następny etap
 
-1. ustawić kontrolowane napięcie testowe bez użycia funkcji `store`,
-2. wykonać pełne odłączenie zasilania CM5 IO Board i DFR0971,
-3. ponownie podać zasilanie i zmierzyć wyjścia przed uruchomieniem jakiegokolwiek skryptu,
-4. ustalić docelową politykę startu `ventilation-core`,
-5. dopiero potem podłączyć jeden wentylator EC i rozpocząć charakterystykę 0–10 V.
+1. podłączyć jeden wentylator EC do kanału 0 przy wyłączonym zasilaniu,
+2. rozpocząć od potwierdzonego stanu 0 V,
+3. ustalać minimalne napięcie startu małymi krokami,
+4. zanotować zachowanie przy 0 V, napięciu startu, 5 V i 10 V,
+5. nie podłączać jeszcze drugiego wentylatora ani sygnału Tacho.
