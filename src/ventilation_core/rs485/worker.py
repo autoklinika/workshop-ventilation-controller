@@ -44,6 +44,9 @@ def rs485_worker_main(
                             "frame_hex": response.hex(),
                         }
                     )
+                elif command == "raw_clear_input":
+                    transport.clear_input()
+                    response_queue.put({"request_id": request_id, "ok": True})
                 elif command == "raw_write":
                     written = transport.write_raw(bytes.fromhex(request["frame_hex"]))
                     response_queue.put(
@@ -54,7 +57,10 @@ def rs485_worker_main(
                         }
                     )
                 elif command == "raw_read":
-                    response = transport.read_exact(int(request["size"]))
+                    response = transport.read_exact(
+                        int(request["size"]),
+                        clear_buffer=bool(request.get("clear_buffer", True)),
+                    )
                     response_queue.put(
                         {
                             "request_id": request_id,
@@ -158,12 +164,19 @@ class ProcessRS485Master:
     def ping(self) -> None:
         self._request("ping")
 
+    def clear_input(self) -> None:
+        self._request("raw_clear_input")
+
     def write_raw(self, frame: bytes) -> int:
         response = self._request("raw_write", frame_hex=frame.hex())
         return int(response["written"])
 
-    def read_exact(self, size: int) -> bytes:
-        response = self._request("raw_read", size=int(size))
+    def read_exact(self, size: int, *, clear_buffer: bool = True) -> bytes:
+        response = self._request(
+            "raw_read",
+            size=int(size),
+            clear_buffer=bool(clear_buffer),
+        )
         return bytes.fromhex(response["frame_hex"])
 
     def transact(self, frame: bytes) -> bytes:
