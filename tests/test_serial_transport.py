@@ -13,12 +13,14 @@ class FakeSerial:
         self.response = bytearray(response)
         self.written = bytearray()
         self.closed = False
+        self.input_resets = 0
+        self.output_resets = 0
 
     def reset_input_buffer(self) -> None:
-        pass
+        self.input_resets += 1
 
     def reset_output_buffer(self) -> None:
-        pass
+        self.output_resets += 1
 
     def write(self, data: bytes) -> int:
         self.written.extend(data)
@@ -54,3 +56,23 @@ class SerialTransportTest(unittest.TestCase):
         )
         with self.assertRaises(SerialTransportError):
             transport.transact(b"1234")
+
+    def test_raw_write_and_exact_read(self) -> None:
+        payload = bytes.fromhex("57 56 43 32 2D 52 53 34 38 35")
+        serial = FakeSerial(payload)
+        transport = PySerialModbusTransport(
+            SerialSettings("/dev/fake"), serial_instance=serial
+        )
+
+        self.assertEqual(transport.write_raw(payload), len(payload))
+        self.assertEqual(transport.read_exact(len(payload)), payload)
+        self.assertEqual(bytes(serial.written), payload)
+        self.assertEqual(serial.output_resets, 1)
+        self.assertEqual(serial.input_resets, 1)
+
+    def test_raw_empty_payload_is_rejected(self) -> None:
+        transport = PySerialModbusTransport(
+            SerialSettings("/dev/fake"), serial_instance=FakeSerial(b"")
+        )
+        with self.assertRaisesRegex(ValueError, "cannot be empty"):
+            transport.write_raw(b"")
