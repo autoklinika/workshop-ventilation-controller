@@ -57,17 +57,31 @@ class SerialTransportTest(unittest.TestCase):
         with self.assertRaises(SerialTransportError):
             transport.transact(b"1234")
 
-    def test_raw_write_and_exact_read(self) -> None:
+    def test_raw_write_and_synchronized_exact_read(self) -> None:
         payload = bytes.fromhex("57 56 43 32 2D 52 53 34 38 35")
         serial = FakeSerial(payload)
         transport = PySerialModbusTransport(
             SerialSettings("/dev/fake"), serial_instance=serial
         )
 
+        transport.clear_input()
         self.assertEqual(transport.write_raw(payload), len(payload))
-        self.assertEqual(transport.read_exact(len(payload)), payload)
+        self.assertEqual(
+            transport.read_exact(len(payload), clear_buffer=False),
+            payload,
+        )
         self.assertEqual(bytes(serial.written), payload)
         self.assertEqual(serial.output_resets, 1)
+        self.assertEqual(serial.input_resets, 1)
+
+    def test_raw_read_clears_input_by_default(self) -> None:
+        payload = b"abcd"
+        serial = FakeSerial(payload)
+        transport = PySerialModbusTransport(
+            SerialSettings("/dev/fake"), serial_instance=serial
+        )
+
+        self.assertEqual(transport.read_exact(len(payload)), payload)
         self.assertEqual(serial.input_resets, 1)
 
     def test_raw_empty_payload_is_rejected(self) -> None:
