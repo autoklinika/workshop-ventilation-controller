@@ -21,7 +21,7 @@ git pull --ff-only origin agent/dac-alarm-supervision-stage1-5
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-Oczekiwany wynik: `Ran 17 tests`, `OK`.
+Oczekiwany wynik: `Ran 18 tests`, `OK`.
 
 ## Test B — start nowej wersji przy podłączonym DAC
 
