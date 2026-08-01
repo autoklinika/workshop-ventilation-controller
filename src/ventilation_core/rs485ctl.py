@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from ventilation_core.rs485.modbus import (
@@ -15,8 +17,31 @@ from ventilation_core.rs485.serial_transport import SerialSettings
 from ventilation_core.rs485.worker import ProcessRS485Master
 
 
+DEFAULT_LOOPBACK_PAYLOAD = bytes.fromhex("57 56 43 32 2D 52 53 34 38 35")
+
+
 def _integer(value: str) -> int:
     return int(value, 0)
+
+
+def _hex_bytes(value: str) -> bytes:
+    cleaned = "".join(character for character in value if character not in " :-_")
+    if not cleaned or len(cleaned) % 2:
+        raise argparse.ArgumentTypeError(
+            "payload must contain a non-empty, even number of hexadecimal digits"
+        )
+    try:
+        return bytes.fromhex(cleaned)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("payload contains non-hexadecimal data") from exc
+
+
+def _add_line_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--baudrate", type=int, default=9600)
+    parser.add_argument("--parity", choices=("N", "E", "O"), default="N")
+    parser.add_argument("--stopbits", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--bytesize", type=int, choices=(7, 8), default=8)
+    parser.add_argument("--timeout", type=float, default=0.5)
 
 
 def _add_serial_arguments(
@@ -33,11 +58,7 @@ def _add_serial_arguments(
         )
     else:
         parser.add_argument("--port", required=True)
-    parser.add_argument("--baudrate", type=int, default=9600)
-    parser.add_argument("--parity", choices=("N", "E", "O"), default="N")
-    parser.add_argument("--stopbits", type=int, choices=(1, 2), default=1)
-    parser.add_argument("--bytesize", type=int, choices=(7, 8), default=8)
-    parser.add_argument("--timeout", type=float, default=0.5)
+    _add_line_arguments(parser)
 
 
 def _add_read_arguments(parser: argparse.ArgumentParser) -> None:
@@ -59,6 +80,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="open one or more UARTs in separate workers without transmitting data",
     )
     _add_serial_arguments(check_ports, multiple_ports=True)
+
+    loopback = subparsers.add_parser(
+        "loopback",
+        help="send a fixed pattern between two RS-485 adapters in both directions",
+    )
+    loopback.add_argument("--port-a", required=True)
+    loopback.add_argument("--port-b", required=True)
+    _add_line_arguments(loopback)
+    loopback.add_argument(
+        "--payload",
+        type=_hex_bytes,
+        default=DEFAULT_LOOPBACK_PAYLOAD,
+        help="hexadecimal test payload; default is ASCII WVC2-RS485",
+    )
+    loopback.add_argument(
+        "--settle",
+        type=float,
+        default=0.05,
+        help="seconds between arming the receiver and starting transmission",
+    )
 
     holding = subparsers.add_parser(
         "read-holding", help="read Modbus holding registers (function 0x03)"
@@ -110,6 +151,91 @@ def _check_ports(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         for master in reversed(masters):
             master.close()
+
+
+def _one_way_loopback(
+    sender: ProcessRS485Master,
+    receiver: ProcessRS485Master,
+    payload: bytes,
+    *,
+    settle_seconds: float,
+    result_timeout: float,
+) -> bytes:
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending_read = executor.submit(receiver.read_exact, len(payload))
+        time.sleep(settle_seconds)
+        written = sender.write_raw(payload)
+        if written != len(payload):
+            raise RuntimeError(
+                f"Loopback sender wrote {written} of {len(payload)} bytes"
+            )
+        return pending_read.result(timeout=result_timeout)
+
+
+def _loopback(args: argparse.Namespace) -> dict[str, Any]:
+    if args.port_a == args.port_b:
+        raise ValueError("Loopback requires two different UART ports")
+    if args.settle < 0:
+        raise ValueError("Loopback settle time cannot be negative")
+    payload = bytes(args.payload)
+    if not payload:
+        raise ValueError("Loopback payload cannot be empty")
+
+    worker_timeout = max(3.0, args.timeout + 1.0)
+    master_a = ProcessRS485Master(
+        _settings(args, args.port_a), timeout_seconds=worker_timeout
+    )
+    master_b: ProcessRS485Master | None = None
+    try:
+        master_b = ProcessRS485Master(
+            _settings(args, args.port_b), timeout_seconds=worker_timeout
+        )
+        received_b = _one_way_loopback(
+            master_a,
+            master_b,
+            payload,
+            settle_seconds=args.settle,
+            result_timeout=worker_timeout + 1.0,
+        )
+        if received_b != payload:
+            raise RuntimeError(
+                "RS-485 loopback A->B mismatch: "
+                f"sent {payload.hex(' ')}, received {received_b.hex(' ')}"
+            )
+
+        time.sleep(max(args.settle, 0.05))
+        received_a = _one_way_loopback(
+            master_b,
+            master_a,
+            payload,
+            settle_seconds=args.settle,
+            result_timeout=worker_timeout + 1.0,
+        )
+        if received_a != payload:
+            raise RuntimeError(
+                "RS-485 loopback B->A mismatch: "
+                f"sent {payload.hex(' ')}, received {received_a.hex(' ')}"
+            )
+
+        return {
+            "ok": True,
+            "ports": {"a": args.port_a, "b": args.port_b},
+            "settings": {
+                "baudrate": args.baudrate,
+                "parity": args.parity,
+                "stopbits": args.stopbits,
+                "bytesize": args.bytesize,
+                "timeout_seconds": args.timeout,
+            },
+            "payload_hex": payload.hex(" "),
+            "a_to_b": {"received_hex": received_b.hex(" "), "matched": True},
+            "b_to_a": {"received_hex": received_a.hex(" "), "matched": True},
+            "transmitted": True,
+        }
+    finally:
+        if master_b is not None:
+            master_b.close()
+        master_a.close()
 
 
 def _read_registers(args: argparse.Namespace) -> dict[str, Any]:
@@ -165,6 +291,8 @@ def main() -> int:
             response = _ports_response()
         elif args.command == "check-ports":
             response = _check_ports(args)
+        elif args.command == "loopback":
+            response = _loopback(args)
         else:
             response = _read_registers(args)
     except Exception as exc:
