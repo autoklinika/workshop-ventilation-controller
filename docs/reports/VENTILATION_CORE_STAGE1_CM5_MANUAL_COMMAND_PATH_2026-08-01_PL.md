@@ -33,9 +33,18 @@ Po komendzie `stop` rdzeń zwrócił:
 - `extract_voltage: 0.0`,
 - `hardware_ready: true`.
 
+## Potwierdzony wynik fizyczny
+
+Użytkownik potwierdził, że:
+
+- wentylator podłączony do `VOUT0` uruchomił się po zadaniu `2,0 V`,
+- wentylator pracował podczas stanu `MANUAL`,
+- wentylator zatrzymał się po komendzie `stop`,
+- kanał `VOUT1` pozostał niewykorzystany i zadany na `0 V`.
+
 ## Wniosek
 
-Potwierdzono poprawne działanie pełnego toru programowego:
+Potwierdzono poprawne działanie pełnego toru programowo-sprzętowego:
 
 ```text
 ventilationctl
@@ -46,8 +55,9 @@ ventilationctl
     → ProcessIsolatedActuator
     → osobny proces sprzętowy
     → DFR0971 / GP8403
+    → wentylator EC 0–10 V
 ```
 
-Stan autorytatywny został poprawnie przełączony z `STOP` do `MANUAL`, a następnie z powrotem do `STOP`. Proces sprzętowy zachował gotowość przez cały test.
+Stan autorytatywny został poprawnie przełączony z `STOP` do `MANUAL`, a następnie z powrotem do `STOP`. Proces sprzętowy zachował gotowość przez cały test, a rzeczywisty wentylator wykonał obie komendy zgodnie ze stanem rdzenia.
 
-Fizyczna reakcja wentylatora na tę konkretną próbę wymaga osobnego potwierdzenia użytkownika; nie należy jej wyprowadzać wyłącznie z odpowiedzi JSON.
+Stage 1 posiada więc pierwszy pozytywnie zwalidowany przypadek wykonawczy przechodzący przez wszystkie warstwy aplikacji.
