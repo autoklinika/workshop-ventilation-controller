@@ -68,14 +68,20 @@ Po ponownym wykryciu DAC system:
 
 Brak odpowiedzi z DAC nie kończy już procesu `ventilation-core`. Proces sprzętowy pozostaje aktywny, a rdzeń startuje w stanie `FAULT` z alarmem `DAC_COMMUNICATION_LOST`. Po podłączeniu urządzenia następuje automatyczna procedura bezpiecznego odzyskania do 0 V / 0 V.
 
+## Restart workera sprzętowego
+
+Restart osobnego procesu sprzętowego nie może pozostać niewidoczny dla warstwy aplikacyjnej. Po wykryciu ponownego uruchomienia workera zwykłe komendy są odrzucane, a rdzeń musi przejść przez bezpieczne odzyskanie. Zapobiega to sytuacji, w której DAC został już wyzerowany przez nowy worker, ale aplikacja nadal raportowałaby wcześniejszy tryb `MANUAL`.
+
 ## Testy automatyczne
 
 Lokalna walidacja implementacji:
 
 ```text
-Ran 17 tests
+Ran 18 tests
 OK
 ```
+
+Dodatkowo wszystkie moduły `src` przechodzą `python3 -m compileall`.
 
 Testy obejmują m.in.:
 
@@ -87,7 +93,8 @@ Testy obejmują m.in.:
 - blokadę nastaw podczas awarii,
 - start bez dostępnego DAC,
 - odzyskanie zawsze do `STOP`,
-- brak automatycznego przywrócenia wcześniejszej nastawy.
+- brak automatycznego przywrócenia wcześniejszej nastawy,
+- odrzucenie zwykłej komendy po restarcie workera do czasu bezpiecznego odzyskania.
 
 ## Świadome ograniczenie fizyczne
 
