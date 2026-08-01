@@ -106,6 +106,9 @@ class PySerialModbusTransport:
                 f"Cannot open RS-485 port {settings.port}: {exc}"
             ) from exc
 
+    def clear_input(self) -> None:
+        self._serial.reset_input_buffer()
+
     def write_raw(self, payload: bytes) -> int:
         if not payload:
             raise ValueError("RS-485 raw payload cannot be empty")
@@ -118,12 +121,13 @@ class PySerialModbusTransport:
         self._serial.flush()
         return written
 
-    def read_exact(self, size: int) -> bytes:
-        self._serial.reset_input_buffer()
+    def read_exact(self, size: int, *, clear_buffer: bool = True) -> bytes:
+        if clear_buffer:
+            self.clear_input()
         return _read_exact(self._serial, size)
 
     def transact(self, request: bytes) -> bytes:
-        self._serial.reset_input_buffer()
+        self.clear_input()
         self.write_raw(request)
         return read_modbus_rtu_frame(self._serial)
 
