@@ -4,16 +4,21 @@ After=local-fs.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
+User=wentylacja
+Group=wentylacja
 SupplementaryGroups=i2c
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=workshop-ventilation
-RuntimeDirectoryMode=0750
-ExecStart=/usr/local/bin/ventilation-core --socket /run/workshop-ventilation/ventilation-core.sock
-Restart=always
-RestartSec=1
-TimeoutStopSec=5
+RuntimeDirectoryMode=0770
+UMask=0007
+ExecStart=/usr/bin/python3 -m ventilation_core.main --socket /run/workshop-ventilation/ventilation-core.sock --log-level INFO
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
 KillSignal=SIGTERM
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
