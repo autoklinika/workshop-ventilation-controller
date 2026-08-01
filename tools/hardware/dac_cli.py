@@ -27,10 +27,7 @@ def parse_i2c_address(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "DFR0971/GP8403 hardware bring-up. "
-            "Keep both fan control inputs disconnected."
-        )
+        description="DFR0971/GP8403 hardware bring-up and controlled EC fan testing."
     )
     parser.add_argument("--bus", type=int, default=1, help="I2C bus number (default: 1)")
     parser.add_argument(
@@ -46,25 +43,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     measure = subparsers.add_parser(
         "measure",
-        help="Set one test voltage, wait for measurement, then return both outputs to 0 V",
+        help="Set one unloaded test voltage, wait for measurement, then return both outputs to 0 V",
     )
     measure.add_argument("--channel", type=int, choices=(0, 1), required=True)
     measure.add_argument("--voltage", type=float, required=True)
     measure.add_argument(
         "--confirm-no-fans",
         action="store_true",
-        help="Required acknowledgement that fan inputs are disconnected",
+        help="Required acknowledgement that both fan control inputs are disconnected",
     )
 
     sequence = subparsers.add_parser(
         "sequence",
-        help="Step through 0, 2, 5, 8 and 10 V, then return both outputs to 0 V",
+        help="Step an unloaded output through 0, 2, 5, 8 and 10 V, then return both outputs to 0 V",
     )
     sequence.add_argument("--channel", type=int, choices=(0, 1), required=True)
     sequence.add_argument(
         "--confirm-no-fans",
         action="store_true",
-        help="Required acknowledgement that fan inputs are disconnected",
+        help="Required acknowledgement that both fan control inputs are disconnected",
+    )
+
+    fan_test = subparsers.add_parser(
+        "fan-test",
+        help="Apply one controlled voltage to a connected EC fan, then return both outputs to 0 V",
+    )
+    fan_test.add_argument("--channel", type=int, choices=(0, 1), required=True)
+    fan_test.add_argument("--voltage", type=float, required=True)
+    fan_test.add_argument(
+        "--confirm-fan-connected",
+        action="store_true",
+        help=(
+            "Required acknowledgement that one EC fan control input is intentionally "
+            "connected to the selected channel and the installation is safe to energize"
+        ),
     )
     return parser
 
@@ -72,8 +84,16 @@ def build_parser() -> argparse.ArgumentParser:
 def require_no_fans_confirmation(args: argparse.Namespace) -> None:
     if not args.confirm_no_fans:
         raise GP8403Error(
-            "Refusing non-zero output. Disconnect both fan control inputs and "
+            "Refusing unloaded non-zero output. Disconnect both fan control inputs and "
             "repeat with --confirm-no-fans."
+        )
+
+
+def require_fan_confirmation(args: argparse.Namespace) -> None:
+    if not args.confirm_fan_connected:
+        raise GP8403Error(
+            "Refusing fan actuation. Confirm that exactly one EC fan control input is "
+            "connected to the selected channel and repeat with --confirm-fan-connected."
         )
 
 
@@ -81,6 +101,13 @@ def wait_for_measurement(channel: int, voltage: float) -> None:
     input(
         f"CH{channel} set to {voltage:.3f} V. Measure VOUT{channel} to GND, "
         "then press Enter..."
+    )
+
+
+def wait_for_fan_observation(channel: int, voltage: float) -> None:
+    input(
+        f"CH{channel} set to {voltage:.3f} V. Observe the EC fan. "
+        "Press Enter to stop and return both outputs to 0 V..."
     )
 
 
@@ -101,6 +128,16 @@ def run_sequence(dac: GP8403, channel: int, values: Iterable[float]) -> None:
         for voltage in values:
             dac.set_voltage(channel, voltage)
             wait_for_measurement(channel, voltage)
+    finally:
+        dac.zero_all()
+
+
+def run_fan_test(dac: GP8403, channel: int, voltage: float) -> None:
+    dac.zero_all()
+    dac.configure_output_range()
+    try:
+        dac.set_voltage(channel, voltage)
+        wait_for_fan_observation(channel, voltage)
     finally:
         dac.zero_all()
 
@@ -130,6 +167,10 @@ def main() -> int:
                 require_no_fans_confirmation(args)
                 run_sequence(dac, args.channel, DEFAULT_SEQUENCE)
                 print("Sequence finished; both outputs returned to 0 V.")
+            elif args.command == "fan-test":
+                require_fan_confirmation(args)
+                run_fan_test(dac, args.channel, args.voltage)
+                print("Fan test finished; both outputs returned to 0 V.")
             else:
                 parser.error(f"Unsupported command: {args.command}")
     except (GP8403Error, ValueError, KeyboardInterrupt) as exc:
