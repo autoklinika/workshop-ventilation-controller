@@ -39,13 +39,13 @@ Dla przewodu widocznego na module:
 |---|---|---|
 | czerwony | `+` | zasilanie VCC |
 | czarny | `-` | masa UART |
-| niebieski | `T` | wyjście TX modułu |
-| zielony | `R` | wejście RX modułu |
+| niebieski | `R` | wejście RX modułu |
+| zielony | `T` | wyjście TX modułu |
 
 Sygnały UART należy skrzyżować funkcjonalnie:
 
-- TX CM5 → `R` DFR0845 — przewód zielony,
-- RX CM5 ← `T` DFR0845 — przewód niebieski.
+- TX CM5 → `R` DFR0845 — przewód niebieski,
+- RX CM5 ← `T` DFR0845 — przewód zielony.
 
 ## DFR0845 nr 1 — UART0
 
@@ -55,8 +55,8 @@ Overlay: `uart0-pi5`
 |---|---|---|---:|
 | `+` | czerwony | 5 V | 2 |
 | `-` | czarny | GND | 6 |
-| `R` | zielony | GPIO14 / TXD0 | 8 |
-| `T` | niebieski | GPIO15 / RXD0 | 10 |
+| `R` | niebieski | GPIO14 / TXD0 | 8 |
+| `T` | zielony | GPIO15 / RXD0 | 10 |
 
 ## DFR0845 nr 2 — UART2
 
@@ -66,8 +66,8 @@ Overlay: `uart2-pi5`
 |---|---|---|---:|
 | `+` | czerwony | 5 V | 4 |
 | `-` | czarny | GND | 14 |
-| `R` | zielony | GPIO4 / TXD2 | 7 |
-| `T` | niebieski | GPIO5 / RXD2 | 29 |
+| `R` | niebieski | GPIO4 / TXD2 | 7 |
+| `T` | zielony | GPIO5 / RXD2 | 29 |
 
 Piny GND można zastąpić innymi pinami masy. Piny 2 i 4 są wspólną szyną 5 V; rozdzielenie ich pomiędzy dwa moduły ułatwia jednoznaczne prowadzenie przewodów.
 
