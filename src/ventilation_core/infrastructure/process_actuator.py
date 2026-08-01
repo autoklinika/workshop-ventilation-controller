@@ -68,14 +68,22 @@ class ProcessIsolatedActuator:
             process.join(timeout=1.0)
         self._process = None
 
-    def _ensure_worker(self) -> None:
+    def _ensure_worker(self) -> bool:
         if self._process is None or not self._process.is_alive():
             self._ready = False
             self._start_worker()
+            return True
+        return False
 
     def _request(self, command: str, **payload: Any) -> None:
         with self._lock:
-            self._ensure_worker()
+            worker_restarted = self._ensure_worker()
+            if worker_restarted and command not in ("recover", "shutdown"):
+                self._ready = False
+                self._last_error = (
+                    "Hardware worker restarted; safe recovery is required before commands"
+                )
+                raise HardwareWorkerError(self._last_error)
             request_id = uuid.uuid4().hex
             self._command_queue.put(
                 {"request_id": request_id, "command": command, **payload}
