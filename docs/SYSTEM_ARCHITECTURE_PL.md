@@ -40,6 +40,13 @@ Strefa 2 — lutowanie
     ├── sterownik COMPIT AERO 4A2
     ├── panel COMPIT NANO COLOR 2
     └── integracja Modbus RTU / C14
+
+Opcjonalna warstwa analityczna
+└── Minisforum
+    ├── Ollama / lokalny model AI
+    ├── raporty i analiza historii
+    ├── wykrywanie anomalii
+    └── rekomendacje bez bezpośredniego sterowania
 ```
 
 ## 3. Platforma centralna
@@ -87,6 +94,10 @@ Sterownikiem głównym jest Raspberry Pi Compute Module 5 Wireless z 4 GB RAM i 
 - Awaria CM5 nie może uniemożliwić ręcznej i fabrycznej pracy rekuperatora.
 - Do integracji z AERO 4A2 preferowany jest udokumentowany Modbus RTU NANO COLOR 2; bezpośrednia analiza C14 pozostaje planem awaryjnym.
 - Wyjścia 0–10 V muszą mieć jawnie określony stan bezpieczny po starcie, restarcie procesu i awarii komunikacji.
+- Lokalna AI jest wyłącznie opcjonalną warstwą analityczną i nie uczestniczy w deterministycznym sterowaniu.
+- Wyłączenie Minisforum, Ollamy, modelu AI lub sieci nie może wpływać na automatykę, alarmy ani podstawową historię systemu.
+- AI nie otrzymuje bezpośredniego dostępu do Modbus, RS-485, DAC ani funkcji kasowania alarmów.
+- Rekomendacje AI nie są stosowane automatycznie; każda przyszła zmiana musi przejść przez warstwę aplikacyjną i walidację `ventilation-core`.
 
 ## 7. Podział odpowiedzialności
 
@@ -108,7 +119,8 @@ Sterownikiem głównym jest Raspberry Pi Compute Module 5 Wireless z 4 GB RAM i 
 - interfejs użytkownika,
 - rejestr zdarzeń,
 - opcjonalna diagnostyka Tacho,
-- zachowanie historii pomiarów i stanu centrali.
+- zachowanie historii pomiarów i stanu centrali,
+- autorytatywny stan systemu i pełna automatyka niezależna od AI.
 
 ### COMPIT AERO 4A2
 
@@ -120,7 +132,29 @@ Sterownikiem głównym jest Raspberry Pi Compute Module 5 Wireless z 4 GB RAM i 
 - alarmy i funkcje serwisowe,
 - realizacja żądań trybu przekazywanych przez NANO COLOR 2.
 
-## 8. Kolejność uruchomienia sprzętu
+### Minisforum / Ollama — komponent opcjonalny
+
+- analiza bieżących i historycznych danych,
+- raporty i odpowiedzi w języku naturalnym,
+- wykrywanie anomalii wymagających kontekstu historycznego,
+- ocena skuteczności wentylacji,
+- proponowanie zmian ustawień bez ich samodzielnego stosowania,
+- praca na ustrukturyzowanym profilu pomieszczeń i instalacji,
+- brak bezpośrednich uprawnień wykonawczych.
+
+Szczegółowe zasady opisuje dokument [Integracja lokalnej AI](AI_INTEGRATION_PL.md).
+
+## 8. Granica bezpieczeństwa warstwy AI
+
+AI komunikuje się z systemem przez kontrolowany `AI Gateway`, MQTT i API przeznaczone do odczytu danych. W pierwszym etapie nie ma żadnego kanału zapisu konfiguracji ani sterowania urządzeniami.
+
+Klasyczne algorytmy na CM5 odpowiadają za progi, histerezy, alarmy, watchdogi i reakcje natychmiastowe. AI może wykrywać wolniejsze trendy, porównywać podobne zdarzenia i zgłaszać diagnostyczne anomalie w czasie zbliżonym do rzeczywistego.
+
+Model językowy nie powinien wykonywać podstawowych obliczeń na surowych próbkach. Statystyki, czas trwania zdarzeń, trendy, korelacje i porównania z bazą odniesienia są obliczane deterministycznie, a AI interpretuje przygotowane wyniki w kontekście profilu instalacji.
+
+Usunięcie całej warstwy AI z systemu nie może wymagać zmian w `ventilation-core` ani powodować utraty podstawowej funkcjonalności wentylacji.
+
+## 9. Kolejność uruchomienia sprzętu i usług
 
 Pierwszy etap laboratoryjny rozpoczyna się od DFR0971, ponieważ uruchomienie i pomiar sterowania 0–10 V ma wyższy priorytet niż integracja czujników i rekuperatora.
 
@@ -129,4 +163,6 @@ Pierwszy etap laboratoryjny rozpoczyna się od DFR0971, ponieważ uruchomienie i
 3. walidacja napięć multimetrem,
 4. test zachowania po restarcie,
 5. uruchomienie jednego, a następnie dwóch wentylatorów,
-6. dopiero później RS-485, węzły SEN55 i Compit.
+6. RS-485, węzły SEN55 i Compit,
+7. stabilny zapis historii i zdarzeń,
+8. dopiero później uruchomienie Ollamy na Minisforum i integracja AI w trybie tylko do odczytu.
