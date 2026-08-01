@@ -113,6 +113,15 @@ Po zadaniu 2 V na kanale 0 i pomiarze multimetrem potwierdzono:
 
 Wynik potwierdza poprawne generowanie pierwszego napięcia niezerowego oraz niezależność kanałów przy tym punkcie testowym.
 
+## Zweryfikowany checkpoint 5 V na kanale 0 — 2026-08-01
+
+Po zadaniu 5 V na kanale 0 i pomiarze multimetrem potwierdzono:
+
+- `VOUT0 = 5 V`,
+- `VOUT1 = 0 V`.
+
+Wynik potwierdza poprawne generowanie napięcia w połowie zakresu 0–10 V oraz dalszą niezależność kanałów.
+
 ## Sekwencja pomiarowa kanału 0
 
 ```bash
@@ -148,7 +157,7 @@ python3 tools/hardware/dac_cli.py measure \
 |---:|---:|---:|---:|---|
 | 0 | 0 V | 0 V | 0 V | PASS |
 | 0 | 2 V | 2 V | 0 V | PASS |
-| 0 | 5 V |  |  |  |
+| 0 | 5 V | 5 V | 0 V | PASS |
 | 0 | 8 V |  |  |  |
 | 0 | 10 V |  |  |  |
 | 1 | 0 V | 0 V | 0 V | PASS |
