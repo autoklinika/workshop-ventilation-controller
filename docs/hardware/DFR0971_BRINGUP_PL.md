@@ -122,6 +122,15 @@ Po zadaniu 5 V na kanale 0 i pomiarze multimetrem potwierdzono:
 
 Wynik potwierdza poprawne generowanie napięcia w połowie zakresu 0–10 V oraz dalszą niezależność kanałów.
 
+## Zweryfikowany checkpoint 8 V na kanale 0 — 2026-08-01
+
+Po zadaniu 8 V na kanale 0 i pomiarze multimetrem potwierdzono:
+
+- `VOUT0 = 8 V`,
+- `VOUT1 = 0 V`.
+
+Wynik potwierdza poprawne generowanie napięcia w górnej części zakresu 0–10 V oraz dalszą niezależność kanałów.
+
 ## Sekwencja pomiarowa kanału 0
 
 ```bash
@@ -158,7 +167,7 @@ python3 tools/hardware/dac_cli.py measure \
 | 0 | 0 V | 0 V | 0 V | PASS |
 | 0 | 2 V | 2 V | 0 V | PASS |
 | 0 | 5 V | 5 V | 0 V | PASS |
-| 0 | 8 V |  |  |  |
+| 0 | 8 V | 8 V | 0 V | PASS |
 | 0 | 10 V |  |  |  |
 | 1 | 0 V | 0 V | 0 V | PASS |
 | 1 | 2 V |  |  |  |
