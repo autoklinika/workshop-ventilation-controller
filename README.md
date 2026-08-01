@@ -25,7 +25,7 @@ Preferowana integracja wykorzystuje oficjalny Modbus RTU panelu NANO COLOR 2. Ra
 
 Sterownikiem centralnym jest Raspberry Pi Compute Module 5 Wireless z 4 GB RAM i 32 GB eMMC, zamontowany na oficjalnej CM5 IO Board. Raspberry Pi OS Lite 64-bit / Debian 13 działa bezpośrednio z eMMC.
 
-Pierwszym uruchamianym peryferium jest DFRobot Gravity DFR0971 — dwukanałowy DAC I²C 0–10 V dla nawiewu i wyciągu. Najpierw zostanie zweryfikowany bez podłączonych wentylatorów, a następnie użyty do uruchomienia elementów wykonawczych strefy 1.
+Pierwszym uruchomionym peryferium jest DFRobot Gravity DFR0971 — dwukanałowy DAC I²C 0–10 V dla nawiewu i wyciągu. Oba kanały zostały zweryfikowane w zakresie 0–10 V, a pierwszy wentylator EC przeszedł pełny test wykonawczy przy 1 V, 2 V, 5 V, 8 V i 10 V.
 
 Węzły pomiarowe wykorzystują SEN55 oraz gotowe moduły KAmod ESP32 POW RS485. Połączenie z centralą będzie realizowane przez Modbus RTU po RS-485.
 
@@ -39,7 +39,9 @@ Techniczne parametry Modbus, DAC, Tacho i RS-485 pozostaną dostępne w oddzieln
 
 ## Architektura oprogramowania
 
-Oprogramowanie będzie rozwijane warstwowo. Logika sterowania działa w niezależnym rdzeniu usługowym, a interfejs webowy, lokalny wyświetlacz, HMI i przyszłe aplikacje są wyłącznie klientami wspólnego API.
+Oprogramowanie jest rozwijane warstwowo. Logika sterowania działa w niezależnym rdzeniu usługowym, a interfejs webowy, lokalny wyświetlacz, HMI i przyszłe aplikacje są wyłącznie klientami wspólnego API.
+
+Pierwsza wersja `ventilation-core` zawiera rozdzielone warstwy domeny, aplikacji, infrastruktury i runtime. Dostęp do I²C został odizolowany w osobnym procesie sprzętowym, nadzorowanym przez proces główny. Dzięki temu przyszłe GUI, Modbus, historia i API nie będą komunikować się bezpośrednio z DAC.
 
 GUI nie komunikuje się bezpośrednio z Modbusem, DAC ani czujnikami. Restart lub aktualizacja interfejsu nie może zatrzymywać automatyki wentylacji.
 
@@ -64,6 +66,7 @@ MQTT jest przewidziany jako opcjonalny kanał telemetrii, zdarzeń i integracji 
 - [Architektura systemu](docs/SYSTEM_ARCHITECTURE_PL.md)
 - [Bazowa platforma sprzętowa CM5](docs/hardware/CM5_HARDWARE_BASELINE_PL.md)
 - [Architektura oprogramowania](docs/SOFTWARE_ARCHITECTURE_PL.md)
+- [Implementacja ventilation-core Stage 1](docs/reports/VENTILATION_CORE_STAGE1_IMPLEMENTATION_PL.md)
 - [Integracja MQTT](docs/MQTT_INTEGRATION_PL.md)
 - [Lista elementów](docs/HARDWARE_COMPONENTS_PL.md)
 - [Moduł czujnika](docs/SENSOR_NODE_PL.md)
@@ -76,4 +79,6 @@ MQTT jest przewidziany jako opcjonalny kanał telemetrii, zdarzeń i integracji 
 
 ## Status
 
-Platforma CM5 została uruchomiona z systemem na eMMC. Rozpoczęty jest etap uruchamiania peryferiów; pierwszym celem jest DFR0971 i bezpieczne sterowanie dwoma kanałami 0–10 V. Pełny `ventilation-core` powstanie po walidacji elektrycznej pierwszego adaptera sprzętowego, ale kod uruchomieniowy od początku będzie rozdzielał sterownik urządzenia od narzędzia testowego.
+Platforma CM5 działa z systemem na eMMC. DFR0971 oraz pierwszy wentylator EC zostały zweryfikowane sprzętowo. Powstała pierwsza warstwowa wersja `ventilation-core`, obejmująca domenowe reguły napięć, warstwę aplikacyjną, produkcyjny adapter GP8403, osobny proces sprzętowy, nadzór procesu, lokalny Unix socket i klienta `ventilationctl`.
+
+Następnym krokiem jest walidacja rdzenia na rzeczywistym CM5, a następnie uruchomienie go jako usługi `systemd`.
