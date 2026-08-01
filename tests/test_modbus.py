@@ -5,8 +5,10 @@ from ventilation_core.rs485.modbus import (
     ModbusExceptionResponse,
     append_crc,
     build_read_holding_registers_request,
+    build_read_input_registers_request,
     crc16_modbus,
     parse_read_holding_registers_response,
+    parse_read_input_registers_response,
 )
 
 
@@ -22,6 +24,12 @@ class ModbusRTUTest(unittest.TestCase):
             "010300100002c5ce",
         )
 
+    def test_build_read_input_request(self) -> None:
+        self.assertEqual(
+            build_read_input_registers_request(1, 0x0010, 2).hex(),
+            "010400100002700e",
+        )
+
     def test_parse_read_holding_response(self) -> None:
         frame = append_crc(bytes.fromhex("01 03 04 00 0A 01 02"))
         self.assertEqual(
@@ -29,6 +37,15 @@ class ModbusRTUTest(unittest.TestCase):
                 frame, expected_slave=1, expected_count=2
             ),
             [10, 258],
+        )
+
+    def test_parse_read_input_response(self) -> None:
+        frame = append_crc(bytes.fromhex("01 04 02 12 34"))
+        self.assertEqual(
+            parse_read_input_registers_response(
+                frame, expected_slave=1, expected_count=1
+            ),
+            [0x1234],
         )
 
     def test_crc_failure(self) -> None:
