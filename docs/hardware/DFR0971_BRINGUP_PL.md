@@ -95,6 +95,15 @@ Po tym poleceniu mierzymy osobno:
 
 Oba wyniki powinny być bliskie 0 V.
 
+## Zweryfikowany checkpoint stanu zerowego — 2026-08-01
+
+Po wykonaniu polecenia `zero` i pomiarze multimetrem potwierdzono:
+
+- `VOUT0 = 0 V`,
+- `VOUT1 = 0 V`.
+
+Oba kanały prawidłowo reagują na komendę ustawienia stanu zerowego. Wynik potwierdza podstawowe działanie części analogowej, ale nie potwierdza jeszcze liniowości ani dokładności dla napięć niezerowych.
+
 ## Sekwencja pomiarowa kanału 0
 
 ```bash
@@ -128,12 +137,12 @@ python3 tools/hardware/dac_cli.py measure \
 
 | Kanał | Zadane napięcie | Zmierzone napięcie | Błąd | Wynik |
 |---:|---:|---:|---:|---|
-| 0 | 0 V |  |  |  |
+| 0 | 0 V | 0 V | 0 V | PASS |
 | 0 | 2 V |  |  |  |
 | 0 | 5 V |  |  |  |
 | 0 | 8 V |  |  |  |
 | 0 | 10 V |  |  |  |
-| 1 | 0 V |  |  |  |
+| 1 | 0 V | 0 V | 0 V | PASS |
 | 1 | 2 V |  |  |  |
 | 1 | 5 V |  |  |  |
 | 1 | 8 V |  |  |  |
