@@ -2,7 +2,12 @@ import argparse
 import unittest
 from unittest.mock import patch
 
-from ventilation_core.rs485ctl import _check_ports, _hex_bytes, _loopback
+from ventilation_core.rs485ctl import (
+    _check_ports,
+    _hex_bytes,
+    _loopback,
+    _one_way_loopback,
+)
 
 
 class FakeMaster:
@@ -14,10 +19,31 @@ class FakeMaster:
         self.closed = False
         self.pinged = False
         self.timeout_seconds = timeout_seconds
+        self.actions = []
+        self.peer = None
+        self.buffer = bytearray()
         self.__class__.instances.append(self)
 
     def ping(self) -> None:
         self.pinged = True
+
+    def clear_input(self) -> None:
+        self.actions.append(("clear_input",))
+        self.buffer.clear()
+
+    def write_raw(self, payload: bytes) -> int:
+        self.actions.append(("write_raw", bytes(payload)))
+        if self.peer is not None:
+            self.peer.buffer.extend(payload)
+        return len(payload)
+
+    def read_exact(self, size: int, *, clear_buffer: bool = True) -> bytes:
+        self.actions.append(("read_exact", size, clear_buffer))
+        if clear_buffer:
+            self.buffer.clear()
+        data = bytes(self.buffer[:size])
+        del self.buffer[:size]
+        return data
 
     def close(self) -> None:
         self.closed = True
@@ -70,6 +96,24 @@ class RS485CtlTest(unittest.TestCase):
     def test_check_ports_rejects_duplicate_uart(self) -> None:
         with self.assertRaisesRegex(ValueError, "only once"):
             _check_ports(self._args(["/dev/ttyAMA0", "/dev/ttyAMA0"]))
+
+    def test_one_way_loopback_clears_before_write_and_reads_without_reset(self) -> None:
+        sender = FakeMaster(type("Settings", (), {"port": "a"})(), 3.0)
+        receiver = FakeMaster(type("Settings", (), {"port": "b"})(), 3.0)
+        sender.peer = receiver
+        payload = b"WVC2-RS485"
+
+        received = _one_way_loopback(
+            sender,
+            receiver,
+            payload,
+            settle_seconds=0.0,
+        )
+
+        self.assertEqual(received, payload)
+        self.assertEqual(receiver.actions[0], ("clear_input",))
+        self.assertEqual(sender.actions[0], ("write_raw", payload))
+        self.assertEqual(receiver.actions[1], ("read_exact", len(payload), False))
 
     def test_loopback_validates_both_directions_and_closes_workers(self) -> None:
         args = self._loopback_args()
