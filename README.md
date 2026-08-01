@@ -21,6 +21,14 @@ Pomieszczenie ma miejscowy odciąg oraz rekuperator Prodmax PRO MINI 300 H/V CLA
 
 Preferowana integracja wykorzystuje oficjalny Modbus RTU panelu NANO COLOR 2. Raspberry Pi odczytuje stan centrali i może żądać czasowego wietrzenia, nie przejmując zabezpieczeń ani wewnętrznej automatyki rekuperatora.
 
+## Platforma sprzętowa
+
+Sterownikiem centralnym jest Raspberry Pi Compute Module 5 Wireless z 4 GB RAM i 32 GB eMMC, zamontowany na oficjalnej CM5 IO Board. Raspberry Pi OS Lite 64-bit / Debian 13 działa bezpośrednio z eMMC.
+
+Pierwszym uruchomionym peryferium jest DFRobot Gravity DFR0971 — dwukanałowy DAC I²C 0–10 V dla nawiewu i wyciągu. Oba kanały zostały zweryfikowane w zakresie 0–10 V, a pierwszy wentylator EC przeszedł pełny test wykonawczy przy 1 V, 2 V, 5 V, 8 V i 10 V.
+
+Węzły pomiarowe wykorzystują SEN55 oraz gotowe moduły KAmod ESP32 POW RS485. Połączenie z centralą będzie realizowane przez Modbus RTU po RS-485.
+
 ## Interfejs użytkownika
 
 Aplikacja ma być pulpitem jakości powietrza warsztatu, a nie technicznym panelem urządzeń.
@@ -31,7 +39,9 @@ Techniczne parametry Modbus, DAC, Tacho i RS-485 pozostaną dostępne w oddzieln
 
 ## Architektura oprogramowania
 
-Oprogramowanie będzie rozwijane warstwowo. Logika sterowania działa w niezależnym rdzeniu usługowym, a interfejs webowy, lokalny wyświetlacz, HMI i przyszłe aplikacje są wyłącznie klientami wspólnego API.
+Oprogramowanie jest rozwijane warstwowo. Logika sterowania działa w niezależnym rdzeniu usługowym, a interfejs webowy, lokalny wyświetlacz, HMI i przyszłe aplikacje są wyłącznie klientami wspólnego API.
+
+Pierwsza wersja `ventilation-core` zawiera rozdzielone warstwy domeny, aplikacji, infrastruktury i runtime. Dostęp do I²C został odizolowany w osobnym procesie sprzętowym, nadzorowanym przez proces główny. Dzięki temu przyszłe GUI, Modbus, historia i API nie będą komunikować się bezpośrednio z DAC.
 
 GUI nie komunikuje się bezpośrednio z Modbusem, DAC ani czujnikami. Restart lub aktualizacja interfejsu nie może zatrzymywać automatyki wentylacji.
 
@@ -39,20 +49,24 @@ MQTT jest przewidziany jako opcjonalny kanał telemetrii, zdarzeń i integracji 
 
 ## Architektura sprzętowa
 
-- Raspberry Pi w rozdzielni DIN,
-- zasilacz 5 V na szynę DIN,
+- Raspberry Pi Compute Module 5 Wireless 4 GB / 32 GB eMMC,
+- oficjalna CM5 IO Board,
+- zasilanie docelowe 5 V na szynę DIN,
 - interfejsy RS-485,
-- 2-kanałowy DAC 0–10 V dla strefy mycia,
+- DFRobot DFR0971 — 2-kanałowy DAC 0–10 V,
 - dwa wentylatory EC 0–10 V,
-- niezależne moduły pomiarowe SEN55 + STM32,
+- niezależne moduły pomiarowe SEN55 + KAmod ESP32 POW RS485,
 - komunikacja RS-485 Modbus RTU,
 - opcjonalny odczyt sygnałów Tacho wentylatorów,
-- integracja rekuperatora Compit bez zastępowania jego fabrycznego sterownika.
+- integracja rekuperatora Compit bez zastępowania jego fabrycznego sterownika,
+- opcjonalny NVMe w przyszłości wyłącznie jako dodatkowy magazyn danych.
 
 ## Dokumentacja
 
 - [Architektura systemu](docs/SYSTEM_ARCHITECTURE_PL.md)
+- [Bazowa platforma sprzętowa CM5](docs/hardware/CM5_HARDWARE_BASELINE_PL.md)
 - [Architektura oprogramowania](docs/SOFTWARE_ARCHITECTURE_PL.md)
+- [Implementacja ventilation-core Stage 1](docs/reports/VENTILATION_CORE_STAGE1_IMPLEMENTATION_PL.md)
 - [Integracja MQTT](docs/MQTT_INTEGRATION_PL.md)
 - [Lista elementów](docs/HARDWARE_COMPONENTS_PL.md)
 - [Moduł czujnika](docs/SENSOR_NODE_PL.md)
@@ -65,4 +79,6 @@ MQTT jest przewidziany jako opcjonalny kanał telemetrii, zdarzeń i integracji 
 
 ## Status
 
-Etap koncepcyjny sprzętu, integracji, interfejsu użytkownika i architektury oprogramowania. Szczegóły algorytmów sterowania zostaną ustalone podczas implementacji i testów w rzeczywistych pomieszczeniach. Integracja AERO 4A2 wymaga jeszcze potwierdzenia wersji firmware panelu, przypisania zacisków Modbus oraz wykonania bezpiecznego testu odczytu.
+Platforma CM5 działa z systemem na eMMC. DFR0971 oraz pierwszy wentylator EC zostały zweryfikowane sprzętowo. Powstała pierwsza warstwowa wersja `ventilation-core`, obejmująca domenowe reguły napięć, warstwę aplikacyjną, produkcyjny adapter GP8403, osobny proces sprzętowy, nadzór procesu, lokalny Unix socket i klienta `ventilationctl`.
+
+Następnym krokiem jest walidacja rdzenia na rzeczywistym CM5, a następnie uruchomienie go jako usługi `systemd`.
