@@ -64,6 +64,24 @@ git pull --ff-only
 python3 tools/hardware/dac_cli.py probe
 ```
 
+## Zweryfikowany checkpoint komunikacji — 2026-08-01
+
+Na platformie CM5 potwierdzono:
+
+- obecność urządzenia `/dev/i2c-1`,
+- poprawne wykrycie DFR0971 przez `i2cdetect -y 1`,
+- adres urządzenia `0x58`,
+- poprawną odpowiedź narzędzia `dac_cli.py probe`,
+- odczyt bajtu kontrolnego `0x11`.
+
+Rzeczywisty wynik:
+
+```text
+GP8403 responded at 0x58 on /dev/i2c-1; read byte: 0x11
+```
+
+Checkpoint potwierdza poprawne połączenie zasilania, masy, SDA i SCL oraz działanie magistrali I²C. Nie potwierdza jeszcze dokładności ani stanu wyjść analogowych.
+
 ## Ustawienie obu kanałów na 0 V
 
 ```bash
