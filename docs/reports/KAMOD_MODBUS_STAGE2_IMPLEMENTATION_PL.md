@@ -1,6 +1,6 @@
 # KAmod ESP32 POW RS485 + SEN55 — Modbus RTU Stage 2A
 
-**Status: implementacja programowa i podstawowa walidacja fizyczna zakończone; do zamknięcia pozostają zimny start oraz test odrzucenia funkcji zapisu**
+**Status: implementacja programowa, CI i pełna walidacja fizyczna zakończone powodzeniem**
 
 ## Cel
 
@@ -142,6 +142,14 @@ tools/read_modbus_sensor.py
 
 Narzędzie buduje ramkę FC04 bezpośrednio, oblicza i sprawdza CRC-16 Modbus, kontroluje adres, funkcję i długość odpowiedzi, obsługuje wyjątki, dekoduje temperaturę signed int16 oraz wartości 32-bit high/low. Zależnością PC jest `pyserial`.
 
+Dodano również opcję:
+
+```text
+--test-write
+```
+
+Wysyła ona funkcję `0x06 Write Single Register` i zalicza test tylko po otrzymaniu poprawnej odpowiedzi wyjątkowej Modbus. Akceptacja zapisu jest traktowana jako błąd krytyczny kontraktu read-only.
+
 ## Walidacja automatyczna
 
 Hostowy test `test_modbus_register_map.cpp` sprawdza skalowanie, ujemną temperaturę, statusy, pola niedostępne, saturację liczników, kolejność słów 32-bit oraz wersje firmware i mapy.
@@ -223,10 +231,16 @@ address 1 -> poprawna odpowiedź
 - uptime wzrastał,
 - sequence wzrastała wraz z kolejnymi pomiarami SEN55.
 
-## Walidacja pozostała do wykonania
+14. Zimny start całego zestawu po odłączeniu zasilania 12 V oraz interfejsów USB — zaliczony; Modbus i pomiary wróciły automatycznie.
+15. Próba funkcji `0x06 Write Single Register` — zaliczona 2026-08-03. Urządzenie odpowiedziało wyjątkiem:
 
-1. Test funkcji zapisu i potwierdzenie standardowego wyjątku Modbus.
-2. Zimny start całego zestawu z odłączonym 12 V, COM9 i COM10, a następnie automatyczny powrót komunikacji Modbus i pomiarów.
+```text
+0x02 Illegal Data Address
+```
+
+Potwierdza to, że interfejs Stage 2A pozostaje tylko do odczytu.
+
+Podczas jednego testu ponownego podłączenia SEN55 wystąpił problem mechaniczny złącza. Po poprawieniu styku czujnik został automatycznie odzyskany; nie stwierdzono błędu firmware ani procedury reconnect.
 
 ## Poza zakresem Stage 2A
 
@@ -241,6 +255,10 @@ address 1 -> poprawna odpowiedź
 - Home Assistant,
 - AI.
 
-## Następny checkpoint
+## Checkpoint końcowy
 
-Stage 2A zostanie formalnie zamknięty po zaliczeniu testu odrzucenia funkcji zapisu oraz zimnego startu. Następnie można rozpocząć Stage 2B: konfigurację adresów i test dwóch węzłów na jednej magistrali.
+Stage 2A jest funkcjonalnie zakończony i zwalidowany na rzeczywistym sprzęcie.
+
+Draft PR pozostaje bez merge i bez oznaczenia Ready for Review do wyraźnej decyzji użytkownika.
+
+Następny logiczny etap: Stage 2B — konfiguracja unikalnych adresów oraz test dwóch węzłów na jednej magistrali RS-485.
