@@ -5,6 +5,8 @@ on:
     paths:
       - "firmware/sensor-node/**"
       - "tools/read_modbus_sensor.py"
+      - "tools/read_modbus_sensor_nodes.py"
+      - "tools/provision_sensor_node_address.py"
       - ".github/workflows/sensor-node-firmware.yml"
   push:
     branches:
@@ -12,6 +14,8 @@ on:
     paths:
       - "firmware/sensor-node/**"
       - "tools/read_modbus_sensor.py"
+      - "tools/read_modbus_sensor_nodes.py"
+      - "tools/provision_sensor_node_address.py"
       - ".github/workflows/sensor-node-firmware.yml"
 
 permissions:
@@ -36,9 +40,14 @@ jobs:
             test/host/test_modbus_register_map.cpp \
             -o /tmp/test_modbus_register_map
           /tmp/test_modbus_register_map
-      - name: Check PC Modbus tool
+      - name: Check Stage 2B PC tools
         run: |
-          python3 -m py_compile ../../tools/read_modbus_sensor.py
+          python3 -m py_compile \
+            ../../tools/read_modbus_sensor.py \
+            ../../tools/read_modbus_sensor_nodes.py \
+            ../../tools/provision_sensor_node_address.py
+          python3 ../../tools/provision_sensor_node_address.py --port TEST --address 0 2>/tmp/address-0.log && exit 1 || true
+          python3 ../../tools/provision_sensor_node_address.py --port TEST --address 248 2>/tmp/address-248.log && exit 1 || true
       - name: Configure and build firmware
         run: |
           source "$IDF_PATH/export.sh"
