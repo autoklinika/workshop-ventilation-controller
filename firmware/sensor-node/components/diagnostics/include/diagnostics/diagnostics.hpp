@@ -37,6 +37,7 @@ public:
     void mark_rs485_ready();
     void set_sensor_state(SensorState state);
     void mark_sensor_detected();
+    void mark_sensor_offline(esp_err_t error);
     void mark_measurement_started();
     void mark_detection_failure(esp_err_t error);
     void mark_communication_failure(esp_err_t error);
