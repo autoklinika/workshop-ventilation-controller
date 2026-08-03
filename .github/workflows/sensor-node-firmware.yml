@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - "firmware/sensor-node/**"
+      - "tools/read_modbus_sensor.py"
       - ".github/workflows/sensor-node-firmware.yml"
   push:
     branches:
       - main
     paths:
       - "firmware/sensor-node/**"
+      - "tools/read_modbus_sensor.py"
       - ".github/workflows/sensor-node-firmware.yml"
 
 permissions:
@@ -34,6 +36,9 @@ jobs:
             test/host/test_modbus_register_map.cpp \
             -o /tmp/test_modbus_register_map
           /tmp/test_modbus_register_map
+      - name: Check PC Modbus tool
+        run: |
+          python3 -m py_compile ../../tools/read_modbus_sensor.py
       - name: Configure and build firmware
         run: |
           source "$IDF_PATH/export.sh"
