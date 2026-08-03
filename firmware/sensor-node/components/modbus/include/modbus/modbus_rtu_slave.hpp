@@ -19,7 +19,7 @@ public:
 
     esp_err_t initialize();
     esp_err_t refresh(const sen55::Measurement& measurement,
-                      const diagnostics::Snapshot& diagnostics);
+                      const diagnostics::Snapshot& snapshot);
 
     [[nodiscard]] bool initialized() const;
     [[nodiscard]] std::uint32_t service_error_count() const;
@@ -27,7 +27,7 @@ public:
 
 private:
     RegisterSource build_source(const sen55::Measurement& measurement,
-                                const diagnostics::Snapshot& diagnostics,
+                                const diagnostics::Snapshot& snapshot,
                                 std::int64_t now_us) const;
     void record_service_error(esp_err_t error, const char* operation);
     void destroy();
