@@ -60,8 +60,8 @@ Poza Stage 1 pozostają:
 
 | Funkcja | GPIO / parametr |
 |---|---|
-| I²C SDA | GPIO32 |
-| I²C SCL | GPIO33 |
+| I²C SDA | GPIO33 |
+| I²C SCL | GPIO32 |
 | LED statusowa D6 | GPIO2 |
 | adres SEN55 | `0x69` |
 | szybkość I²C | 100 kHz |
@@ -69,6 +69,23 @@ Poza Stage 1 pozostają:
 | RS-485 RX — zarezerwowane | GPIO27 |
 | RS-485 TX — zarezerwowane | GPIO25 |
 | RS-485 DE/RE — zarezerwowane | GPIO26 |
+
+## Zweryfikowany schemat połączeń SEN55
+
+Poniższe połączenie jest obowiązującym schematem po korekcie wykrytej podczas testu stanowiskowego 2026-08-03.
+
+| SEN55 | Kolor przewodu | KAmod ESP32 POW RS485 |
+|---|---|---|
+| VDD | czerwony | 5 V |
+| GND | czarny | GND |
+| SDA | zielony | GPIO33 / SDA, fizyczny pin 3 złącza J1 |
+| SCL | żółty | GPIO32 / SCL, fizyczny pin 5 złącza J1 |
+| SEL | niebieski | GND |
+| NC | fioletowy | nie podłączać |
+
+Względem pierwszej wersji instrukcji przewody zielony i żółty zostały zamienione miejscami: końcowo zielony SDA trafia na GPIO33, a żółty SCL na GPIO32. Jest to zgodne z oznaczeniami I²C płytki KAmod. Po wgraniu firmware zawierającego tę korektę nie należy stosować tymczasowego skrzyżowania SDA/SCL użytego podczas diagnostyki.
+
+Zalecane zasilanie docelowe KAmod: 12 V podane na wejście `POWER`. Podczas testu stanowiskowego na SEN55 zmierzono 5,05 V, a na liniach SDA i SCL po 3,28 V. Linia SEL miała 0 V.
 
 ## Mierzone wielkości
 
