@@ -18,6 +18,11 @@ void Diagnostics::mark_i2c_ready()
     snapshot_.i2c_ready = true;
 }
 
+void Diagnostics::mark_rs485_ready()
+{
+    snapshot_.rs485_ready = true;
+}
+
 void Diagnostics::set_sensor_state(const SensorState state)
 {
     if (snapshot_.sensor_state != state) {
