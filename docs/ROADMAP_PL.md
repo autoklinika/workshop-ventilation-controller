@@ -11,7 +11,7 @@ Status: rozpoczęty.
 - pierwszym uruchamianym peryferium jest DFRobot DFR0971 2 × 0–10 V,
 - test DAC najpierw bez wentylatorów, z pomiarem multimetrem,
 - następnie uruchomienie jednego i dwóch wentylatorów EC,
-- dopiero później RS-485, moduły SEN55 i integracja rekuperatora.
+- dopiero później integracja RS-485 z CM5 oraz rekuperatorem.
 
 Rezultatem etapu ma być zweryfikowana warstwa dostępu do DFR0971, tabela rzeczywistych napięć oraz udokumentowane zachowanie wyjść po starcie i awarii.
 
@@ -20,19 +20,59 @@ Rezultatem etapu ma być zweryfikowana warstwa dostępu do DFR0971, tabela rzecz
 - potwierdzenie modelu wentylatora nawiewnego,
 - dobór docelowego zasilacza DIN,
 - pełna weryfikacja elektryczna DFR0971,
-- dobór izolowanego interfejsu RS-485,
+- dobór izolowanego interfejsu RS-485 dla CM5,
 - decyzja o izolacji galwanicznej magistrali,
 - sprawdzenie charakterystyki Tacho,
 - potwierdzenie pinoutu złączy RJ45 Keystone używanych jako złącza nie-Ethernetowe.
 
 ## Etap 2 — Prototyp modułu czujnika
 
-- przygotowanie modułu SEN55 + KAmod ESP32 POW RS485,
-- lokalna komunikacja I²C z SEN55,
-- odczyt wszystkich wymaganych wartości SEN55,
-- implementacja Modbus RTU slave,
-- test odporności na przerwanie komunikacji i restart,
-- test dwóch węzłów na wspólnej magistrali.
+Status: **w toku**.
+
+### Stage 1 — SEN55 po I²C
+
+Status: **zakończony i zwalidowany sprzętowo 2026-08-03**.
+
+- przygotowanie KAmod ESP32 POW RS485 + SEN55,
+- lokalna komunikacja I²C,
+- odczyt wszystkich wymaganych wartości,
+- walidacja CRC,
+- obsługa utraty i automatycznego powrotu czujnika,
+- zimny start i restart,
+- przygotowanie OTA A/B oraz rollbacku.
+
+### Stage 2A — Modbus RTU read-only
+
+Status: **implementacja programowa rozpoczęta na `agent/kamod-modbus-stage2`; walidacja fizyczna oczekuje na konwerter USB–RS485**.
+
+- oficjalny `espressif/esp-modbus` 2.1.2,
+- UART2 i wbudowany transceiver RS-485 KAmod,
+- adres `1`, `19200 bit/s`, `8N1`,
+- funkcja `0x04`,
+- wersjonowana mapa 19 rejestrów wejściowych,
+- pomiary, maska dostępności i status,
+- wiek pomiaru, liczniki błędów, uptime i wersje,
+- narzędzie testowe dla komputera,
+- brak rejestrów zapisywalnych.
+
+Kryterium zamknięcia Stage 2A:
+
+1. odczyt wszystkich 19 rejestrów przez konwerter USB–RS485,
+2. zgodność danych z logiem USB,
+3. poprawny status po odłączeniu i ponownym podłączeniu SEN55,
+4. minimum 30 minut ciągłego odpytywania,
+5. poprawne wyjątki dla nieobsługiwanych funkcji,
+6. poprawny zimny start.
+
+### Stage 2B — konfiguracja i dwa węzły
+
+Rozpocząć dopiero po walidacji Stage 2A.
+
+- trwała konfiguracja adresu Modbus,
+- ewentualna konfiguracja prędkości,
+- kontrolowana sekwencja serwisowa,
+- test dwóch węzłów na wspólnej magistrali,
+- terminacja, polaryzacja spoczynkowa i zachowanie przy awarii jednego węzła.
 
 ## Etap 3 — Sterowanie wentylatorami
 
@@ -85,7 +125,17 @@ Pełny rdzeń nie jest warunkiem laboratoryjnego testu DAC. Kod uruchomieniowy m
 - kopia konfiguracji,
 - raport z testów końcowych.
 
-## Najbliższy punkt kontrolny
+## Najbliższe punkty kontrolne
+
+### Węzeł SEN55
+
+1. zielone CI dla Stage 2A,
+2. flash firmware 0.2.0-stage2,
+3. odczyt Modbus przez komputer i konwerter USB–RS485,
+4. raport z walidacji sprzętowej,
+5. dopiero potem Stage 2B.
+
+### DFR0971
 
 Po uruchomieniu DFR0971 należy zapisać:
 
