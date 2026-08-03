@@ -66,9 +66,12 @@ esp_err_t ModbusRtuSlave::initialize()
 
     esp_err_t result = mbc_slave_create_serial(&communication, &handle_);
     if (result != ESP_OK || handle_ == nullptr) {
+        if (result == ESP_OK) {
+            result = ESP_FAIL;
+        }
         handle_ = nullptr;
         record_service_error(result, "mbc_slave_create_serial");
-        return result == ESP_OK ? ESP_FAIL : result;
+        return result;
     }
 
     mb_register_area_descriptor_t input_area{};
@@ -123,7 +126,7 @@ esp_err_t ModbusRtuSlave::initialize()
 }
 
 esp_err_t ModbusRtuSlave::refresh(const sen55::Measurement& measurement,
-                                  const diagnostics::Snapshot& diagnostics)
+                                  const diagnostics::Snapshot& snapshot)
 {
     if (handle_ == nullptr) {
         return ESP_ERR_INVALID_STATE;
@@ -138,7 +141,7 @@ esp_err_t ModbusRtuSlave::refresh(const sen55::Measurement& measurement,
     last_refresh_us_ = now_us;
 
     const InputRegisterBank next = encode_input_registers(
-        build_source(measurement, diagnostics, now_us));
+        build_source(measurement, snapshot, now_us));
 
     esp_err_t result = mbc_slave_lock(handle_);
     if (result != ESP_OK) {
@@ -173,7 +176,7 @@ const InputRegisterBank& ModbusRtuSlave::register_bank() const
 
 RegisterSource ModbusRtuSlave::build_source(
     const sen55::Measurement& measurement,
-    const diagnostics::Snapshot& diagnostics,
+    const diagnostics::Snapshot& snapshot,
     const std::int64_t now_us) const
 {
     RegisterSource source{};
@@ -188,33 +191,33 @@ RegisterSource ModbusRtuSlave::build_source(
     source.availability_mask = measurement.availability_mask;
 
     source.measurement_age_seconds = age_seconds(now_us,
-                                                  diagnostics.last_success_us);
-    const bool stale = !diagnostics.first_measurement_received ||
+                                                  snapshot.last_success_us);
+    const bool stale = !snapshot.first_measurement_received ||
         source.measurement_age_seconds == std::numeric_limits<std::uint16_t>::max() ||
         static_cast<std::uint32_t>(source.measurement_age_seconds) * 1000U >
             config::firmware::kMeasurementStaleAfterMs;
 
-    source.measurement_valid = diagnostics.first_measurement_received &&
+    source.measurement_valid = snapshot.first_measurement_received &&
                                !stale &&
                                measurement.availability_mask != 0;
-    source.sensor_present = diagnostics.sensor_present;
+    source.sensor_present = snapshot.sensor_present;
     source.measurement_stale = stale;
-    source.i2c_error = diagnostics.last_error != ESP_OK;
-    source.data_error = diagnostics.first_measurement_received &&
+    source.i2c_error = snapshot.last_error != ESP_OK;
+    source.data_error = snapshot.first_measurement_received &&
                         measurement.availability_mask != kAllMeasurementFieldsAvailable;
     source.initializing =
-        diagnostics.sensor_state == diagnostics::SensorState::kUninitialized ||
-        diagnostics.sensor_state == diagnostics::SensorState::kDetecting ||
-        diagnostics.sensor_state == diagnostics::SensorState::kWaitingForFirstMeasurement;
+        snapshot.sensor_state == diagnostics::SensorState::kUninitialized ||
+        snapshot.sensor_state == diagnostics::SensorState::kDetecting ||
+        snapshot.sensor_state == diagnostics::SensorState::kWaitingForFirstMeasurement;
     source.sensor_offline =
-        diagnostics.sensor_state == diagnostics::SensorState::kOffline;
-    source.platform_fault = !diagnostics.gpio_ready ||
-                            !diagnostics.i2c_ready ||
-                            !diagnostics.rs485_ready;
+        snapshot.sensor_state == diagnostics::SensorState::kOffline;
+    source.platform_fault = !snapshot.gpio_ready ||
+                            !snapshot.i2c_ready ||
+                            !snapshot.rs485_ready;
 
     const std::uint64_t sensor_errors =
-        static_cast<std::uint64_t>(diagnostics.detection_failures) +
-        diagnostics.communication_failures + diagnostics.crc_failures;
+        static_cast<std::uint64_t>(snapshot.detection_failures) +
+        snapshot.communication_failures + snapshot.crc_failures;
     source.sensor_error_count = saturate_u32(sensor_errors);
     source.modbus_service_error_count = service_error_count_;
     source.uptime_seconds = static_cast<std::uint32_t>(
