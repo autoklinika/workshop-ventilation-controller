@@ -21,15 +21,15 @@ jobs:
     container: espressif/idf:v6.0.2
     defaults:
       run:
+        shell: bash
         working-directory: firmware/sensor-node
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      - name: Show ESP-IDF version
-        run: idf.py --version
-      - name: Configure target
-        run: idf.py set-target esp32
-      - name: Build firmware
-        run: idf.py build
-      - name: Verify partition table
-        run: python "$IDF_PATH/components/partition_table/gen_esp32part.py" build/partition_table/partition-table.bin
+        uses: actions/checkout@v5
+      - name: Configure and build firmware
+        run: |
+          source "$IDF_PATH/export.sh"
+          idf.py --version
+          idf.py set-target esp32
+          idf.py build
+          python "$IDF_PATH/components/partition_table/gen_esp32part.py" build/partition_table/partition-table.bin
