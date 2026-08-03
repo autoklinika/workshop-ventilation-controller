@@ -4,6 +4,7 @@
 
 #include "diagnostics/diagnostics.hpp"
 #include "drivers/i2c_bus.hpp"
+#include "modbus/modbus_rtu_slave.hpp"
 #include "platform/ota_health_guard.hpp"
 #include "platform/status_led.hpp"
 #include "sen55/sen55.hpp"
@@ -27,6 +28,7 @@ private:
     drivers::I2cDevice sen55_i2c_device_{};
     sen55::Sen55 sen55_;
     services::SensorService sensor_service_;
+    modbus::ModbusRtuSlave modbus_slave_{};
     platform::StatusLed status_led_{};
     platform::OtaHealthGuard ota_health_guard_{};
     std::uint64_t last_logged_sequence_{0};
