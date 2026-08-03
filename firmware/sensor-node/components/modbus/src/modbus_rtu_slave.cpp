@@ -77,6 +77,7 @@ esp_err_t ModbusRtuSlave::initialize()
     mb_register_area_descriptor_t input_area{};
     input_area.type = MB_PARAM_INPUT;
     input_area.start_offset = kInputRegisterStart;
+    input_area.access = MB_ACCESS_RO;
     input_area.address = registers_.data();
     input_area.size = sizeof(registers_);
 
@@ -192,19 +193,29 @@ RegisterSource ModbusRtuSlave::build_source(
 
     source.measurement_age_seconds = age_seconds(now_us,
                                                   snapshot.last_success_us);
-    const bool stale = !snapshot.first_measurement_received ||
-        source.measurement_age_seconds == std::numeric_limits<std::uint16_t>::max() ||
+    const bool sensor_running =
+        snapshot.sensor_state == diagnostics::SensorState::kRunning;
+    const bool age_invalid =
+        source.measurement_age_seconds == std::numeric_limits<std::uint16_t>::max();
+    const bool age_expired = !age_invalid &&
         static_cast<std::uint32_t>(source.measurement_age_seconds) * 1000U >
             config::firmware::kMeasurementStaleAfterMs;
+    const bool stale = !snapshot.first_measurement_received ||
+                       !sensor_running ||
+                       age_invalid ||
+                       age_expired;
 
     source.measurement_valid = snapshot.first_measurement_received &&
+                               sensor_running &&
                                !stale &&
                                measurement.availability_mask != 0;
     source.sensor_present = snapshot.sensor_present;
     source.measurement_stale = stale;
-    source.i2c_error = snapshot.last_error != ESP_OK;
-    source.data_error = snapshot.first_measurement_received &&
-                        measurement.availability_mask != kAllMeasurementFieldsAvailable;
+    source.i2c_error = snapshot.last_error != ESP_OK &&
+                       snapshot.last_error != ESP_ERR_INVALID_CRC;
+    source.data_error = snapshot.last_error == ESP_ERR_INVALID_CRC ||
+                        (snapshot.first_measurement_received &&
+                         measurement.availability_mask != kAllMeasurementFieldsAvailable);
     source.initializing =
         snapshot.sensor_state == diagnostics::SensorState::kUninitialized ||
         snapshot.sensor_state == diagnostics::SensorState::kDetecting ||
