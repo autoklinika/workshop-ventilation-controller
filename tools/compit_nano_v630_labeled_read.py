@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read-only labeled snapshot for COMPIT NANO COLOR 2 firmware 6.30.
 
-The labels are deliberately provisional. They come from an older/public map and
-from current bench observations, so they MUST NOT be used for Modbus writes.
+Confirmed labels come from direct comparison with the local panel.
+Provisional labels are only working hypotheses and MUST NOT be used for writes.
 The tool sends only FC03 Read Holding Registers.
 
 Example:
@@ -34,50 +34,52 @@ DEFAULT_TIMEOUT = 0.6
 
 
 @dataclass(frozen=True)
-class ProvisionalDefinition:
+class RegisterDefinition:
     address: int
     description: str
     display: str = "raw"
+    confidence: str = "HIPOTEZA"
 
 
-# HIPOTEZY ROBOCZE — nazwy nie są potwierdzone dla firmware 6.30.
-PROVISIONAL: dict[int, ProvisionalDefinition] = {
-    2016: ProvisionalDefinition(2016, "temperatura pomieszczenia", "temperature"),
-    2021: ProvisionalDefinition(2021, "temperatura nawiewu", "temperature"),
-    2022: ProvisionalDefinition(2022, "temperatura czerpni / zewnętrzna", "temperature"),
-    2023: ProvisionalDefinition(2023, "temperatura wywiewu", "temperature"),
-    2024: ProvisionalDefinition(2024, "temperatura wyrzutni", "temperature"),
-    2025: ProvisionalDefinition(2025, "stan presostatu", "bool"),
-    2026: ProvisionalDefinition(2026, "aktywne rozmrażanie", "bool"),
-    2027: ProvisionalDefinition(2027, "praca nagrzewnicy wtórnej", "bool"),
-    2028: ProvisionalDefinition(2028, "aktywne wietrzenie", "bool"),
-    2029: ProvisionalDefinition(2029, "praca nagrzewnicy wstępnej", "bool"),
-    2030: ProvisionalDefinition(2030, "praca chłodnicy", "bool"),
-    2031: ProvisionalDefinition(2031, "zabrudzony filtr", "bool"),
-    2032: ProvisionalDefinition(2032, "moc nagrzewnicy wstępnej", "percent"),
-    2033: ProvisionalDefinition(2033, "moc nagrzewnicy wtórnej / wydajność wentylatora A", "percent"),
-    2034: ProvisionalDefinition(2034, "wydajność nawiewu / wentylator B", "percent"),
-    2035: ProvisionalDefinition(2035, "wydajność wywiewu / kod stanu", "raw"),
-    2036: ProvisionalDefinition(2036, "aktualny bieg wentylacji", "raw"),
-    2037: ProvisionalDefinition(2037, "stan bypassu", "raw"),
-    2038: ProvisionalDefinition(2038, "stan GWC", "raw"),
-    2039: ProvisionalDefinition(2039, "podłączony moduł wentylacji", "raw"),
-    2040: ProvisionalDefinition(2040, "alarm AERO / parametr zależny od biegu", "raw"),
-    2041: ProvisionalDefinition(2041, "aktualne obroty AO3", "percent"),
-    2042: ProvisionalDefinition(2042, "nieznany parametr stanu 2042", "raw"),
-    2043: ProvisionalDefinition(2043, "nieznany parametr stanu 2043", "raw"),
-    2044: ProvisionalDefinition(2044, "nieznany parametr stanu 2044", "raw"),
-    2045: ProvisionalDefinition(2045, "nieznany parametr stanu 2045", "raw"),
-    2046: ProvisionalDefinition(2046, "nieznany parametr stanu 2046", "raw"),
-    2047: ProvisionalDefinition(2047, "nieznany parametr stanu 2047", "raw"),
-    2048: ProvisionalDefinition(2048, "nieznany parametr stanu 2048", "raw"),
-    2049: ProvisionalDefinition(2049, "nieznany parametr stanu 2049", "raw"),
-    2050: ProvisionalDefinition(2050, "nieznany parametr stanu 2050", "raw"),
-    2051: ProvisionalDefinition(2051, "nieznany parametr zależny od biegu", "raw"),
-    2052: ProvisionalDefinition(2052, "nieznany parametr stanu 2052", "raw"),
-    2053: ProvisionalDefinition(2053, "nieznany parametr stanu 2053", "raw"),
-    2054: ProvisionalDefinition(2054, "nieznany parametr stanu 2054", "raw"),
-    2055: ProvisionalDefinition(2055, "nieznany parametr stanu 2055", "raw"),
+# POTWIERDZONE: zweryfikowane przez użytkownika względem ekranu panelu.
+# HIPOTEZA: nazwa robocza z wcześniejszych materiałów; nie używać do zapisów.
+REGISTERS: dict[int, RegisterDefinition] = {
+    2016: RegisterDefinition(2016, "wilgotność", "humidity", "POTWIERDZONE"),
+    2021: RegisterDefinition(2021, "temperatura nawiewu", "temperature", "POTWIERDZONE"),
+    2022: RegisterDefinition(2022, "temperatura wywiewu", "temperature", "POTWIERDZONE"),
+    2023: RegisterDefinition(2023, "temperatura czerpni", "temperature", "POTWIERDZONE"),
+    2024: RegisterDefinition(2024, "temperatura wyrzutni", "temperature"),
+    2025: RegisterDefinition(2025, "stan presostatu", "bool"),
+    2026: RegisterDefinition(2026, "aktywne rozmrażanie", "bool"),
+    2027: RegisterDefinition(2027, "praca nagrzewnicy wtórnej", "bool"),
+    2028: RegisterDefinition(2028, "aktywne wietrzenie", "bool"),
+    2029: RegisterDefinition(2029, "praca nagrzewnicy wstępnej", "bool"),
+    2030: RegisterDefinition(2030, "praca chłodnicy", "bool"),
+    2031: RegisterDefinition(2031, "zabrudzony filtr", "bool"),
+    2032: RegisterDefinition(2032, "moc nagrzewnicy wstępnej", "percent"),
+    2033: RegisterDefinition(2033, "moc wentylatora 1", "percent", "POTWIERDZONE"),
+    2034: RegisterDefinition(2034, "moc wentylatora 2", "percent", "POTWIERDZONE"),
+    2035: RegisterDefinition(2035, "nieznany kod stanu 2035", "raw"),
+    2036: RegisterDefinition(2036, "aktualny bieg wentylacji", "raw"),
+    2037: RegisterDefinition(2037, "stan bypassu", "raw"),
+    2038: RegisterDefinition(2038, "stan GWC", "raw"),
+    2039: RegisterDefinition(2039, "podłączony moduł wentylacji", "raw"),
+    2040: RegisterDefinition(2040, "alarm AERO / parametr zależny od biegu", "raw"),
+    2041: RegisterDefinition(2041, "aktualne obroty AO3", "percent"),
+    2042: RegisterDefinition(2042, "nieznany parametr stanu 2042", "raw"),
+    2043: RegisterDefinition(2043, "nieznany parametr stanu 2043", "raw"),
+    2044: RegisterDefinition(2044, "nieznany parametr stanu 2044", "raw"),
+    2045: RegisterDefinition(2045, "nieznany parametr stanu 2045", "raw"),
+    2046: RegisterDefinition(2046, "nieznany parametr stanu 2046", "raw"),
+    2047: RegisterDefinition(2047, "nieznany parametr stanu 2047", "raw"),
+    2048: RegisterDefinition(2048, "nieznany parametr stanu 2048", "raw"),
+    2049: RegisterDefinition(2049, "nieznany parametr stanu 2049", "raw"),
+    2050: RegisterDefinition(2050, "nieznany parametr stanu 2050", "raw"),
+    2051: RegisterDefinition(2051, "nieznany parametr zależny od biegu", "raw"),
+    2052: RegisterDefinition(2052, "nieznany parametr stanu 2052", "raw"),
+    2053: RegisterDefinition(2053, "nieznany parametr stanu 2053", "raw"),
+    2054: RegisterDefinition(2054, "nieznany parametr stanu 2054", "raw"),
+    2055: RegisterDefinition(2055, "nieznany parametr stanu 2055", "raw"),
 }
 
 
@@ -162,10 +164,12 @@ def signed16(value: int) -> int:
     return value - 0x10000 if value & 0x8000 else value
 
 
-def candidate_value(definition: ProvisionalDefinition, raw: int) -> str:
+def display_value(definition: RegisterDefinition, raw: int) -> str:
     signed = signed16(raw)
     if definition.display == "temperature":
         return f"{signed / 10.0:.1f} °C"
+    if definition.display == "humidity":
+        return f"{raw / 10.0:.1f} %"
     if definition.display == "percent":
         return f"{raw} %"
     if definition.display == "bool":
@@ -203,21 +207,23 @@ def run_cycle(port: serial.Serial, args: argparse.Namespace, writer) -> bool:
         f"\nCOMPIT NANO COLOR 2 v6.30: {args.port}, {args.baud} bit/s, "
         f"8N1, slave={args.address}, FC03"
     )
-    print("UWAGA: opisy są HIPOTEZAMI ROBOCZYMI; wartości raw i ramki są rzeczywiste.")
+    print("POTWIERDZONE = zgodne z panelem; HIPOTEZA = opis roboczy.")
+    print("Wartości raw i ramki są rzeczywistymi odpowiedziami urządzenia.")
 
     any_response = False
     for address in range(args.start, args.end + 1):
-        definition = PROVISIONAL.get(
+        definition = REGISTERS.get(
             address,
-            ProvisionalDefinition(address, f"nieznany parametr {address}", "raw"),
+            RegisterDefinition(address, f"nieznany parametr {address}", "raw"),
         )
         try:
             raw, tx, rx = read_register(port, args.address, address, args.timeout)
             signed = signed16(raw)
-            candidate = candidate_value(definition, raw)
+            rendered = display_value(definition, raw)
             print(
-                f"ADR {address}: {definition.description:<52} "
-                f"raw={raw:<5} signed={signed:<6} kandydat={candidate}"
+                f"ADR {address}: [{definition.confidence:<12}] "
+                f"{definition.description:<42} raw={raw:<5} "
+                f"signed={signed:<6} wartość={rendered}"
             )
             if args.show_frames:
                 print(f"      TX {tx.hex(' ').upper()}")
@@ -226,11 +232,12 @@ def run_cycle(port: serial.Serial, args: argparse.Namespace, writer) -> bool:
                 (
                     datetime.now().isoformat(timespec="milliseconds"),
                     address,
+                    definition.confidence,
                     definition.description,
                     raw,
                     signed,
                     f"{signed / 10.0:.1f}",
-                    candidate,
+                    rendered,
                     tx.hex(" ").upper(),
                     rx.hex(" ").upper(),
                     "OK",
@@ -242,6 +249,7 @@ def run_cycle(port: serial.Serial, args: argparse.Namespace, writer) -> bool:
                 (
                     datetime.now().isoformat(timespec="milliseconds"),
                     address,
+                    definition.confidence,
                     definition.description,
                     "",
                     "",
@@ -263,7 +271,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
 
     print("TRYB TYLKO DO ODCZYTU — skrypt wysyła wyłącznie FC03.")
-    print("Nie używać roboczych opisów jako podstawy do zapisów Modbus.")
+    print("Nie używać opisów HIPOTEZA jako podstawy do zapisów Modbus.")
 
     try:
         with serial.Serial(
@@ -280,11 +288,12 @@ def main() -> int:
                 (
                     "timestamp",
                     "address",
-                    "provisional_description",
+                    "confidence",
+                    "description",
                     "raw_u16",
                     "signed_i16",
                     "div10",
-                    "candidate_display",
+                    "display_value",
                     "tx_hex",
                     "rx_hex",
                     "status",
