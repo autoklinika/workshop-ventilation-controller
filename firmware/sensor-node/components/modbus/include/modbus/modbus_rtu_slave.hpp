@@ -17,7 +17,7 @@ public:
     ModbusRtuSlave(const ModbusRtuSlave&) = delete;
     ModbusRtuSlave& operator=(const ModbusRtuSlave&) = delete;
 
-    esp_err_t initialize(std::uint8_t slave_address);
+    esp_err_t initialize();
     esp_err_t refresh(const sen55::Measurement& measurement,
                       const diagnostics::Snapshot& snapshot);
 
