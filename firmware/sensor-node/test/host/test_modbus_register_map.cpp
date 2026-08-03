@@ -27,6 +27,7 @@ void test_complete_measurement()
     source.measurement_valid = true;
     source.sensor_present = true;
     source.measurement_stale = false;
+    source.initializing = false;
     source.measurement_age_seconds = 2;
     source.sensor_error_count = 7;
     source.modbus_service_error_count = 3;
