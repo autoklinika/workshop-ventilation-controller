@@ -8,8 +8,8 @@
 namespace config::board {
 
 inline constexpr i2c_port_num_t kI2cPort = I2C_NUM_0;
-inline constexpr gpio_num_t kI2cSda = GPIO_NUM_32;
-inline constexpr gpio_num_t kI2cScl = GPIO_NUM_33;
+inline constexpr gpio_num_t kI2cSda = GPIO_NUM_33;
+inline constexpr gpio_num_t kI2cScl = GPIO_NUM_32;
 inline constexpr std::uint32_t kI2cFrequencyHz = 100'000;
 inline constexpr std::uint32_t kI2cTimeoutMs = 100;
 inline constexpr bool kEnableInternalI2cPullups = false;
