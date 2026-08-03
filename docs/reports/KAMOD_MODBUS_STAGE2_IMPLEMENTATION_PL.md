@@ -1,24 +1,16 @@
 # KAmod ESP32 POW RS485 + SEN55 — Modbus RTU Stage 2A
 
-**Status: implementacja programowa zakończona; CI i walidacja fizyczna RS-485 w toku**
+**Status: implementacja programowa i podstawowa walidacja fizyczna zakończone; do zamknięcia pozostają zimny start oraz test odrzucenia funkcji zapisu**
 
 ## Cel
 
-Udostępnienie zwalidowanych pomiarów SEN55 i diagnostyki węzła przez prosty, deterministyczny i odporny kanał Modbus RTU po wbudowanym interfejsie RS-485 modułu KAmod.
+Udostępnienie pomiarów SEN55 i diagnostyki węzła przez deterministyczny kanał Modbus RTU po wbudowanym interfejsie RS-485 modułu KAmod.
 
-Stage 2A jest celowo tylko do odczytu. Nie dodaje konfiguracji zdalnej, Wi-Fi, OTA transportu ani integracji z CM5.
+Stage 2A jest celowo tylko do odczytu. Nie dodaje konfiguracji zdalnej, Wi-Fi, transportu OTA ani integracji z CM5.
 
 ## Punkt wyjścia
 
-Stage 1 zakończył się fizycznym potwierdzeniem:
-
-- działania KAmod ESP32 POW RS485,
-- komunikacji SEN55 po I²C,
-- pełnego pomiaru z `mask=0xFF`,
-- automatycznego wykrywania po starcie,
-- przejścia offline po odłączeniu,
-- automatycznego powrotu po ponownym podłączeniu,
-- zimnego startu i restartu.
+Stage 1 zakończył się fizycznym potwierdzeniem działania KAmod, komunikacji SEN55 po I²C, pełnego pomiaru `mask=0xFF`, automatycznego odzyskiwania czujnika, zimnego startu i restartu.
 
 Stage 2 powstał na gałęzi:
 
@@ -32,11 +24,9 @@ z bazowego commitu `main`:
 10bdd40284ae44441a5087e976a254f729822edc
 ```
 
-## Decyzje architektoniczne
+## Architektura
 
-### 1. Osobny komponent Modbus
-
-Dodano warstwę:
+Dodano niezależny komponent:
 
 ```text
 components/modbus
@@ -44,43 +34,17 @@ components/modbus
 └── modbus_rtu_slave
 ```
 
-Sterownik SEN55 nie zależy od Modbus. Komponent Modbus otrzymuje:
+Sterownik SEN55 nie zależy od Modbus. Komponent Modbus otrzymuje ostatni pomiar, snapshot diagnostyki i czas pracy platformy, a następnie buduje wersjonowany bank rejestrów wejściowych.
 
-- ostatni snapshot pomiaru,
-- snapshot diagnostyki,
-- czas pracy platformy.
-
-Następnie tworzy wersjonowany bank rejestrów wejściowych.
-
-### 2. Oficjalny stos Espressif
-
-Użyto komponentu:
+Użyto oficjalnego komponentu:
 
 ```text
 espressif/esp-modbus 2.1.2
 ```
 
-Wersję przypięto w `idf_component.yml`, aby uniknąć niekontrolowanych zmian API i zachowania. Jest to wydanie uwzględniające zgodność z ESP-IDF 6.0.
+Wersja została przypięta w `idf_component.yml`.
 
-### 3. Tylko funkcja 0x04
-
-Stage 2A udostępnia wyłącznie Input Registers i funkcję:
-
-```text
-0x04 Read Input Registers
-```
-
-Nie zdefiniowano:
-
-- Holding Registers,
-- Coils,
-- Discrete Inputs,
-- komend zapisu,
-- konfiguracji adresu lub baudrate.
-
-Nieobsługiwane zakresy i funkcje pozostają obsługiwane przez standardowe wyjątki stosu Modbus.
-
-### 4. Stałe parametry transmisji
+## Parametry transmisji
 
 ```text
 slave address: 1
@@ -93,16 +57,13 @@ DE/RE:         GPIO26
 mode:          RS-485 half-duplex
 ```
 
-### 5. Jawna ważność danych
+Stage 2A udostępnia wyłącznie Input Registers i funkcję:
 
-Master nie może użyć wartości wyłącznie dlatego, że rejestr zawiera liczbę. Musi sprawdzić:
+```text
+0x04 Read Input Registers
+```
 
-- wersję mapy,
-- bit `MEASUREMENT_VALID`,
-- maskę dostępności konkretnego pola,
-- wiek pomiaru.
-
-Po utracie SEN55 ostatnie wartości pozostają dostępne diagnostycznie, ale są natychmiast oznaczone jako nieaktualne i nieważne.
+Nie zdefiniowano Holding Registers, Coils, Discrete Inputs ani komend zapisu.
 
 ## Mapa rejestrów v1
 
@@ -143,38 +104,33 @@ Rejestr statusu zawiera:
 - bit 6: czujnik offline,
 - bit 7: błąd platformy.
 
-Stan offline czyści `sensor_present` i `measurement_running`. Dzięki temu master nie widzi fałszywej obecności czujnika po utracie komunikacji.
+Master musi sprawdzić wersję mapy, `MEASUREMENT_VALID`, maskę dostępności pola oraz wiek pomiaru. Po utracie SEN55 ostatnie wartości pozostają dostępne diagnostycznie, ale są oznaczone jako nieważne i nieaktualne.
 
 ## Aktualizacja banku rejestrów
 
-Bank jest odświeżany co 250 ms. Aktualizacja odbywa się pomiędzy:
+Bank jest odświeżany co 250 ms pomiędzy:
 
 ```text
 mbc_slave_lock()
 mbc_slave_unlock()
 ```
 
-Zapobiega to odczytaniu przez mastera części starego i części nowego snapshotu podczas jednej transakcji.
+Zapobiega to odczytaniu części starego i części nowego snapshotu podczas jednej transakcji.
 
 ## Zachowanie błędów
 
 - brak pierwszego pomiaru: wiek `0xFFFF`, stale=1, valid=0,
 - SEN55 offline: present=0, stale=1, offline=1, valid=0,
 - CRC SEN55: data_error=1,
-- błąd komunikacji inny niż CRC: i2c_error=1,
+- inny błąd komunikacji: i2c_error=1,
 - brak części pól: maska pola=0, rejestr wartości=0, data_error=1,
 - krytyczny błąd inicjalizacji Modbus/RS-485: kontrolowany restart,
-- licznik błędów Modbus nasyca się w rejestrze na `0xFFFF`.
+- licznik błędów Modbus nasyca się na `0xFFFF`,
+- licznik błędów SEN55 jest historyczny od uruchomienia i nie zeruje się automatycznie po odzyskaniu czujnika.
 
 ## OTA i zdrowie platformy
 
-Od Stage 2 zatwierdzenie obrazu oczekującego na weryfikację wymaga gotowości:
-
-- GPIO,
-- I²C,
-- RS-485 / Modbus.
-
-Obecność SEN55 nadal nie jest wymagana do potwierdzenia obrazu, ponieważ jest urządzeniem zewnętrznym i może być chwilowo odłączona podczas serwisu.
+Od Stage 2 zatwierdzenie obrazu oczekującego na weryfikację wymaga gotowości GPIO, I²C oraz RS-485/Modbus. Obecność SEN55 nie jest wymagana do potwierdzenia obrazu, ponieważ jest urządzeniem zewnętrznym.
 
 ## Narzędzie testowe PC
 
@@ -184,30 +140,11 @@ Dodano:
 tools/read_modbus_sensor.py
 ```
 
-Narzędzie:
-
-- nie korzysta z wysokopoziomowej biblioteki Modbus,
-- buduje ramkę `0x04` bezpośrednio,
-- oblicza i sprawdza CRC-16 Modbus,
-- kontroluje adres, funkcję i długość odpowiedzi,
-- obsługuje wyjątki Modbus,
-- dekoduje temperaturę signed int16,
-- składa wartości 32-bit w kolejności high/low,
-- pokazuje aktywne bity statusu i dostępności.
-
-Jedyną zależnością środowiska PC jest `pyserial`.
+Narzędzie buduje ramkę FC04 bezpośrednio, oblicza i sprawdza CRC-16 Modbus, kontroluje adres, funkcję i długość odpowiedzi, obsługuje wyjątki, dekoduje temperaturę signed int16 oraz wartości 32-bit high/low. Zależnością PC jest `pyserial`.
 
 ## Walidacja automatyczna
 
-Dodano hostowy test `test_modbus_register_map.cpp`, który sprawdza:
-
-- skalowanie wszystkich wartości,
-- kodowanie ujemnej temperatury,
-- mapę statusu,
-- pola niedostępne,
-- saturację wartości i liczników,
-- kolejność słów wartości 32-bit,
-- wersję firmware i mapy.
+Hostowy test `test_modbus_register_map.cpp` sprawdza skalowanie, ujemną temperaturę, statusy, pola niedostępne, saturację liczników, kolejność słów 32-bit oraz wersje firmware i mapy.
 
 Workflow wykonuje test z:
 
@@ -217,23 +154,79 @@ Workflow wykonuje test z:
 
 oraz pełny build ESP-IDF 6.0.2.
 
-## Walidacja fizyczna wymagana
+Wynik CI dla implementacji:
 
-1. Flash firmware `0.2.0-stage2`.
-2. Potwierdzenie logu startowego Modbus RTU.
-3. Połączenie KAmod A+/B- z konwerterem USB–RS485.
-4. Odczyt 19 rejestrów przez komputer.
-5. Porównanie wartości z logiem USB.
-6. Odłączenie SEN55 i potwierdzenie:
-   - valid=0,
-   - present=0,
-   - stale=1,
-   - offline=1.
-7. Ponowne podłączenie i powrót valid=1.
-8. Minimum 30 minut ciągłego odpytywania.
-9. Test złego adresu slave.
-10. Test funkcji zapisu i wyjątku Modbus.
-11. Zimny start całego urządzenia.
+- `Ventilation Core Tests` — success,
+- `Sensor node firmware` — success,
+- aplikacja `0.2.0`,
+- obraz `kamod_sen55_sensor_node.bin`,
+- około 85% wolnego miejsca w najmniejszej partycji aplikacji.
+
+## Walidacja fizyczna — wykonana
+
+Stanowisko:
+
+- KAmod ESP32 POW RS485,
+- SEN55 po I²C,
+- KAmod USB RS485 ISO,
+- port serwisowy KAmod: COM9,
+- port konwertera RS-485: COM10,
+- Modbus slave address 1, 19200 bit/s, 8N1.
+
+Potwierdzono:
+
+1. Flash firmware `0.2.0-stage2` — zaliczony.
+2. Start Modbus RTU po UART2 — zaliczony.
+3. Połączenie A+/B- z izolowanym konwerterem USB–RS485 — zaliczone.
+4. Odczyt wszystkich 19 rejestrów funkcją 0x04 — zaliczony.
+5. Prawidłowe skalowanie PM, RH, temperatury, VOC i NOx — zaliczone.
+6. Prawidłowe dekodowanie temperatury signed int16 — zaliczone.
+7. Prawidłowe pola uptime, sequence, firmware 0.2 i map version 1 — zaliczone.
+8. Stabilny stan roboczy:
+
+```text
+status=measurement_valid,sensor_present
+availability=PM1.0,PM2.5,PM4.0,PM10,RH,T,VOC,NOx
+age=0 s
+modbus_errors=0
+```
+
+9. Odłączenie SEN55 — zaliczone. Modbus pozostał dostępny i raportował:
+
+```text
+status=measurement_stale,i2c_error,sensor_offline
+```
+
+Jednocześnie:
+
+- usunięte zostały `measurement_valid` i `sensor_present`,
+- wiek pomiaru rósł,
+- sekwencja ostatniego pomiaru pozostawała zamrożona,
+- uptime nadal rósł,
+- `modbus_errors=0`.
+
+10. Ponowne podłączenie SEN55 — zaliczone; pomiary i `measurement_valid,sensor_present` wróciły automatycznie bez restartu ESP32.
+11. Historyczny licznik `sensor_errors` prawidłowo zachował liczbę błędów powstałych podczas odłączenia.
+12. Test błędnego adresu slave — zaliczony:
+
+```text
+address 2 -> brak odpowiedzi
+address 1 -> poprawna odpowiedź
+```
+
+13. Minimum 30 minut ciągłego odpytywania przez COM10 — zaliczone 2026-08-03:
+
+- brak timeoutów,
+- brak błędów CRC,
+- brak niepełnych odpowiedzi,
+- `modbus_errors=0`,
+- uptime wzrastał,
+- sequence wzrastała wraz z kolejnymi pomiarami SEN55.
+
+## Walidacja pozostała do wykonania
+
+1. Test funkcji zapisu i potwierdzenie standardowego wyjątku Modbus.
+2. Zimny start całego zestawu z odłączonym 12 V, COM9 i COM10, a następnie automatyczny powrót komunikacji Modbus i pomiarów.
 
 ## Poza zakresem Stage 2A
 
@@ -250,4 +243,4 @@ oraz pełny build ESP-IDF 6.0.2.
 
 ## Następny checkpoint
 
-Stage 2A można zamknąć dopiero po fizycznym odczycie RS-485 i teście odporności. Następnie można rozpocząć Stage 2B: konfigurację adresów oraz test dwóch węzłów na jednej magistrali.
+Stage 2A zostanie formalnie zamknięty po zaliczeniu testu odrzucenia funkcji zapisu oraz zimnego startu. Następnie można rozpocząć Stage 2B: konfigurację adresów i test dwóch węzłów na jednej magistrali.
