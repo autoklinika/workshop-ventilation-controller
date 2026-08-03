@@ -11,79 +11,100 @@ W pomieszczeniu lutowniczym pracuje rekuperator:
 - panel pokojowy: COMPIT NANO COLOR 2,
 - moduł sieciowy: COMPIT iNext / C14.
 
-Panel NANO COLOR 2 ma zaciski A1, B1, A2, B2, G oraz U. Sterownik AERO 4A2 ma interfejs RS-485 oznaczony jako C14.
+Panel NANO COLOR 2 ma zaciski A1, B1, A2, B2, G oraz U. Sterownik AERO 4A2 komunikuje się z panelem przez własnościowy protokół C14.
 
 ## 2. Najważniejszy wniosek
 
-Nie ma potrzeby odtwarzania własnościowego protokołu C14, jeżeli konkretna wersja panelu NANO COLOR 2 obsługuje opublikowany przez Compit tryb Modbus RTU dla AERO 4A ver.2.
+Nie odtwarzamy protokołu C14, jeżeli posiadany NANO COLOR 2 udostępnia opublikowany przez producenta tryb Modbus RTU dla AERO 4A ver.2.
 
-Docelowo Raspberry Pi powinno komunikować się z panelem przez Modbus RTU, natomiast panel nadal realizuje komunikację C14 ze sterownikiem AERO 4A2.
+Docelowo CM5 komunikuje się z panelem przez Modbus RTU, natomiast panel nadal realizuje komunikację C14 ze sterownikiem AERO 4A2.
 
 ```text
-SEN55 + STM32
-      │
- Modbus RTU
-      │
-Raspberry Pi
-      │
- Modbus RTU
-      │
-NANO COLOR 2
-      │
-     C14
-      │
-  AERO 4A2
-      │
- rekuperator
+CM5 / ventilation-core
+        │
+   Modbus RTU
+        │
+ NANO COLOR 2
+        │
+       C14
+        │
+    AERO 4A2
+        │
+   rekuperator
 ```
 
 ## 3. Parametry Modbus NANO COLOR 2
 
-Według dokumentacji producenta:
+Parametry pierwszej walidacji:
 
-- tryb urządzenia: Modbus RTU Slave,
-- domyślny adres: 44,
-- prędkość: 9600 bit/s,
-- format: 8N1,
-- maksymalny deklarowany czas odpowiedzi: 300 ms,
-- funkcje Modbus:
-  - 0x03 — odczyt Holding Registers,
-  - 0x06 — zapis pojedynczego rejestru,
-  - 0x10 — zapis wielu rejestrów.
+- rola panelu: Modbus RTU Slave,
+- domyślny adres slave: `44`,
+- prędkość: `9600 bit/s`,
+- format: `8N1`,
+- maksymalny deklarowany czas odpowiedzi: `300 ms`,
+- funkcje:
+  - `0x03` — Read Holding Registers,
+  - `0x06` — Write Single Register,
+  - `0x10` — Write Multiple Registers.
 
-Adres Modbus jest konfigurowalny. W mapie parametrów występuje jako rejestr 1017, z wartością domyślną 44.
+Pierwsza walidacja używa wyłącznie `0x03`.
 
-## 4. Istotne rejestry stanu
+## 4. Krytyczne rozróżnienie: REJESTR i ADRES
 
-| Rejestr | Znaczenie |
-|---:|---|
-| 2016 | temperatura pomieszczenia |
-| 2021 | temperatura nawiewu |
-| 2022 | temperatura czerpni / zewnętrzna |
-| 2023 | temperatura wywiewu |
-| 2024 | temperatura wyrzutni |
-| 2026 | aktywne rozmrażanie |
-| 2028 | aktywne wietrzenie |
-| 2031 | zabrudzony filtr |
-| 2034 | aktualna wydajność nawiewu w % |
-| 2035 | aktualna wydajność wywiewu w % |
-| 2036 | aktualny bieg wentylacji |
-| 2037 | stan bypassu |
-| 2039 | rozpoznany moduł wentylacji |
-| 2040 | alarm AERO |
+Dokumentacja COMPIT/AWENTA podaje dwie oddzielne wartości:
 
-Temperatury są raportowane z rozdzielczością 0,1 °C.
+- **REJESTR** — numer prezentowany w tabeli producenta,
+- **ADRES** — zero-based adres PDU wysyłany w ramce Modbus.
 
-## 5. Istotne rejestry sterujące
+Przykład:
 
-| Rejestr | Funkcja |
-|---:|---|
-| 1077 | wentylacja: 0 = OFF, 1 = ON |
-| 1079 | bypass: 0 = OFF, 1 = AUTO, 2 = ON |
-| 1080 | wybór biegu / trybu |
-| 1081 | wietrzenie: 0 = OFF, 1 = ON |
+```text
+REJESTR 2017 — temperatura pomieszczenia
+ADRES PDU 2016 — wartość wysyłana w zapytaniu FC03
+```
 
-Znaczenie wartości rejestru 1080:
+W kodzie sterownika i w surowej ramce Modbus należy używać kolumny **ADRES**. W dokumentacji użytkowej należy zawsze pokazywać oba pola, aby uniknąć błędów off-by-one.
+
+## 5. Rejestry bieżącego stanu
+
+| Rejestr | Adres PDU | Znaczenie | Jednostka |
+|---:|---:|---|---|
+| 2017 | 2016 | temperatura pomieszczenia | 0,1 °C |
+| 2022 | 2021 | temperatura nawiewu | 0,1 °C |
+| 2023 | 2022 | temperatura czerpni / zewnętrzna | 0,1 °C |
+| 2024 | 2023 | temperatura wywiewu | 0,1 °C |
+| 2025 | 2024 | temperatura wyrzutni | 0,1 °C |
+| 2026 | 2025 | stan presostatu | — |
+| 2027 | 2026 | aktywne rozmrażanie | 0/1 |
+| 2028 | 2027 | praca nagrzewnicy wtórnej | 0/1 |
+| 2029 | 2028 | aktywne wietrzenie | 0/1 |
+| 2030 | 2029 | praca nagrzewnicy wstępnej | 0/1 |
+| 2031 | 2030 | praca chłodnicy | 0/1 |
+| 2032 | 2031 | zabrudzony filtr | 0/1 |
+| 2033 | 2032 | aktualna moc nagrzewnicy wstępnej | % |
+| 2034 | 2033 | aktualna moc nagrzewnicy wtórnej | % |
+| 2035 | 2034 | aktualna wydajność nawiewu | % |
+| 2036 | 2035 | aktualna wydajność wywiewu | % |
+| 2037 | 2036 | aktualny bieg wentylacji | kod |
+| 2038 | 2037 | stan bypassu | kod |
+| 2039 | 2038 | stan GWC | kod |
+| 2040 | 2039 | aktualnie podłączony moduł wentylacji | kod |
+| 2041 | 2040 | alarm AERO | kod |
+| 2042 | 2041 | aktualne obroty AO3 | % |
+
+Temperatury są wartościami signed 16-bit ze skalą `0,1 °C`.
+
+## 6. Rejestry sterujące — numer i adres PDU
+
+| Rejestr | Adres PDU | Funkcja |
+|---:|---:|---|
+| 1078 | 1077 | wentylacja: 0 = OFF, 1 = ON |
+| 1079 | 1078 | GWC: 0 = OFF, 1 = AUTO |
+| 1080 | 1079 | bypass: 0 = OFF, 1 = AUTO, 2 = ON |
+| 1081 | 1080 | wybór biegu / trybu pracy |
+| 1082 | 1081 | wietrzenie: 0 = OFF, 1 = ON |
+
+Znaczenie rejestru 1081 / adresu 1080:
 
 - 0 — bieg 0,
 - 1 — bieg 1,
@@ -92,48 +113,48 @@ Znaczenie wartości rejestru 1080:
 - 4 — program świąteczny,
 - 5 — harmonogram.
 
-Do automatycznej reakcji na VOC i PM preferowany jest rejestr 1081. Raspberry Pi może tymczasowo uruchomić wietrzenie, obserwować rzeczywistą wydajność i po określonym czasie wyłączyć wietrzenie, pozostawiając pozostałą automatykę sterownikowi AERO.
+Do dynamicznej reakcji na VOC i PM preferowany jest **rejestr 1082 / adres PDU 1081**. CM5 może czasowo uruchomić wietrzenie, obserwować stan 2029 / 2028 oraz wydajności 2035 / 2034 i 2036 / 2035, a następnie wyłączyć wietrzenie.
 
-## 6. Konfiguracja biegów
+## 7. Konfiguracja biegów
 
-Dokumentacja udostępnia również parametry konfiguracyjne, między innymi:
+Najważniejsze parametry konfiguracyjne:
 
-- 1141–1144 — nawiew dla biegów 1, 2, 3 i wietrzenia,
-- 1145–1148 — wywiew dla biegów 1, 2, 3 i wietrzenia,
-- 1152 — czas wietrzenia,
-- 1155 — korekta biegu od sensorów,
-- 1166–1168 — parametry rozmrażania,
-- 1175 — konfiguracja bypassu.
+| Rejestr | Adres PDU | Znaczenie |
+|---:|---:|---|
+| 1142–1145 | 1141–1144 | nawiew dla biegów 1, 2, 3 i wietrzenia |
+| 1146–1149 | 1145–1148 | wywiew dla biegów 1, 2, 3 i wietrzenia |
+| 1153 | 1152 | czas wietrzenia |
+| 1156 | 1155 | korekta biegu od sensorów |
+| 1167–1169 | 1166–1168 | parametry rozmrażania |
+| 1176 | 1175 | konfiguracja bypassu |
 
-Nie należy używać tych parametrów do częstego sterowania dynamicznego.
+Nie używamy tych parametrów do częstego sterowania dynamicznego.
 
-## 7. Podział pamięci i trwałość EEPROM
+## 8. Podział pamięci i trwałość EEPROM
 
 Producent rozdziela obszary pamięci:
 
-- 1–399 — EEPROM, konfiguracja trwała,
-- 1001–1399 — RAM, ustawienia tymczasowe,
-- 2000–2100 — bieżące odczyty stanu.
+- `1–399` — EEPROM, konfiguracja trwała,
+- `1001–1399` — RAM, ustawienia tymczasowe,
+- `2000–2100` — bieżące odczyty stanu.
 
-Częste zapisy do EEPROM mogą skrócić jego trwałość. Automatyka Raspberry Pi powinna używać przede wszystkim rejestrów RAM i rejestrów bieżącego stanu.
+Częste zapisy do EEPROM mogą skrócić jego trwałość. Automatyka CM5 powinna korzystać przede wszystkim z obszaru RAM i rejestrów bieżącego stanu.
 
-## 8. Rola protokołu C14
+## 9. Rola protokołu C14
 
-C14 jest własnościowym protokołem Compit pracującym fizycznie na RS-485. Dostępne materiały wskazują typowe parametry 9600 bit/s i 8N2 oraz architekturę master/slave.
+C14 jest własnościowym protokołem COMPIT pracującym fizycznie na RS-485. Nie mamy pełnej, oficjalnej specyfikacji binarnej i nie jest ona potrzebna, jeżeli NANO COLOR 2 udostępnia wymagane funkcje AERO 4A2 przez Modbus RTU.
 
-Nie mamy pełnej, oficjalnej specyfikacji binarnej C14. Nie jest ona jednak potrzebna, jeżeli panel NANO COLOR 2 udostępnia wymagane funkcje AERO 4A2 przez Modbus RTU.
+Nie dołączamy drugiego mastera do magistrali C14.
 
-Nie należy dołączać drugiego urządzenia master bez potwierdzenia topologii i trybu pracy magistrali C14.
+## 10. Ograniczenie dotyczące iNext
 
-## 9. Ograniczenie dotyczące modułu iNext
+Tryb Modbus RTU / BMS może wykluczać jednoczesną pracę z modułem iNext. Przed wdrożeniem należy potwierdzić zachowanie konkretnej wersji firmware panelu.
 
-Dokumentacja NANO COLOR 2 wskazuje, że praca panelu w trybie Modbus RTU / BMS może wykluczać jednoczesną pracę z modułem iNext.
+Lokalny panel i AERO muszą działać niezależnie od CM5.
 
-Przed wdrożeniem trzeba sprawdzić na konkretnej wersji firmware, czy wybór Modbus wyłącza fabryczny dostęp WiFi. Lokalny panel i sterownik AERO powinny nadal działać niezależnie od Raspberry Pi.
+## 11. Zasada bezpieczeństwa integracji
 
-## 10. Zasada bezpieczeństwa integracji
-
-Raspberry Pi nie zastępuje sterownika AERO 4A2 i nie przejmuje jego zabezpieczeń.
+CM5 nie zastępuje AERO 4A2 i nie przejmuje jego zabezpieczeń.
 
 Po stronie AERO pozostają:
 
@@ -143,25 +164,46 @@ Po stronie AERO pozostają:
 - ochrona temperaturowa,
 - alarmy,
 - logika wentylatorów,
-- pozostałe funkcje serwisowe producenta.
+- funkcje serwisowe producenta.
 
-Raspberry Pi może jedynie odczytywać stan i żądać trybu pracy, np. czasowego wietrzenia.
+CM5 odczytuje stan i może żądać trybu pracy, np. czasowego wietrzenia. Awaria CM5 nie może blokować normalnej pracy rekuperatora z panelu lokalnego.
 
-Awaria Raspberry Pi nie może blokować normalnej pracy rekuperatora z panelu lokalnego.
+## 12. Plan pierwszej walidacji
 
-## 11. Plan pierwszej walidacji
-
-1. Odczytać wersję oprogramowania NANO COLOR 2.
-2. Potwierdzić w menu panelu dostępność trybu Modbus / BMS.
-3. Ustalić z dokumentacji przypisanie A1/B1 i A2/B2 — nie zgadywać połączeń.
-4. Zastosować izolowany interfejs USB–RS-485.
-5. Pierwszy test wykonać wyłącznie w trybie odczytu.
-6. Odczytać rejestry: 2016, 2021, 2036, 2039 i 2040.
+1. Potwierdzić wersję oprogramowania NANO COLOR 2.
+2. Potwierdzić w menu panelu tryb Modbus / BMS.
+3. Potwierdzić właściwą parę zacisków Modbus — bez zgadywania i bez wejścia na C14.
+4. Użyć izolowanego interfejsu USB–RS-485.
+5. Pierwszy test wykonać wyłącznie funkcją `0x03`.
+6. Odczytać:
+   - rejestr 2017 / adres 2016,
+   - rejestr 2022 / adres 2021,
+   - rejestr 2037 / adres 2036,
+   - rejestr 2040 / adres 2039,
+   - rejestr 2041 / adres 2040.
 7. Porównać wartości z panelem i rzeczywistym stanem centrali.
-8. Dopiero po pozytywnej walidacji wykonać pojedynczy zapis 1081 = 1.
-9. Sprawdzić uruchomienie wietrzenia oraz odczyty 2028, 2034 i 2035.
-10. Wyłączyć wietrzenie przez 1081 = 0 i potwierdzić powrót do normalnego sterowania.
+8. Wyjaśnić wszystkie wartości nielogiczne oraz aktywny kod alarmu przed jakimkolwiek zapisem.
+9. Dopiero po pozytywnej walidacji wykonać pojedynczy zapis rejestru 1082 / adresu 1081 wartością 1.
+10. Sprawdzić wietrzenie przez rejestr 2029 / adres 2028 oraz wydajności.
+11. Wyłączyć wietrzenie przez rejestr 1082 / adres 1081 wartością 0 i potwierdzić powrót do normalnej pracy.
 
-## 12. Status
+## 13. Status bieżącej walidacji
 
-Integracja bez podsłuchiwania C14 jest technicznie prawdopodobna i preferowana. Ostateczne potwierdzenie wymaga sprawdzenia wersji firmware panelu, przypisania zacisków oraz testu odczytu Modbus na rzeczywistym urządzeniu.
+Potwierdzono komunikację:
+
+```text
+COM10
+9600 bit/s
+8N1
+slave 44
+FC03
+CRC poprawne
+```
+
+Pierwszy odczyt ujawnił błąd opisu w projekcie: adresy PDU były przedstawiane jako numery rejestrów. Błąd został poprawiony w dokumentacji i narzędziu Windows.
+
+Do wyjaśnienia pozostają:
+
+- nielogiczna wartość temperatury pomieszczenia `67,4 °C`,
+- kod alarmu AERO `30`,
+- zgodność pozostałych wartości z ekranem NANO i rzeczywistym stanem centrali.
