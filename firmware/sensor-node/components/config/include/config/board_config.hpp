@@ -4,6 +4,7 @@
 
 #include "driver/gpio.h"
 #include "driver/i2c_types.h"
+#include "driver/uart.h"
 
 namespace config::board {
 
@@ -19,7 +20,7 @@ inline constexpr std::uint8_t kSen55Address = 0x69;
 inline constexpr gpio_num_t kStatusLed = GPIO_NUM_2;
 inline constexpr std::uint32_t kStatusLedActiveLevel = 1;
 
-// Reserved for a later stage. They are documented here to prevent accidental use.
+inline constexpr uart_port_t kRs485Uart = UART_NUM_2;
 inline constexpr gpio_num_t kRs485Rx = GPIO_NUM_27;
 inline constexpr gpio_num_t kRs485Tx = GPIO_NUM_25;
 inline constexpr gpio_num_t kRs485Direction = GPIO_NUM_26;
