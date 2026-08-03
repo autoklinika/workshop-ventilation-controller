@@ -6,7 +6,7 @@ NANO COLOR 2 register map does not match the observed device state and must not
 be used for interpretation or writes.
 
 Use the read-only raw discovery tool instead:
-    py tools\compit_nano_v630_discovery.py --help
+    py tools/compit_nano_v630_discovery.py --help
 """
 
 raise SystemExit(
