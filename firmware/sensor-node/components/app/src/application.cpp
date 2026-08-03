@@ -1,9 +1,11 @@
 #include "app/application.hpp"
 
 #include <cmath>
+#include <cstdint>
 
 #include "config/board_config.hpp"
 #include "config/firmware_config.hpp"
+#include "config/modbus_address.hpp"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -40,7 +42,8 @@ Application::Application()
 
     sensor_service_.start();
     LOG_INFO(kTag,
-             "Stage 2 runtime started; SEN55 USB diagnostics and read-only Modbus RTU are active");
+             "Stage 2B runtime started; SEN55 diagnostics and read-only Modbus RTU slave=%u are active",
+             static_cast<unsigned>(modbus_slave_.slave_address()));
 
     while (true) {
         sensor_service_.poll();
@@ -95,7 +98,20 @@ esp_err_t Application::initialize()
         return result;
     }
 
-    result = modbus_slave_.initialize();
+    std::uint8_t modbus_address{};
+    result = config::load_modbus_slave_address(modbus_address);
+    if (result != ESP_OK) {
+        LOG_ERROR(kTag,
+                  "Cannot resolve Modbus slave address: %s",
+                  esp_err_to_name(result));
+        return result;
+    }
+
+    LOG_INFO(kTag,
+             "resolved Modbus slave address=%u",
+             static_cast<unsigned>(modbus_address));
+
+    result = modbus_slave_.initialize(modbus_address);
     if (result != ESP_OK) {
         return result;
     }
