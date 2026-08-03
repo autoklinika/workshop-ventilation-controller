@@ -1,0 +1,11 @@
+menu "Workshop ventilation sensor node"
+
+config WVC_MODBUS_SLAVE_ADDRESS_DEFAULT
+    int "Default Modbus RTU slave address"
+    range 1 247
+    default 1
+    help
+        Safe fallback used only when no locally provisioned address exists in
+        NVS. Production nodes should be provisioned locally as address 1 or 2.
+
+endmenu
