@@ -11,12 +11,18 @@ Allowed control addresses:
 - 1080: ventilation mode / speed (0..3 used in Stage 1)
 - 1081: airing (0/1)
 
+Observed runtime behavior:
+- NANO may acknowledge a write immediately,
+- AERO 4A2 may need up to about 30 seconds to execute it physically,
+- protocol acknowledgement is not treated as physical confirmation,
+- the tool observes fan-power telemetry for up to 45 seconds by default.
+
 Safety:
-- writes require --execute and --confirm NANO630
-- the previous value is read first
-- the FC06 echo and readback are verified
-- by default the previous value is restored after 10 seconds
-- --keep is required to leave the new value active
+- writes require --execute and --confirm NANO630,
+- the previous value is read first,
+- FC06 echo and FC03 readback are verified,
+- the physical response is observed separately,
+- the previous value is restored unless --keep is used.
 """
 
 from __future__ import annotations
@@ -40,29 +46,43 @@ DEFAULT_PORT = "COM10"
 DEFAULT_SLAVE = 44
 DEFAULT_BAUD = 9600
 DEFAULT_TIMEOUT = 0.6
+DEFAULT_SETTLE_TIMEOUT = 45.0
+DEFAULT_POLL_INTERVAL = 2.0
+DEFAULT_HOLD_SECONDS = 10.0
 CONFIRM_TEXT = "NANO630"
 
 ADDR_SPEED = 1080
 ADDR_AIRING = 1081
+ADDR_FAN_1_POWER = 2033
+ADDR_FAN_2_POWER = 2034
 
 TELEMETRY = (
     (2016, "wilgotność", "div10_percent"),
     (2021, "temperatura nawiewu", "temperature"),
     (2022, "temperatura wywiewu", "temperature"),
     (2023, "temperatura czerpni", "temperature"),
-    (2033, "moc wentylatora 1", "percent"),
-    (2034, "moc wentylatora 2", "percent"),
+    (ADDR_FAN_1_POWER, "moc wentylatora 1", "percent"),
+    (ADDR_FAN_2_POWER, "moc wentylatora 2", "percent"),
 )
 
 
 class ModbusError(RuntimeError):
-    pass
+    """Raised for missing, malformed or rejected Modbus exchanges."""
 
 
 @dataclass(frozen=True)
 class Exchange:
     tx: bytes
     rx: bytes
+
+
+@dataclass(frozen=True)
+class FanPower:
+    fan_1: int
+    fan_2: int
+
+    def render(self) -> str:
+        return f"wentylator1={self.fan_1}% wentylator2={self.fan_2}%"
 
 
 def crc16_modbus(data: bytes) -> int:
@@ -194,6 +214,16 @@ def show_exchange(exchange: Exchange) -> None:
     print(f"      RX {exchange.rx.hex(' ').upper()}")
 
 
+def read_fan_power(port: serial.Serial, args: argparse.Namespace) -> FanPower:
+    fan_1, _ = read_register(
+        port, args.address, ADDR_FAN_1_POWER, args.timeout
+    )
+    fan_2, _ = read_register(
+        port, args.address, ADDR_FAN_2_POWER, args.timeout
+    )
+    return FanPower(fan_1=fan_1, fan_2=fan_2)
+
+
 def show_status(port: serial.Serial, args: argparse.Namespace) -> None:
     print("\nStan sterowania:")
     controls = (
@@ -233,6 +263,101 @@ def require_write_confirmation(args: argparse.Namespace) -> None:
         )
 
 
+def verify_control_readback(
+    port: serial.Serial,
+    args: argparse.Namespace,
+    address: int,
+    expected: int,
+    phase: str,
+) -> None:
+    time.sleep(args.verify_delay)
+    readback, exchange = read_register(
+        port, args.address, address, args.timeout
+    )
+    print(f"{phase} — odczyt ADR {address}: {readback}")
+    if args.show_frames:
+        show_exchange(exchange)
+    if readback != expected:
+        raise ModbusError(
+            f"ADR {address}: {phase.lower()} niepotwierdzone, "
+            f"odczytano {readback}, oczekiwano {expected}"
+        )
+    print(
+        f"{phase} potwierdzone na poziomie Modbus. "
+        "To nie oznacza jeszcze fizycznej reakcji AERO."
+    )
+
+
+def wait_for_fan_change(
+    port: serial.Serial,
+    args: argparse.Namespace,
+    baseline: FanPower,
+    phase: str,
+) -> tuple[FanPower, bool]:
+    print(
+        f"\n{phase}: obserwuję fizyczną odpowiedź AERO przez maksymalnie "
+        f"{args.settle_timeout:.1f} s."
+    )
+    deadline = time.monotonic() + args.settle_timeout
+    started = time.monotonic()
+    last = baseline
+
+    while True:
+        now = time.monotonic()
+        if now >= deadline:
+            print(
+                f"OSTRZEŻENIE: brak zmiany mocy wentylatorów w czasie "
+                f"{args.settle_timeout:.1f} s. Ostatni stan: {last.render()}."
+            )
+            return last, False
+
+        time.sleep(min(args.poll_interval, max(0.0, deadline - now)))
+        last = read_fan_power(port, args)
+        elapsed = time.monotonic() - started
+        print(f"  t={elapsed:5.1f} s  {last.render()}")
+
+        if last != baseline:
+            print(
+                f"Fizyczna reakcja AERO zaobserwowana po {elapsed:.1f} s."
+            )
+            return last, True
+
+
+def wait_for_fan_return(
+    port: serial.Serial,
+    args: argparse.Namespace,
+    baseline: FanPower,
+) -> bool:
+    print(
+        f"\nPo przywróceniu obserwuję powrót mocy przez maksymalnie "
+        f"{args.settle_timeout:.1f} s."
+    )
+    deadline = time.monotonic() + args.settle_timeout
+    started = time.monotonic()
+    last = read_fan_power(port, args)
+
+    while True:
+        elapsed = time.monotonic() - started
+        print(f"  t={elapsed:5.1f} s  {last.render()}")
+        if last == baseline:
+            print(
+                f"Powrót fizyczny potwierdzony po {elapsed:.1f} s."
+            )
+            return True
+
+        now = time.monotonic()
+        if now >= deadline:
+            print(
+                "OSTRZEŻENIE: rejestr sterujący został przywrócony, ale "
+                f"moce nie wróciły do stanu bazowego w {args.settle_timeout:.1f} s. "
+                f"Stan bazowy: {baseline.render()}, ostatni: {last.render()}."
+            )
+            return False
+
+        time.sleep(min(args.poll_interval, max(0.0, deadline - now)))
+        last = read_fan_power(port, args)
+
+
 def execute_guarded_change(
     port: serial.Serial,
     args: argparse.Namespace,
@@ -244,7 +369,10 @@ def execute_guarded_change(
     previous, before_exchange = read_register(
         port, args.address, address, args.timeout
     )
+    baseline_power = read_fan_power(port, args)
+
     print(f"\n{label}: ADR {address}, obecnie={previous}, cel={target}")
+    print(f"Stan fizyczny przed zmianą: {baseline_power.render()}")
     if args.show_frames:
         show_exchange(before_exchange)
 
@@ -274,29 +402,33 @@ def execute_guarded_change(
     if args.show_frames:
         show_exchange(write_exchange)
 
-    time.sleep(args.verify_delay)
-    readback, readback_exchange = read_register(
-        port, args.address, address, args.timeout
+    verify_control_readback(
+        port, args, address, target, "Zapis wartości docelowej"
     )
-    print(f"Odczyt kontrolny ADR {address}: {readback}")
-    if args.show_frames:
-        show_exchange(readback_exchange)
-    if readback != target:
-        raise ModbusError(
-            f"ADR {address}: zapis niepotwierdzony, odczytano {readback}, "
-            f"oczekiwano {target}"
-        )
+    physical_after, changed = wait_for_fan_change(
+        port, args, baseline_power, "Weryfikacja wykonania"
+    )
 
-    print("Zapis potwierdzony.")
+    print("\nStan po okresie oczekiwania:")
     show_status(port, args)
 
     if args.keep:
-        print("\n--keep: nowa wartość pozostaje aktywna.")
+        if not changed:
+            print(
+                "\n--keep: wartość sterująca pozostaje aktywna, mimo że "
+                "zmiana mocy nie została jeszcze potwierdzona."
+            )
+        else:
+            print(
+                f"\n--keep: nowa wartość pozostaje aktywna; "
+                f"ostatnia moc: {physical_after.render()}."
+            )
         return
 
     print(
-        f"\nTest potrwa {args.hold_seconds:.1f} s, "
-        f"następnie przywrócę wartość {previous}."
+        f"\nPo potwierdzeniu/wyczerpaniu czasu bezwładności utrzymuję test "
+        f"jeszcze przez {args.hold_seconds:.1f} s, a następnie przywrócę "
+        f"wartość {previous}."
     )
     time.sleep(args.hold_seconds)
 
@@ -306,19 +438,10 @@ def execute_guarded_change(
     if args.show_frames:
         show_exchange(restore_exchange)
 
-    time.sleep(args.verify_delay)
-    restored, restored_exchange = read_register(
-        port, args.address, address, args.timeout
+    verify_control_readback(
+        port, args, address, previous, "Przywrócenie wartości poprzedniej"
     )
-    print(f"Odczyt po przywróceniu ADR {address}: {restored}")
-    if args.show_frames:
-        show_exchange(restored_exchange)
-    if restored != previous:
-        raise ModbusError(
-            f"ADR {address}: nie udało się potwierdzić przywrócenia "
-            f"wartości {previous}; odczytano {restored}"
-        )
-    print("Poprzedni stan został przywrócony i potwierdzony.")
+    wait_for_fan_return(port, args, baseline_power)
 
 
 def add_write_safety_options(parser: argparse.ArgumentParser) -> None:
@@ -327,14 +450,35 @@ def add_write_safety_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--hold-seconds",
         type=float,
-        default=10.0,
-        help="Czas testu przed automatycznym przywróceniem (domyślnie 10 s)",
+        default=DEFAULT_HOLD_SECONDS,
+        help=(
+            "Czas utrzymania po potwierdzeniu lub zakończeniu oczekiwania "
+            f"na AERO (domyślnie {DEFAULT_HOLD_SECONDS:.0f} s)"
+        ),
     )
     parser.add_argument(
         "--verify-delay",
         type=float,
         default=0.8,
-        help="Opóźnienie przed odczytem kontrolnym",
+        help="Opóźnienie przed kontrolnym odczytem rejestru Modbus",
+    )
+    parser.add_argument(
+        "--settle-timeout",
+        type=float,
+        default=DEFAULT_SETTLE_TIMEOUT,
+        help=(
+            "Maksymalny czas oczekiwania na fizyczną reakcję AERO "
+            f"(domyślnie {DEFAULT_SETTLE_TIMEOUT:.0f} s)"
+        ),
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=DEFAULT_POLL_INTERVAL,
+        help=(
+            "Odstęp odczytów mocy podczas oczekiwania "
+            f"(domyślnie {DEFAULT_POLL_INTERVAL:.0f} s)"
+        ),
     )
     parser.add_argument(
         "--keep",
@@ -381,6 +525,13 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("--hold-seconds nie może być ujemne")
     if hasattr(args, "verify_delay") and args.verify_delay <= 0:
         raise SystemExit("--verify-delay musi być dodatnie")
+    if hasattr(args, "settle_timeout") and args.settle_timeout <= 0:
+        raise SystemExit("--settle-timeout musi być dodatnie")
+    if hasattr(args, "poll_interval") and args.poll_interval <= 0:
+        raise SystemExit("--poll-interval musi być dodatnie")
+    if hasattr(args, "poll_interval") and hasattr(args, "settle_timeout"):
+        if args.poll_interval > args.settle_timeout:
+            raise SystemExit("--poll-interval nie może przekraczać --settle-timeout")
     if hasattr(args, "keep") and args.keep and not args.execute:
         raise SystemExit("--keep wymaga --execute")
 
@@ -396,6 +547,10 @@ def main() -> int:
         f"slave={args.address}"
     )
     print("Do zapisu dopuszczone są wyłącznie ADR 1080 i 1081.")
+    print(
+        "Ważne: echo FC06 i readback potwierdzają przyjęcie polecenia przez "
+        "NANO, a nie fizyczne wykonanie przez AERO."
+    )
 
     try:
         with serial.Serial(
