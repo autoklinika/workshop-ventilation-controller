@@ -6,6 +6,7 @@
 
 #include "config/board_config.hpp"
 #include "config/firmware_config.hpp"
+#include "config/modbus_address.hpp"
 #include "driver/uart.h"
 #include "esp_timer.h"
 #include "logging/log.hpp"
@@ -43,11 +44,16 @@ ModbusRtuSlave::~ModbusRtuSlave()
     destroy();
 }
 
-esp_err_t ModbusRtuSlave::initialize()
+esp_err_t ModbusRtuSlave::initialize(const std::uint8_t slave_address)
 {
     if (handle_ != nullptr) {
-        return ESP_OK;
+        return slave_address == slave_address_ ? ESP_OK : ESP_ERR_INVALID_STATE;
     }
+    if (!config::valid_modbus_slave_address(slave_address)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    slave_address_ = slave_address;
 
     RegisterSource initial_source{};
     initial_source.measurement_stale = true;
@@ -60,7 +66,7 @@ esp_err_t ModbusRtuSlave::initialize()
     communication.ser_opts.mode = MB_RTU;
     communication.ser_opts.baudrate = config::firmware::kModbusBaudRate;
     communication.ser_opts.parity = MB_PARITY_NONE;
-    communication.ser_opts.uid = config::firmware::kModbusSlaveAddress;
+    communication.ser_opts.uid = slave_address_;
     communication.ser_opts.data_bits = UART_DATA_8_BITS;
     communication.ser_opts.stop_bits = UART_STOP_BITS_1;
 
@@ -116,7 +122,7 @@ esp_err_t ModbusRtuSlave::initialize()
 
     LOG_INFO(kTag,
              "started: mode=RTU address=%u baud=%lu format=8N1 uart=%d tx=%d rx=%d de_re=%d input_registers=%u",
-             static_cast<unsigned>(config::firmware::kModbusSlaveAddress),
+             static_cast<unsigned>(slave_address_),
              static_cast<unsigned long>(config::firmware::kModbusBaudRate),
              static_cast<int>(config::board::kRs485Uart),
              static_cast<int>(config::board::kRs485Tx),
@@ -163,6 +169,11 @@ esp_err_t ModbusRtuSlave::refresh(const sen55::Measurement& measurement,
 bool ModbusRtuSlave::initialized() const
 {
     return handle_ != nullptr;
+}
+
+std::uint8_t ModbusRtuSlave::slave_address() const
+{
+    return slave_address_;
 }
 
 std::uint32_t ModbusRtuSlave::service_error_count() const
