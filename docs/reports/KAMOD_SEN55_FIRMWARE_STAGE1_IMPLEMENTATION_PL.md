@@ -1,5 +1,7 @@
 # KAmod ESP32 POW RS485 + SEN55 — Firmware Stage 1
 
+**Status: ZAKOŃCZONY I ZWALIDOWANY SPRZĘTOWO — 2026-08-03**
+
 ## Cel
 
 Dostarczenie stabilnej, warstwowej podstawy firmware węzła pomiarowego przed rozpoczęciem Modbus RTU, Wi-Fi i komunikacji z CM5.
@@ -67,7 +69,7 @@ Krytyczny błąd inicjalizacji platformy prowadzi do restartu. Jeżeli uruchomio
 | SEL | niebieski | GND |
 | NC | fioletowy | nie podłączać |
 
-Względem pierwotnego schematu przewody zielony i żółty zostały zamienione miejscami. Pierwszy test został uruchomiony przez tymczasowe skrzyżowanie przewodów, ponieważ firmware miał odwrócone przypisanie SDA/SCL. Po korekcie firmware należy stosować powyższy końcowy schemat bez dodatkowego krzyżowania przewodów.
+Względem pierwotnego schematu przewody zielony i żółty zostały zamienione miejscami. Pierwszy test został uruchomiony przez tymczasowe skrzyżowanie przewodów, ponieważ firmware miał odwrócone przypisanie SDA/SCL. Po korekcie firmware obowiązuje powyższy końcowy schemat bez dodatkowego krzyżowania przewodów.
 
 ## Walidacja stanowiskowa 2026-08-03
 
@@ -89,7 +91,7 @@ Względem pierwotnego schematu przewody zielony i żółty zostały zamienione m
 - SCL w stanie spoczynku: 3,28 V,
 - SEL: 0 V.
 
-### Wyniki
+### Wyniki końcowe
 
 1. Build ESP-IDF 6.0.2 — zaliczony.
 2. Flash przez USB-C — zaliczony.
@@ -105,6 +107,9 @@ Względem pierwotnego schematu przewody zielony i żółty zostały zamienione m
 8. Odczyty PM1.0, PM2.5, PM4.0, PM10, RH, temperatury, VOC i NOx — zaliczone.
 9. Odłączenie SEN55 podczas pracy — wykryte bez zawieszenia i bez reset loop.
 10. Ponowne podłączenie SEN55 — automatyczny powrót pomiarów bez restartu ESP32.
+11. Test regresyjny po korekcie SDA/SCL, z docelowym schematem przewodów — zaliczony.
+12. Pełny zimny start po odłączeniu 12 V oraz USB — zaliczony; SEN55 został ponownie wykryty, a pomiary uruchomiły się automatycznie.
+13. Restart przyciskiem `RESET` KAmod — zaliczony; firmware uruchomił się ponownie, wykrył SEN55 i wznowił pomiary bez interwencji serwisowej.
 
 Przykładowe potwierdzenie z logu:
 
@@ -117,11 +122,15 @@ sensor_node: measurement=1 PM1.0=49.2 PM2.5=51.6 PM4.0=51.6 PM10=51.6 RH=55.73 T
 
 ### Wykryta i usunięta niezgodność
 
-Pierwsza wersja konfiguracji określała SDA jako GPIO32 i SCL jako GPIO33. Oficjalne przypisanie KAmod oraz wynik testu wskazują odwrotny układ: SDA GPIO33 i SCL GPIO32. Błąd został usunięty w konfiguracji firmware oraz w schematach połączeń.
+Pierwsza wersja konfiguracji określała SDA jako GPIO32 i SCL jako GPIO33. Test stanowiskowy wykazał właściwy układ: SDA GPIO33 i SCL GPIO32. Błąd został usunięty w konfiguracji firmware oraz w schematach połączeń, a poprawka została potwierdzona ponownym flashem i testem fizycznym.
 
-Funkcjonalność sterownika SEN55 i mechanizm odzyskiwania komunikacji zostały potwierdzone fizycznie. Po pobraniu commitu z korektą pinów wymagany jest jeszcze krótki test regresyjny: ponowny flash, standardowe podłączenie zielony SDA → GPIO33 i żółty SCL → GPIO32 oraz potwierdzenie pierwszego pomiaru.
+## Wniosek końcowy
 
-## Poza zakresem
+Stage 1 został zakończony. Fizycznie potwierdzono inicjalizację platformy, komunikację I²C, identyfikację SEN55, pomiar ciągły, kompletność danych, obsługę odłączenia i powrotu czujnika, zimny start oraz restart programowy płytki.
+
+Sterownik SEN55 stanowi stabilną bazę dla następnego etapu. Dalsza komunikacja nie może zostać wprowadzona do sterownika czujnika; Modbus RTU powinien być osobnym komponentem korzystającym z zatwierdzonego kontraktu danych.
+
+## Poza zakresem Stage 1
 
 - Modbus RTU,
 - aktywacja transceivera RS-485,
@@ -133,6 +142,6 @@ Funkcjonalność sterownika SEN55 i mechanizm odzyskiwania komunikacji zostały 
 - Home Assistant,
 - AI.
 
-## Następny checkpoint
+## Następny etap
 
-Po krótkim teście regresyjnym skorygowanego przypisania SDA/SCL Stage 1 można formalnie zamknąć. Następny etap powinien obejmować kontrakt danych oraz Modbus RTU slave, bez mieszania tej logiki ze sterownikiem SEN55.
+Stage 2: kontrakt danych i Modbus RTU slave po wbudowanym RS-485 KAmod. Pierwsza wersja powinna być tylko do odczytu, udostępniać pomiary oraz diagnostykę i zostać sprawdzona z komputerem przez konwerter USB–RS485 przed podłączeniem do CM5.
