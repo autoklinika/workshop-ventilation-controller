@@ -177,3 +177,16 @@ Wi-Fi nie może przenosić zastępczych pomiarów do logiki sterowania ani udost
 CM5 wykonuje diagnostykę krzyżową obu kanałów. Brak Modbus przy działającym heartbeacie Wi-Fi wskazuje przede wszystkim na problem magistrali RS-485, przewodu, terminacji lub interfejsu master. Działający Modbus przy braku Wi-Fi oznacza wyłącznie utratę funkcji serwisowych. Brak obu kanałów wskazuje na możliwą utratę zasilania, awarię węzła albo całkowitą utratę łączności.
 
 Szczegóły definiuje dokument `DUAL_CHANNEL_NODE_COMMUNICATION_PL.md`.
+
+## D-044 — Oddzielna magistrala RS-485 dla rekuperatora
+
+Rekuperator COMPIT NANO COLOR 2 / AERO 4A2 nie będzie podłączony do tej samej fizycznej magistrali RS-485 co węzły SEN55 + KAmod.
+
+Przyjmujemy dwie niezależne magistrale:
+
+- **RS-485 SENSOR BUS** — wyłącznie węzły SEN55 + KAmod, pracujące według własnego kontraktu Modbus i harmonogramu szybkiego, regularnego odpytywania,
+- **RS-485 AERO BUS** — wyłącznie NANO COLOR 2 v6.30 / AERO 4A2, pracujące przy `9600 bit/s`, `8N1`, slave `44`.
+
+Powodem rozdzielenia jest duża bezwładność wykonawcza AERO, sięgająca około 30 sekund, odmienny profil komunikacji i potrzeba niezależnej diagnostyki obu podsystemów. Opóźnienie wykonawcze AERO nie jest zajęciem magistrali Modbus, ale nie chcemy wiązać cyklu pomiarowego czujników z logiką poleceń, timeoutów i odzyskiwania rekuperatora.
+
+Każda magistrala otrzyma osobny izolowany interfejs RS-485 po stronie CM5, osobnego właściciela portu w warstwie sprzętowej, osobny harmonogram odpytywania, licznik błędów i stan komunikacji. Awaria, timeout lub restart adaptera AERO nie może wpływać na odczyty SEN55, a awaria magistrali czujników nie może blokować lokalnej pracy rekuperatora.
