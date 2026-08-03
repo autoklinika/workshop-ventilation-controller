@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read the KAmod + SEN55 Stage 2 Modbus RTU input-register map."""
+"""Read and validate the KAmod + SEN55 Stage 2 Modbus RTU interface."""
 
 from __future__ import annotations
 
@@ -19,6 +19,14 @@ except ImportError as exc:  # pragma: no cover - user environment guard
 
 REGISTER_COUNT = 19
 FUNCTION_READ_INPUT_REGISTERS = 0x04
+FUNCTION_WRITE_SINGLE_REGISTER = 0x06
+
+EXCEPTION_NAMES = {
+    0x01: "Illegal Function",
+    0x02: "Illegal Data Address",
+    0x03: "Illegal Data Value",
+    0x04: "Slave Device Failure",
+}
 
 AVAILABILITY_NAMES = (
     "PM1.0",
@@ -91,8 +99,13 @@ def read_input_registers(
     start_address: int = 0,
     quantity: int = REGISTER_COUNT,
 ) -> list[int]:
-    request_pdu = struct.pack(">BBHH", slave_address, FUNCTION_READ_INPUT_REGISTERS,
-                              start_address, quantity)
+    request_pdu = struct.pack(
+        ">BBHH",
+        slave_address,
+        FUNCTION_READ_INPUT_REGISTERS,
+        start_address,
+        quantity,
+    )
     request = append_crc(request_pdu)
 
     port.reset_input_buffer()
@@ -134,6 +147,60 @@ def read_input_registers(
 
     payload = frame[3:-2]
     return list(struct.unpack(f">{quantity}H", payload))
+
+
+def test_write_single_register_rejected(
+    port: serial.Serial,
+    slave_address: int,
+    register_address: int = 0,
+    value: int = 0xA55A,
+) -> int:
+    request_pdu = struct.pack(
+        ">BBHH",
+        slave_address,
+        FUNCTION_WRITE_SINGLE_REGISTER,
+        register_address,
+        value,
+    )
+    request = append_crc(request_pdu)
+
+    port.reset_input_buffer()
+    port.write(request)
+    port.flush()
+
+    header = read_exact(port, 3, port.timeout or 1.0)
+    if len(header) != 3:
+        raise ModbusError(
+            "Brak odpowiedzi wyjątkowej na próbę zapisu. "
+            "Nie można potwierdzić kontrolowanego odrzucenia funkcji 0x06."
+        )
+
+    response_address, function, third = header
+    if response_address != slave_address:
+        raise ModbusError(
+            f"Odpowiedź z nieoczekiwanego adresu {response_address}, oczekiwano {slave_address}"
+        )
+
+    if function == (FUNCTION_WRITE_SINGLE_REGISTER | 0x80):
+        tail = read_exact(port, 2, port.timeout or 1.0)
+        frame = header + tail
+        if len(frame) != 5:
+            raise ModbusError("Niepełna odpowiedź wyjątkowa Modbus")
+        verify_crc(frame)
+        return third
+
+    if function == FUNCTION_WRITE_SINGLE_REGISTER:
+        tail = read_exact(port, 5, port.timeout or 1.0)
+        frame = header + tail
+        if len(frame) != 8:
+            raise ModbusError("Niepełna odpowiedź na funkcję zapisu 0x06")
+        verify_crc(frame)
+        raise ModbusError(
+            "Urządzenie zaakceptowało funkcję zapisu 0x06. "
+            "Interfejs Stage 2A nie jest tylko do odczytu."
+        )
+
+    raise ModbusError(f"Nieoczekiwany kod funkcji 0x{function:02X}")
 
 
 def signed_16(value: int) -> int:
@@ -238,6 +305,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--test-write",
+        action="store_true",
+        help="Wyślij funkcję 0x06 i potwierdź, że Stage 2A odrzuca zapis wyjątkiem Modbus",
+    )
     return parser.parse_args()
 
 
@@ -258,6 +330,24 @@ def main() -> int:
             timeout=args.timeout,
             write_timeout=args.timeout,
         ) as port:
+            if args.test_write:
+                try:
+                    exception_code = test_write_single_register_rejected(
+                        port,
+                        args.address,
+                    )
+                except ModbusError as exc:
+                    print(f"TEST NIEZALICZONY: {exc}", file=sys.stderr)
+                    return 1
+
+                exception_name = EXCEPTION_NAMES.get(exception_code, "nieznany wyjątek")
+                print(
+                    "TEST ZALICZONY: funkcja zapisu 0x06 została odrzucona "
+                    f"wyjątkiem 0x{exception_code:02X} ({exception_name})."
+                )
+                print("Interfejs Modbus Stage 2A pozostaje tylko do odczytu.")
+                return 0
+
             while True:
                 try:
                     registers = read_input_registers(port, args.address)
