@@ -1,20 +1,24 @@
-# KAmod ESP32 POW RS485 + SEN55 — firmware Stage 1
+# KAmod ESP32 POW RS485 + SEN55 — firmware Stage 2
 
-Pierwszy etap uruchamia niezależny węzeł pomiarowy SEN55 na module KAmod ESP32 POW RS485. Kod jest przygotowany dla ESP-IDF 6.0.2 i nie zawiera jeszcze Modbus RTU, Wi-Fi, heartbeatów, pobierania OTA ani komunikacji z CM5.
+Stage 2 rozwija zwalidowany sterownik SEN55 o produkcyjny kanał danych Modbus RTU po wbudowanym interfejsie RS-485 płytki KAmod. Interfejs jest celowo tylko do odczytu.
 
 ## Zakres
 
-- warstwowy projekt ESP-IDF,
-- konfiguracja płytki KAmod,
-- I²C przez GPIO33 (SDA) i GPIO32 (SCL),
-- wykrywanie SEN55 pod adresem `0x69`,
-- odczyt nazwy produktu i wersji,
-- uruchomienie pomiaru ciągłego,
-- walidacja CRC Sensirion,
-- cykliczny odczyt PM, temperatury, wilgotności, VOC i NOx,
-- diagnostyka błędów i automatyczne ponawianie po odłączeniu czujnika,
-- log przez USB-C / UART0 przy 115200 bit/s,
-- układ partycji OTA A/B z rollbackiem i coredumpem.
+- ESP-IDF 6.0.2,
+- SEN55 po lokalnym I²C,
+- I²C: SDA GPIO33, SCL GPIO32,
+- Modbus RTU slave po UART2,
+- RS-485: TX GPIO25, RX GPIO27, DE/RE GPIO26,
+- adres slave `1`,
+- `19200 bit/s`, `8N1`,
+- funkcja `0x04` — Read Input Registers,
+- 19 rejestrów pomiarowych i diagnostycznych,
+- aktualizacja mapy pod blokadą kontrolera Modbus,
+- automatyczne oznaczanie pomiaru nieaktualnego,
+- brak rejestrów zapisywalnych w Stage 2A,
+- OTA A/B, rollback i coredump zachowane ze Stage 1.
+
+Oficjalny komponent `espressif/esp-modbus` jest przypięty do wersji `2.1.2`, zawierającej poprawki zgodności z ESP-IDF 6.0.
 
 ## Architektura
 
@@ -23,66 +27,48 @@ main
   -> app
       -> services
           -> sen55
-              -> drivers
+              -> drivers/I2C
+      -> modbus
+          -> register_map
+          -> esp-modbus
+              -> UART2 / RS-485
       -> diagnostics
       -> platform
       -> logging
       -> config
 ```
 
-`main.cpp` jest wyłącznie punktem wejścia. Obsługa I²C, protokół SEN55, diagnostyka i logika ponawiania są oddzielnymi komponentami.
+Sterownik SEN55 nie zna Modbus. Komponent Modbus pobiera gotowy snapshot pomiaru i diagnostyki, koduje go zgodnie z wersjonowaną mapą i udostępnia przez rejestry wejściowe.
 
 ## Wymagania
 
-- ESP-IDF 6.0.2,
-- KAmod ESP32 POW RS485 z ESP32-WROOM-32D i 4 MB flash,
+- KAmod ESP32 POW RS485,
 - SEN55,
-- przewód USB-C do programowania i monitorowania logów.
+- stabilne zasilanie KAmod, w prototypie 12 V,
+- przewód USB-C do flashowania i logów,
+- do testu RS-485: konwerter USB–RS485 oraz komputer.
 
-## Budowanie
-
-W terminalu ESP-IDF:
-
-```bash
-cd firmware/sensor-node
-idf.py set-target esp32
-idf.py build
-```
-
-## Flash i monitor
-
-Linux:
-
-```bash
-idf.py -p /dev/ttyUSB0 flash monitor
-```
-
-Windows:
+## Budowanie i flash
 
 ```powershell
-idf.py -p COM9 flash monitor
+cd C:\PROJEKTY\workshop-ventilation-controller\firmware\sensor-node
+idf.py set-target esp32
+idf.py -p COM9 build flash monitor
 ```
 
-Numer portu należy dopasować do systemu. Monitor zamyka się kombinacją `Ctrl+]`.
+Monitor zamyka się kombinacją `Ctrl+]`.
 
-## Oczekiwany przebieg testu USB
-
-Po poprawnym uruchomieniu log powinien zawierać między innymi:
+Po uruchomieniu oczekiwane są między innymi logi:
 
 ```text
-sensor_node: firmware=0.1.0-stage1
-platform: running_partition=ota_0
-platform: i2c initialized: port=0 sda=33 scl=32 frequency=100000
-sen55: detected product=SEN55 ...
+modbus_rtu: started: mode=RTU address=1 baud=19200 format=8N1 uart=2 tx=25 rx=27 de_re=26 input_registers=19
+sensor_service: detected product=SEN55 ...
 sensor_service: continuous measurement started
-sensor_node: PM1.0=... PM2.5=... PM4.0=... PM10=... RH=... T=... VOC=... NOx=...
+diagnostics: sensor_state=running
+sensor_node: measurement=...
 ```
 
-Po odłączeniu SEN55 firmware nie powinien się zawiesić ani wejść w reset loop. Powinien przejść do stanu offline i co 5 sekund próbować ponownie wykryć czujnik. Po ponownym podłączeniu powinien sam wrócić do pomiarów.
-
-## Połączenie I²C i zasilanie
-
-Obowiązujący schemat po korekcie stanowiskowej:
+## Połączenie SEN55
 
 | SEN55 | Kolor przewodu | KAmod ESP32 POW RS485 |
 |---|---|---|
@@ -93,29 +79,74 @@ Obowiązujący schemat po korekcie stanowiskowej:
 | SEL | niebieski | GND |
 | NC | fioletowy | nie podłączać |
 
-Względem pierwszej instrukcji przewody sygnałowe zostały zamienione: zielony SDA należy połączyć z GPIO33, a żółty SCL z GPIO32. Na płytce znajdują się zewnętrzne rezystory podciągające I²C 2,2 kΩ, dlatego wewnętrzne pull-upy ESP32 pozostają wyłączone.
+## Połączenie RS-485
 
-Do pracy docelowej KAmod należy zasilać przez wejście `POWER` napięciem 8–32 V; w prototypie użyto 12 V. Podczas walidacji zmierzono 5,05 V na zasilaniu SEN55, 3,28 V na obu liniach I²C oraz 0 V na SEL.
+Na złączu KAmod należy połączyć magistralę różnicową z konwerterem USB–RS485:
 
-## Wynik walidacji stanowiskowej 2026-08-03
+```text
+KAmod A+  -> konwerter A / D+
+KAmod B-  -> konwerter B / D-
+GND       -> GND konwertera, jeżeli adapter udostępnia zacisk masy
+```
 
-- flash przez USB-C na COM9 zakończony poprawnie,
-- wykryty produkt `SEN55`, firmware 2.0, hardware 5.0, protokół 1.0,
-- uruchomiony pomiar ciągły,
-- wszystkie osiem pól dostępne (`mask=0xFF`),
-- stabilne kolejne odczyty PM, RH, temperatury, VOC i NOx,
-- odłączenie czujnika nie powoduje restartu ESP32,
-- po ponownym podłączeniu pomiary wracają automatycznie.
+Nazewnictwo A/B bywa odwracane przez producentów adapterów. Jeżeli urządzenie nie odpowiada mimo poprawnych ustawień, pierwszą diagnostyczną próbą jest zamiana A z B. Nie zmieniać przewodów przy włączonym zasilaniu.
 
-Pierwszy test ujawnił odwrócone przypisanie SDA/SCL w konfiguracji firmware i dokumentacji. Tymczasowe skrzyżowanie przewodów pozwoliło potwierdzić działanie sterownika; następnie konfigurację poprawiono do właściwego przypisania KAmod: SDA GPIO33, SCL GPIO32. Po pobraniu tej poprawki należy stosować wyłącznie schemat z tabeli powyżej.
+Przy krótkim połączeniu stanowiskowym używamy magistrali bez dodatkowych terminatorów. Dla docelowej długiej magistrali terminację i polaryzację spoczynkową ustalimy po weryfikacji wszystkich urządzeń.
 
-## OTA i rollback
+## Test z komputera
 
-Stage 1 nie pobiera jeszcze obrazu OTA. Układ flash jest jednak od początku zgodny z A/B:
+Skrypt testowy znajduje się w:
 
-- `ota_0`,
-- `ota_1`,
-- `otadata`,
-- `coredump`.
+```text
+tools/read_modbus_sensor.py
+```
 
-Jeżeli uruchomiony obraz ma stan `PENDING_VERIFY`, firmware zatwierdza go po 30 sekundach stabilnej pracy platformy. Obecność SEN55 nie jest warunkiem zatwierdzenia, ponieważ chwilowe odłączenie zewnętrznego czujnika nie może powodować rollbacku poprawnego firmware.
+Instalacja zależności:
+
+```powershell
+py -m pip install pyserial
+```
+
+Odczyt przez przykładowy port COM10:
+
+```powershell
+py tools\read_modbus_sensor.py --port COM10
+```
+
+Port COM9 pozostaje portem USB KAmod do logów. Konwerter USB–RS485 zwykle pojawi się jako osobny port COM.
+
+## Mapa rejestrów
+
+Pełny kontrakt znajduje się w `docs/MODBUS_MAP_PL.md`.
+
+Najważniejsze zasady:
+
+- odczyt funkcją `0x04`, adres początkowy `0`, liczba rejestrów `19`,
+- master musi sprawdzić rejestr statusu oraz maskę dostępności,
+- wartości niedostępnych pól są zerowane,
+- wiek `0xFFFF` oznacza brak pierwszego poprawnego pomiaru,
+- wartości 32-bit są ułożone high word, potem low word,
+- wersja mapy wynosi `1`.
+
+## Walidacja programowa
+
+Workflow wykonuje:
+
+1. hostowy test kodowania mapy rejestrów z `-Wall -Wextra -Werror`,
+2. pobranie przypiętego komponentu esp-modbus,
+3. pełny build firmware dla klasycznego ESP32 na ESP-IDF 6.0.2,
+4. kontrolę tabeli partycji.
+
+## Walidacja sprzętowa Stage 2
+
+Do wykonania na stanowisku:
+
+1. flash aktualnego firmware,
+2. potwierdzenie startu UART2 i Modbus RTU w logu,
+3. odczyt rejestrów 0–18 przez konwerter USB–RS485,
+4. porównanie danych Modbus z logiem USB,
+5. odłączenie SEN55 i sprawdzenie statusu stale/offline,
+6. ponowne podłączenie i powrót bitu measurement valid,
+7. odpytywanie przez minimum 30 minut,
+8. test błędnego adresu i nieobsługiwanej funkcji,
+9. test zimnego startu całego węzła.
