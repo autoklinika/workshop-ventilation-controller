@@ -156,6 +156,7 @@ void SensorService::handle_error(const esp_err_t error, const char* operation)
 
 void SensorService::set_offline(const esp_err_t error)
 {
+    diagnostics_.mark_sensor_offline(error);
     diagnostics_.set_sensor_state(diagnostics::SensorState::kOffline);
     state_started_us_ = esp_timer_get_time();
     consecutive_errors_ = 0;

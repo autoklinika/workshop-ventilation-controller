@@ -2,16 +2,17 @@
 
 ## Cel
 
-Węzeł pomiarowy znajduje się blisko reprezentatywnego punktu pomiaru. SEN55 komunikuje się lokalnie z modułem KAmod po krótkiej magistrali I²C. Do CM5 nie prowadzimy długiego I²C.
+Węzeł pomiarowy znajduje się blisko reprezentatywnego punktu pomiaru. SEN55 komunikuje się lokalnie z modułem KAmod po krótkiej magistrali I²C. Pomiary i diagnostyka są przekazywane do nadrzędnego sterownika przez Modbus RTU po RS-485; do CM5 nie prowadzimy długiego I²C.
 
 ## Platforma
 
 - moduł: KAmod ESP32 POW RS485,
 - mikrokontroler: ESP32-WROOM-32D, 4 MB flash,
-- framework: ESP-IDF,
+- framework: ESP-IDF 6.0.2,
 - czujnik: Sensirion SEN55,
-- produkcyjny kanał danych w późniejszym etapie: Modbus RTU po RS-485,
-- niezależny kanał serwisowy w późniejszym etapie: prywatne Wi-Fi CM5.
+- produkcyjny kanał danych: Modbus RTU po RS-485,
+- planowany niezależny kanał serwisowy: prywatne Wi-Fi CM5,
+- aktualizacja firmware: docelowo OTA, z przygotowanym układem A/B i rollbackiem.
 
 ## Podział firmware
 
@@ -19,6 +20,9 @@ Węzeł pomiarowy znajduje się blisko reprezentatywnego punktu pomiaru. SEN55 k
 Firmware
 ├── app
 ├── sen55
+├── modbus
+│   ├── register_map
+│   └── modbus_rtu_slave
 ├── diagnostics
 ├── logging
 ├── config
@@ -27,36 +31,47 @@ Firmware
 └── drivers
 ```
 
-Zależności są jednokierunkowe. `main.cpp` uruchamia aplikację, ale nie zawiera obsługi I²C ani protokołu SEN55.
+Zależności są jednokierunkowe. `main.cpp` uruchamia aplikację, ale nie zawiera obsługi I²C, protokołu SEN55 ani Modbus RTU. Sterownik SEN55 nie zna warstwy komunikacyjnej; Modbus otrzymuje gotowy snapshot pomiaru i diagnostyki.
 
-## Stage 1 — stabilny sterownik czujnika
+## Stage 1 — sterownik SEN55
 
-Zakres pierwszego etapu:
+Status: **zakończony i zwalidowany sprzętowo 2026-08-03**.
 
-- projekt ESP-IDF i konfiguracja CMake,
-- `sdkconfig.defaults`,
-- partycje OTA A/B, rollback i coredump,
-- logowanie przez USB,
-- konfiguracja GPIO,
-- konfiguracja I²C,
-- wykrywanie SEN55,
-- odczyt nazwy i wersji urządzenia,
-- rozpoczęcie pomiaru ciągłego,
-- walidacja CRC,
-- pierwszy i kolejne odczyty,
-- kontrolowana obsługa odłączenia i ponownego podłączenia czujnika.
+Potwierdzono:
 
-Poza Stage 1 pozostają:
+- inicjalizację GPIO i I²C,
+- wykrywanie SEN55 pod adresem `0x69`,
+- odczyt nazwy oraz wersji urządzenia,
+- pomiar ciągły wszystkich ośmiu pól,
+- kontrolę CRC Sensirion,
+- przejście do stanu offline po utracie czujnika,
+- automatyczny powrót pomiarów po ponownym podłączeniu,
+- zimny start i restart płytki,
+- poprawione przypisanie SDA GPIO33 / SCL GPIO32.
 
-- Modbus RTU,
-- RS-485,
-- heartbeat,
-- Wi-Fi,
-- pobieranie OTA,
-- komunikacja z CM5,
-- AI.
+## Stage 2A — Modbus RTU tylko do odczytu
 
-## Konfiguracja sprzętowa Stage 1
+Status: **implementacja programowa w toku; walidacja fizyczna RS-485 wymagana**.
+
+Zakres:
+
+- oficjalny komponent `espressif/esp-modbus` 2.1.2,
+- Modbus RTU slave,
+- UART2 w trybie RS-485 half-duplex,
+- stały adres urządzenia `1`,
+- `19200 bit/s`, `8N1`,
+- funkcja `0x04` — Read Input Registers,
+- wersjonowana mapa 19 rejestrów wejściowych,
+- pomiary SEN55, maska dostępności i status węzła,
+- wiek ostatniego pomiaru,
+- liczniki błędów SEN55 i usługi Modbus,
+- czas pracy, wersja firmware i wersja mapy,
+- sekwencja pomiaru,
+- brak jakichkolwiek rejestrów zapisywalnych.
+
+Stage 2A celowo nie pozwala zmienić adresu, prędkości transmisji ani konfiguracji czujnika. Najpierw musi zostać zwalidowany stabilny kanał tylko do odczytu.
+
+## Konfiguracja sprzętowa
 
 | Funkcja | GPIO / parametr |
 |---|---|
@@ -66,13 +81,15 @@ Poza Stage 1 pozostają:
 | adres SEN55 | `0x69` |
 | szybkość I²C | 100 kHz |
 | USB / UART0 | GPIO1 TX, GPIO3 RX, 115200 bit/s |
-| RS-485 RX — zarezerwowane | GPIO27 |
-| RS-485 TX — zarezerwowane | GPIO25 |
-| RS-485 DE/RE — zarezerwowane | GPIO26 |
+| Modbus UART | UART2 |
+| RS-485 RX | GPIO27 |
+| RS-485 TX | GPIO25 |
+| RS-485 DE/RE | GPIO26 |
+| adres Modbus | `1` |
+| prędkość Modbus | `19200 bit/s` |
+| format | `8N1` |
 
 ## Zweryfikowany schemat połączeń SEN55
-
-Poniższe połączenie jest obowiązującym schematem po korekcie wykrytej podczas testu stanowiskowego 2026-08-03.
 
 | SEN55 | Kolor przewodu | KAmod ESP32 POW RS485 |
 |---|---|---|
@@ -83,9 +100,31 @@ Poniższe połączenie jest obowiązującym schematem po korekcie wykrytej podcz
 | SEL | niebieski | GND |
 | NC | fioletowy | nie podłączać |
 
-Względem pierwszej wersji instrukcji przewody zielony i żółty zostały zamienione miejscami: końcowo zielony SDA trafia na GPIO33, a żółty SCL na GPIO32. Jest to zgodne z oznaczeniami I²C płytki KAmod. Po wgraniu firmware zawierającego tę korektę nie należy stosować tymczasowego skrzyżowania SDA/SCL użytego podczas diagnostyki.
+Zalecane zasilanie docelowe KAmod: 12 V podane na wejście `POWER`. Podczas walidacji Stage 1 na SEN55 zmierzono 5,05 V, na SDA i SCL po 3,28 V, a na SEL 0 V.
 
-Zalecane zasilanie docelowe KAmod: 12 V podane na wejście `POWER`. Podczas testu stanowiskowego na SEN55 zmierzono 5,05 V, a na liniach SDA i SCL po 3,28 V. Linia SEL miała 0 V.
+## Połączenie RS-485 do testu
+
+```text
+KAmod A+  -> A / D+ konwertera USB–RS485
+KAmod B-  -> B / D- konwertera USB–RS485
+GND       -> GND konwertera, jeżeli adapter udostępnia zacisk masy
+```
+
+Oznaczenia A/B nie są stosowane jednakowo przez wszystkich producentów. Jeżeli połączenie nie odpowiada mimo prawidłowych parametrów, należy wyłączyć zasilanie i diagnostycznie zamienić A z B.
+
+## Dane udostępniane przez Modbus
+
+Pełny kontrakt znajduje się w `docs/MODBUS_MAP_PL.md`.
+
+Najważniejsze zasady:
+
+- rejestry odczytuje się funkcją `0x04`, od adresu `0`, w liczbie `19`,
+- wszystkie wartości pomiarowe wymagają sprawdzenia maski dostępności,
+- master musi sprawdzić bit `MEASUREMENT_VALID`,
+- pomiar starszy niż 5 sekund jest oznaczany jako nieaktualny,
+- po utracie SEN55 ostatnie liczby pozostają w mapie, ale nie są oznaczone jako ważne,
+- wartości wielorejestrowe mają kolejność high word, potem low word,
+- CM5 musi zweryfikować wersję mapy przed dekodowaniem.
 
 ## Mierzone wielkości
 
@@ -102,27 +141,43 @@ Zalecane zasilanie docelowe KAmod: 12 V podane na wejście `POWER`. Podczas test
 
 ## Odporność na błędy
 
-- każdy blok danych SEN55 przechodzi kontrolę CRC-8,
-- błąd czujnika nie może zawiesić firmware,
-- po trzech kolejnych błędach węzeł przechodzi do stanu offline,
-- wykrywanie jest ponawiane co 5 sekund,
-- ponowne podłączenie czujnika nie wymaga restartu ESP32,
-- obraz OTA jest zatwierdzany na podstawie zdrowia platformy, a nie obecności zewnętrznego czujnika,
-- krytyczny błąd inicjalizacji GPIO lub I²C prowadzi do kontrolowanego restartu; dla obrazu oczekującego na weryfikację umożliwia to rollback.
+- każdy blok SEN55 przechodzi kontrolę CRC-8,
+- po trzech kolejnych błędach usługa czujnika przechodzi do offline,
+- wykrywanie SEN55 jest ponawiane co 5 sekund,
+- Modbus działa niezależnie od obecności czujnika i nadal udostępnia diagnostykę,
+- brak aktualnego pomiaru jest jawnie sygnalizowany statusem i wiekiem,
+- mapa rejestrów jest aktualizowana pod blokadą kontrolera Modbus,
+- krytyczny błąd inicjalizacji GPIO, I²C lub RS-485 prowadzi do kontrolowanego restartu,
+- zatwierdzenie obrazu OTA wymaga gotowości GPIO, I²C i RS-485, ale nie wymaga obecności zewnętrznego SEN55.
 
-## Miernik diagnostyczny Stage 1
+## Diagnostyka serwisowa
 
 Log USB pokazuje:
 
 - wersję firmware i ESP-IDF,
-- przyczynę resetu,
-- aktywną partycję,
-- stan obrazu OTA,
-- wynik inicjalizacji GPIO i I²C,
+- przyczynę resetu oraz aktywną partycję,
+- inicjalizację I²C i UART2/RS-485,
+- adres i prędkość Modbus,
 - nazwę oraz wersję SEN55,
 - przejścia stanów usługi,
-- błędy I²C i CRC,
+- błędy I²C, CRC i Modbus,
 - pełne pomiary.
+
+Do niezależnego testu z komputera służy `tools/read_modbus_sensor.py`.
+
+## Walidacja Stage 2A
+
+Wymagane testy stanowiskowe:
+
+1. flash firmware i potwierdzenie startu Modbus RTU w logu USB,
+2. odczyt rejestrów 0–18 przez konwerter USB–RS485,
+3. porównanie danych Modbus z logiem USB,
+4. odłączenie SEN55 i sprawdzenie bitów stale/offline,
+5. ponowne podłączenie i automatyczny powrót `MEASUREMENT_VALID`,
+6. ciągłe odpytywanie przez co najmniej 30 minut,
+7. próba złego adresu slave,
+8. próba funkcji zapisu i potwierdzenie standardowego wyjątku Modbus,
+9. zimny start całego węzła.
 
 ## Montaż czujnika
 
@@ -136,5 +191,3 @@ Log USB pokazuje:
 ## Ograniczenie pomiarowe
 
 VOC Index jest wskaźnikiem jakościowym, a nie bezpośrednim pomiarem stężenia konkretnego rozpuszczalnika. W projekcie służy do wykrywania trendu i wyraźnego pogorszenia jakości powietrza, nie do certyfikowanego pomiaru bezpieczeństwa chemicznego.
-
-Szczegóły implementacji znajdują się w `firmware/sensor-node/README.md` oraz raporcie `docs/reports/KAMOD_SEN55_FIRMWARE_STAGE1_IMPLEMENTATION_PL.md`.

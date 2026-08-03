@@ -18,6 +18,11 @@ void Diagnostics::mark_i2c_ready()
     snapshot_.i2c_ready = true;
 }
 
+void Diagnostics::mark_rs485_ready()
+{
+    snapshot_.rs485_ready = true;
+}
+
 void Diagnostics::set_sensor_state(const SensorState state)
 {
     if (snapshot_.sensor_state != state) {
@@ -30,6 +35,13 @@ void Diagnostics::mark_sensor_detected()
 {
     snapshot_.sensor_present = true;
     snapshot_.last_error = ESP_OK;
+}
+
+void Diagnostics::mark_sensor_offline(const esp_err_t error)
+{
+    snapshot_.sensor_present = false;
+    snapshot_.measurement_running = false;
+    snapshot_.last_error = error;
 }
 
 void Diagnostics::mark_measurement_started()

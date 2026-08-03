@@ -39,14 +39,27 @@ Application::Application()
     }
 
     sensor_service_.start();
-    LOG_INFO(kTag, "Stage 1 runtime started; USB log is the active test interface");
+    LOG_INFO(kTag,
+             "Stage 2 runtime started; SEN55 USB diagnostics and read-only Modbus RTU are active");
 
     while (true) {
         sensor_service_.poll();
+
+        const esp_err_t modbus_result = modbus_slave_.refresh(
+            sensor_service_.latest_measurement(), diagnostics_.snapshot());
+        if (modbus_result != ESP_OK) {
+            LOG_WARN(kTag,
+                     "Modbus register refresh failed: %s",
+                     esp_err_to_name(modbus_result));
+        }
+
         log_measurement_if_new();
         update_status_led();
 
-        const bool platform_healthy = diagnostics_.snapshot().gpio_ready && diagnostics_.snapshot().i2c_ready;
+        const diagnostics::Snapshot& snapshot = diagnostics_.snapshot();
+        const bool platform_healthy = snapshot.gpio_ready &&
+                                      snapshot.i2c_ready &&
+                                      snapshot.rs485_ready;
         const esp_err_t ota_result = ota_health_guard_.confirm_if_due(platform_healthy);
         if (ota_result != ESP_OK) {
             LOG_WARN(kTag, "OTA image confirmation failed: %s", esp_err_to_name(ota_result));
@@ -81,6 +94,12 @@ esp_err_t Application::initialize()
     if (result != ESP_OK) {
         return result;
     }
+
+    result = modbus_slave_.initialize();
+    if (result != ESP_OK) {
+        return result;
+    }
+    diagnostics_.mark_rs485_ready();
     return ESP_OK;
 }
 

@@ -1,167 +1,126 @@
-# Integracja rekuperatora Prodmax / Compit AERO 4A2
+# Integracja rekuperatora Prodmax / COMPIT AERO 4A2
 
 ## 1. Zidentyfikowany sprzęt
 
-W pomieszczeniu lutowniczym pracuje rekuperator:
-
-- producent centrali: Prodmax,
-- model: PRO MINI 300 H/V CLASSIC + moduł WiFi,
+- centrala: Prodmax PRO MINI 300 H/V CLASSIC + WiFi,
 - oznaczenie: PRO MINI 300HV-C/WIFI,
 - sterownik centrali: COMPIT AERO 4A2,
 - panel pokojowy: COMPIT NANO COLOR 2,
+- firmware panelu: 6.30,
 - moduł sieciowy: COMPIT iNext / C14.
 
-Panel NANO COLOR 2 ma zaciski A1, B1, A2, B2, G oraz U. Sterownik AERO 4A2 ma interfejs RS-485 oznaczony jako C14.
+## 2. Architektura integracji
 
-## 2. Najważniejszy wniosek
-
-Nie ma potrzeby odtwarzania własnościowego protokołu C14, jeżeli konkretna wersja panelu NANO COLOR 2 obsługuje opublikowany przez Compit tryb Modbus RTU dla AERO 4A ver.2.
-
-Docelowo Raspberry Pi powinno komunikować się z panelem przez Modbus RTU, natomiast panel nadal realizuje komunikację C14 ze sterownikiem AERO 4A2.
+Nie odtwarzamy protokołu C14. CM5 komunikuje się z panelem NANO COLOR 2 przez jego interfejs Modbus RTU, a NANO nadal przekazuje żądania do AERO przez C14.
 
 ```text
-SEN55 + STM32
-      │
- Modbus RTU
-      │
-Raspberry Pi
-      │
- Modbus RTU
-      │
-NANO COLOR 2
-      │
-     C14
-      │
-  AERO 4A2
-      │
- rekuperator
+CM5 / ventilation-core
+        |
+   Modbus RTU
+        |
+ NANO COLOR 2 v6.30
+        |
+       C14
+        |
+    AERO 4A2
+        |
+   rekuperator
 ```
 
-## 3. Parametry Modbus NANO COLOR 2
+AERO pozostaje sterownikiem nadrzędnym centrali i zachowuje odpowiedzialność za zabezpieczenia, rozmrażanie, bypass, nagrzewnice, alarmy oraz właściwe sterowanie wentylatorami.
 
-Według dokumentacji producenta:
+## 3. Potwierdzony transport Modbus
 
-- tryb urządzenia: Modbus RTU Slave,
-- domyślny adres: 44,
-- prędkość: 9600 bit/s,
-- format: 8N1,
-- maksymalny deklarowany czas odpowiedzi: 300 ms,
-- funkcje Modbus:
-  - 0x03 — odczyt Holding Registers,
-  - 0x06 — zapis pojedynczego rejestru,
-  - 0x10 — zapis wielu rejestrów.
+Stanowisko testowe:
 
-Adres Modbus jest konfigurowalny. W mapie parametrów występuje jako rejestr 1017, z wartością domyślną 44.
+```text
+COM10
+9600 bit/s
+8N1
+slave 44
+FC03 — odczyt
+FC06 — zapis pojedynczego rejestru
+CRC — poprawne
+```
 
-## 4. Istotne rejestry stanu
+Interfejs: izolowany KAmod USB RS485 ISO.
 
-| Rejestr | Znaczenie |
-|---:|---|
-| 2016 | temperatura pomieszczenia |
-| 2021 | temperatura nawiewu |
-| 2022 | temperatura czerpni / zewnętrzna |
-| 2023 | temperatura wywiewu |
-| 2024 | temperatura wyrzutni |
-| 2026 | aktywne rozmrażanie |
-| 2028 | aktywne wietrzenie |
-| 2031 | zabrudzony filtr |
-| 2034 | aktualna wydajność nawiewu w % |
-| 2035 | aktualna wydajność wywiewu w % |
-| 2036 | aktualny bieg wentylacji |
-| 2037 | stan bypassu |
-| 2039 | rozpoznany moduł wentylacji |
-| 2040 | alarm AERO |
+## 4. Potwierdzone odczyty dla NANO COLOR 2 v6.30
 
-Temperatury są raportowane z rozdzielczością 0,1 °C.
+Poniższe przypisania zostały ręcznie porównane z panelem:
 
-## 5. Istotne rejestry sterujące
+| Adres PDU | Znaczenie | Format |
+|---:|---|---|
+| 2016 | wilgotność | 0,1 % |
+| 2021 | temperatura nawiewu | 0,1 °C, signed 16-bit |
+| 2022 | temperatura wywiewu | 0,1 °C, signed 16-bit |
+| 2023 | temperatura czerpni | 0,1 °C, signed 16-bit |
+| 2033 | moc wentylatora 1 | % |
+| 2034 | moc wentylatora 2 | % |
 
-| Rejestr | Funkcja |
-|---:|---|
-| 1077 | wentylacja: 0 = OFF, 1 = ON |
-| 1079 | bypass: 0 = OFF, 1 = AUTO, 2 = ON |
-| 1080 | wybór biegu / trybu |
-| 1081 | wietrzenie: 0 = OFF, 1 = ON |
+Nie ustalono jeszcze, który z adresów 2033/2034 odpowiada nawiewowi, a który wywiewowi. W kodzie pozostają jako `fan_1` i `fan_2`.
 
-Znaczenie wartości rejestru 1080:
+Nie używamy starszej mapy parametrów jako źródła prawdy dla firmware 6.30.
 
-- 0 — bieg 0,
-- 1 — bieg 1,
-- 2 — bieg 2,
-- 3 — bieg 3,
-- 4 — program świąteczny,
-- 5 — harmonogram.
+## 5. Potwierdzone sterowanie
 
-Do automatycznej reakcji na VOC i PM preferowany jest rejestr 1081. Raspberry Pi może tymczasowo uruchomić wietrzenie, obserwować rzeczywistą wydajność i po określonym czasie wyłączyć wietrzenie, pozostawiając pozostałą automatykę sterownikowi AERO.
+Walidacja fizyczna potwierdziła:
 
-## 6. Konfiguracja biegów
+| Adres PDU | Funkcja | Dopuszczone wartości |
+|---:|---|---|
+| 1080 | wybór biegu / trybu | 0–3 w obecnym etapie |
+| 1081 | wietrzenie | 0 = OFF, 1 = ON |
 
-Dokumentacja udostępnia również parametry konfiguracyjne, między innymi:
+Obie funkcje działają przez FC06. Narzędzie testowe odczytuje poprzednią wartość, zapisuje nową, sprawdza echo FC06, wykonuje readback FC03 oraz domyślnie przywraca poprzedni stan.
 
-- 1141–1144 — nawiew dla biegów 1, 2, 3 i wietrzenia,
-- 1145–1148 — wywiew dla biegów 1, 2, 3 i wietrzenia,
-- 1152 — czas wietrzenia,
-- 1155 — korekta biegu od sensorów,
-- 1166–1168 — parametry rozmrażania,
-- 1175 — konfiguracja bypassu.
+## 6. Krytyczna bezwładność wykonawcza AERO
 
-Nie należy używać tych parametrów do częstego sterowania dynamicznego.
+Test stanowiskowy wykazał, że AERO 4A2 może reagować fizycznie na zmianę nawet po około 30 sekundach.
 
-## 7. Podział pamięci i trwałość EEPROM
+Należy rozdzielać dwa różne potwierdzenia:
 
-Producent rozdziela obszary pamięci:
+1. **potwierdzenie protokołu** — NANO odpowiada na FC06 i readback pokazuje nową wartość,
+2. **potwierdzenie wykonania** — moce wentylatorów lub inna telemetria potwierdzają rzeczywistą reakcję AERO.
 
-- 1–399 — EEPROM, konfiguracja trwała,
-- 1001–1399 — RAM, ustawienia tymczasowe,
-- 2000–2100 — bieżące odczyty stanu.
+Echo FC06 ani natychmiastowy readback nie są dowodem wykonania polecenia przez centralę.
 
-Częste zapisy do EEPROM mogą skrócić jego trwałość. Automatyka Raspberry Pi powinna używać przede wszystkim rejestrów RAM i rejestrów bieżącego stanu.
+Obowiązujące założenia implementacyjne:
 
-## 8. Rola protokołu C14
+- domyślny timeout wykonawczy: 45 s,
+- odpytywanie telemetrii podczas oczekiwania: co 2 s,
+- brak ponownego lub przeciwnego polecenia, dopóki poprzednie jest w stanie `PENDING`,
+- po zmianie sterowania stan domenowy przechodzi kolejno przez:
+  - `REQUESTED`,
+  - `ACCEPTED_BY_NANO`,
+  - `WAITING_FOR_AERO`,
+  - `PHYSICALLY_CONFIRMED` albo `EXECUTION_TIMEOUT`,
+- po przywróceniu poprzedniego stanu również obowiązuje osobne oczekiwanie do 45 s,
+- nie traktujemy opóźnienia 10–30 s jako awarii komunikacji.
 
-C14 jest własnościowym protokołem Compit pracującym fizycznie na RS-485. Dostępne materiały wskazują typowe parametry 9600 bit/s i 8N2 oraz architekturę master/slave.
+## 7. Zasady bezpieczeństwa
 
-Nie mamy pełnej, oficjalnej specyfikacji binarnej C14. Nie jest ona jednak potrzebna, jeżeli panel NANO COLOR 2 udostępnia wymagane funkcje AERO 4A2 przez Modbus RTU.
+- dynamiczne sterowanie korzysta wyłącznie z rejestrów RAM,
+- nie wykonujemy cyklicznych zapisów do EEPROM,
+- CM5 nie steruje bezpośrednio elementami wykonawczymi rekuperatora,
+- awaria CM5 nie może blokować lokalnego panelu ani działania AERO,
+- przed każdym zapisem odczytujemy stan bieżący,
+- zapis musi być idempotentny: nie wysyłamy polecenia, gdy wartość docelowa jest już ustawiona,
+- każde polecenie zapisujemy w historii wraz z czasem, stanem przed, wynikiem protokołu, czasem reakcji fizycznej i stanem końcowym.
 
-Nie należy dołączać drugiego urządzenia master bez potwierdzenia topologii i trybu pracy magistrali C14.
+## 8. Narzędzia testowe
 
-## 9. Ograniczenie dotyczące modułu iNext
+- `tools/compit_nano_v630_labeled_read.py` — odczyt telemetrii,
+- `tools/compit_nano_v630_discovery.py` — surowe snapshoty i porównania,
+- `tools/compit_nano_v630_control_test.py` — kontrolowane testy FC06 z osobnym potwierdzeniem protokołu i wykonania.
 
-Dokumentacja NANO COLOR 2 wskazuje, że praca panelu w trybie Modbus RTU / BMS może wykluczać jednoczesną pracę z modułem iNext.
+## 9. Status
 
-Przed wdrożeniem trzeba sprawdzić na konkretnej wersji firmware, czy wybór Modbus wyłącza fabryczny dostęp WiFi. Lokalny panel i sterownik AERO powinny nadal działać niezależnie od Raspberry Pi.
+Potwierdzone fizycznie:
 
-## 10. Zasada bezpieczeństwa integracji
+- odczyt Modbus RTU,
+- zmiana biegu przez ADR 1080,
+- włączenie/wyłączenie wietrzenia przez ADR 1081,
+- automatyczne przywracanie poprzedniej wartości,
+- długa bezwładność AERO, sięgająca około 30 s.
 
-Raspberry Pi nie zastępuje sterownika AERO 4A2 i nie przejmuje jego zabezpieczeń.
-
-Po stronie AERO pozostają:
-
-- rozmrażanie,
-- bypass,
-- sterowanie nagrzewnicami,
-- ochrona temperaturowa,
-- alarmy,
-- logika wentylatorów,
-- pozostałe funkcje serwisowe producenta.
-
-Raspberry Pi może jedynie odczytywać stan i żądać trybu pracy, np. czasowego wietrzenia.
-
-Awaria Raspberry Pi nie może blokować normalnej pracy rekuperatora z panelu lokalnego.
-
-## 11. Plan pierwszej walidacji
-
-1. Odczytać wersję oprogramowania NANO COLOR 2.
-2. Potwierdzić w menu panelu dostępność trybu Modbus / BMS.
-3. Ustalić z dokumentacji przypisanie A1/B1 i A2/B2 — nie zgadywać połączeń.
-4. Zastosować izolowany interfejs USB–RS-485.
-5. Pierwszy test wykonać wyłącznie w trybie odczytu.
-6. Odczytać rejestry: 2016, 2021, 2036, 2039 i 2040.
-7. Porównać wartości z panelem i rzeczywistym stanem centrali.
-8. Dopiero po pozytywnej walidacji wykonać pojedynczy zapis 1081 = 1.
-9. Sprawdzić uruchomienie wietrzenia oraz odczyty 2028, 2034 i 2035.
-10. Wyłączyć wietrzenie przez 1081 = 0 i potwierdzić powrót do normalnego sterowania.
-
-## 12. Status
-
-Integracja bez podsłuchiwania C14 jest technicznie prawdopodobna i preferowana. Ostateczne potwierdzenie wymaga sprawdzenia wersji firmware panelu, przypisania zacisków oraz testu odczytu Modbus na rzeczywistym urządzeniu.
+Następny etap to implementacja adaptera rekuperatora w `ventilation-core` z asynchroniczną maszyną stanów i timeoutem wykonawczym, bez blokowania całego rdzenia.
