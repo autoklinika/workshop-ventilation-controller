@@ -8,7 +8,7 @@ idf_component_register(
         diagnostics
         logging
         sen55
-        driver
+        esp_driver_uart
         esp_timer
-        esp_modbus
+        espressif__esp-modbus
 )
