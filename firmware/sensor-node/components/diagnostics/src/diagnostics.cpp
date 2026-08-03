@@ -37,6 +37,13 @@ void Diagnostics::mark_sensor_detected()
     snapshot_.last_error = ESP_OK;
 }
 
+void Diagnostics::mark_sensor_offline(const esp_err_t error)
+{
+    snapshot_.sensor_present = false;
+    snapshot_.measurement_running = false;
+    snapshot_.last_error = error;
+}
+
 void Diagnostics::mark_measurement_started()
 {
     snapshot_.measurement_running = true;
