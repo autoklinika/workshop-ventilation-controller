@@ -17,11 +17,12 @@ public:
     ModbusRtuSlave(const ModbusRtuSlave&) = delete;
     ModbusRtuSlave& operator=(const ModbusRtuSlave&) = delete;
 
-    esp_err_t initialize();
+    esp_err_t initialize(std::uint8_t slave_address);
     esp_err_t refresh(const sen55::Measurement& measurement,
                       const diagnostics::Snapshot& snapshot);
 
     [[nodiscard]] bool initialized() const;
+    [[nodiscard]] std::uint8_t slave_address() const;
     [[nodiscard]] std::uint32_t service_error_count() const;
     [[nodiscard]] const InputRegisterBank& register_bank() const;
 
@@ -34,6 +35,7 @@ private:
 
     void* handle_{nullptr};
     InputRegisterBank registers_{};
+    std::uint8_t slave_address_{0};
     std::uint32_t service_error_count_{0};
     std::int64_t last_refresh_us_{0};
 };
