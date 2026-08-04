@@ -1,5 +1,144 @@
 # Pinout
 
+## Podłączenie DAC DFR0971 do CM5
+
+Moduł:
+
+```text
+DFRobot DFR0971
+GP8403, 2 kanały 0–10 V
+I²C1, adres 0x58
+```
+
+| DFR0971 | CM5 IO Board | GPIO / funkcja | Pin fizyczny CM5 |
+|---|---|---|---:|
+| `VCC` | 3,3 V | zasilanie logiki DAC | 1 |
+| `GND` | GND | masa logiczna | 6 |
+| `SDA` | GPIO2 | SDA1 | 3 |
+| `SCL` | GPIO3 | SCL1 | 5 |
+
+Przełączniki adresowe DFR0971:
+
+```text
+A0 = 0
+A1 = 0
+A2 = 0
+adres I²C = 0x58
+port systemowy = /dev/i2c-1
+```
+
+Wyjścia analogowe DAC:
+
+```text
+VOUT0 -> DB9 pin 1
+VOUT1 -> DB9 pin 5
+GND   -> DB9 pin 3
+```
+
+> DFR0971 jest zasilany z szyny 3,3 V CM5. Poziomy I²C muszą pozostać zgodne z logiką 3,3 V CM5.
+
+## Podłączenie modułów DFR0845 RS-485 do CM5
+
+Moduły:
+
+```text
+DFRobot DFR0845
+Gravity: Active Isolated RS485 to UART Module
+```
+
+Najważniejsze mapowanie strony UART:
+
+```text
+CM5 TX -> T DFR0845
+CM5 RX <- R DFR0845
+```
+
+Oznaczeń `T` i `R` nie należy krzyżować.
+
+### DFR0845 #1 — SENSOR BUS
+
+```text
+port systemowy: /dev/ttyAMA0
+parametry:       19200 bit/s, 8N1
+```
+
+| DFR0845 #1 | CM5 IO Board | GPIO / funkcja | Pin fizyczny CM5 |
+|---|---|---|---:|
+| `T` | GPIO14 | TXD0 | 8 |
+| `R` | GPIO15 | RXD0 | 10 |
+| `-` | wspólna masa logiczna | GND CM5 / DFR0570 | dowolny pin GND CM5 |
+| `+` | zewnętrzne 3,3 V | wyjście DFR0570 | nie łączyć z 3,3 V CM5 |
+
+Strona izolowana RS-485:
+
+```text
+A   -> SENSOR BUS A -> RJ45 pin 1
+B   -> SENSOR BUS B -> RJ45 pin 2
+GND -> SENSOR BUS GND / GND 12 V -> RJ45 piny 7 i 8
+12V OUT -> niepodłączone
+```
+
+Urządzenia docelowe:
+
+```text
+KAmod + SEN55, slave 1
+KAmod + SEN55, slave 2
+```
+
+### DFR0845 #2 — AERO BUS
+
+```text
+port systemowy: /dev/ttyAMA4
+parametry:       9600 bit/s, 8N1
+```
+
+| DFR0845 #2 | CM5 IO Board | GPIO / funkcja | Pin fizyczny CM5 |
+|---|---|---|---:|
+| `T` | GPIO12 | TXD4 | 32 |
+| `R` | GPIO13 | RXD4 | 33 |
+| `-` | wspólna masa logiczna | GND CM5 / DFR0570 | dowolny pin GND CM5 |
+| `+` | zewnętrzne 3,3 V | wyjście DFR0570 | nie łączyć z 3,3 V CM5 |
+
+Strona izolowana RS-485:
+
+```text
+A   -> AERO BUS A -> RJ45 pin 1
+B   -> AERO BUS B -> RJ45 pin 2
+GND -> AERO BUS GND / GND 12 V -> RJ45 piny 7 i 8
+12V OUT -> niepodłączone
+```
+
+Urządzenie docelowe:
+
+```text
+NANO COLOR 2 / AERO 4A2
+slave 44
+```
+
+### Zasilanie i masy DFR0845
+
+Docelowo oba DFR0845 są zasilane ze wspólnego, zewnętrznego konwertera:
+
+```text
+DFRobot DFR0570
+12 V -> 3,3 V
+```
+
+Po stronie logicznej wspólne są:
+
+```text
+CM5 GND
+DFR0570 GND
+DFR0845 #1 -
+DFR0845 #2 -
+```
+
+Nie wolno łączyć wyjścia 3,3 V DFR0570 z pinami 3,3 V CM5.
+
+> `-` po stronie UART DFR0845 jest masą logiczną. `GND` przy zaciskach `A/B` znajduje się po izolowanej stronie RS-485. Nie należy zwierać tych dwóch mas lokalnie przy module DFR0845.
+
+## Złącza RJ45 dla magistral
+
 Złącza RJ45 w projekcie wykorzystują przewód i mechanikę RJ45, ale **nie są interfejsami Ethernet/LAN**.
 
 > **Uwaga:** na pinach 4 i 5 występuje napięcie +12 V. Nie wolno podłączać tych przewodów do routera, switcha, komputera ani żadnego urządzenia Ethernet.
@@ -54,7 +193,7 @@ Pinout złącza AERO jest identyczny jak dla SEN55.
 7, 8   GND dla 12 V
 ```
 
-## Wspólne zasady prowadzenia zasilania
+## Wspólne zasady prowadzenia zasilania RJ45
 
 Piny 4 i 5 są przeznaczone do równoległego prowadzenia zasilania +12 V. Piny 7 i 8 są przeznaczone do równoległego prowadzenia masy zasilania 12 V.
 
