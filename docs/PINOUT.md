@@ -57,3 +57,28 @@ Pinout złącza AERO jest identyczny jak dla SEN55.
 ## Wspólne zasady prowadzenia zasilania
 
 Piny 4 i 5 są przeznaczone do równoległego prowadzenia zasilania +12 V. Piny 7 i 8 są przeznaczone do równoległego prowadzenia masy zasilania 12 V.
+
+## Złącze DB9 sterowania wentylatorami
+
+| Pin DB9 | Funkcja |
+|---:|---|
+| 1 | Vout0 |
+| 2 | wolny |
+| 3 | GND |
+| 4 | wolny |
+| 5 | Vout1 |
+| 6 | wolny |
+| 7 | wolny |
+| 8 | wolny |
+| 9 | wolny |
+
+### Podsumowanie DB9
+
+```text
+1          Vout0
+2          wolny
+3          GND
+4          wolny
+5          Vout1
+6, 7, 8, 9 wolne
+```
