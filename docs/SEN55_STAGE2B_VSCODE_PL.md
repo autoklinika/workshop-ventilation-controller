@@ -27,15 +27,25 @@ git switch agent/kamod-modbus-stage2b-multinode
 git pull
 ```
 
-## 2. Otwórz terminal ESP-IDF
+## 2. Aktywuj środowisko ESP-IDF
 
-W VS Code użyj:
+Preferowana metoda w VS Code:
 
 ```text
 View -> Command Palette -> ESP-IDF: Open ESP-IDF Terminal
 ```
 
-Dalsze polecenia build, flash i provisioning wykonuj w tym terminalu.
+Jeżeli rozszerzenie nie otwiera terminala, aktywuj środowisko ręcznie:
+
+```powershell
+. "C:\Espressif\esp-idf-v6.0.2\export.ps1"
+```
+
+Sprawdź:
+
+```powershell
+idf.py --version
+```
 
 ## 3. Zbuduj wspólny firmware
 
@@ -52,9 +62,7 @@ Podłącz tylko pierwszy KAmod przez USB. Przykład dla `COM9`:
 
 ```powershell
 idf.py -p COM9 flash
-cd ../..
-python tools/provision_sensor_node_address.py --port COM9 --address 1
-cd firmware/sensor-node
+python ..\..\tools\provision_sensor_node_address.py --port COM9 --address 1
 idf.py -p COM9 monitor
 ```
 
@@ -77,9 +85,7 @@ Odłącz pierwszy KAmod od USB i podłącz drugi. Dla przykładu nadal `COM9`:
 
 ```powershell
 idf.py -p COM9 flash
-cd ../..
-python tools/provision_sensor_node_address.py --port COM9 --address 2
-cd firmware/sensor-node
+python ..\..\tools\provision_sensor_node_address.py --port COM9 --address 2
 idf.py -p COM9 monitor
 ```
 
@@ -103,19 +109,19 @@ Przykład dla konwertera RS-485 na `COM10`.
 Pierwszy węzeł:
 
 ```powershell
-python tools/read_modbus_sensor.py --port COM10 --address 1 --once
+python ..\..\tools\read_modbus_sensor.py --port COM10 --address 1 --once
 ```
 
 Drugi węzeł:
 
 ```powershell
-python tools/read_modbus_sensor.py --port COM10 --address 2 --once
+python ..\..\tools\read_modbus_sensor.py --port COM10 --address 2 --once
 ```
 
 Nieistniejący adres powinien zwrócić brak odpowiedzi:
 
 ```powershell
-python tools/read_modbus_sensor.py --port COM10 --address 3 --once
+python ..\..\tools\read_modbus_sensor.py --port COM10 --address 3 --once
 ```
 
 ## 7. Test obu urządzeń na jednej magistrali
@@ -131,47 +137,60 @@ Połącz odpowiednio A z A, B z B oraz referencję GND, jeżeli wymaga jej zasto
 Jednorazowy test 10 cykli:
 
 ```powershell
-python tools/read_modbus_sensor_nodes.py --port COM10 --addresses 1,2 --cycles 10
+python ..\..\tools\read_modbus_sensor_nodes.py --port COM10 --addresses 1,2 --cycles 10
 ```
 
 Test ciągły:
 
 ```powershell
-python tools/read_modbus_sensor_nodes.py --port COM10 --addresses 1,2
+python ..\..\tools\read_modbus_sensor_nodes.py --port COM10 --addresses 1,2
 ```
 
-Narzędzie odpytuje każdy adres niezależnie. Timeout jednego slave nie zatrzymuje odczytu drugiego. Po zakończeniu `Ctrl+C` drukowane jest podsumowanie liczby odczytów i błędów per urządzenie.
+Narzędzie odpytuje każdy adres niezależnie. Timeout jednego slave nie zatrzymuje odczytu drugiego. Domyślna przerwa pomiędzy zapytaniami do kolejnych węzłów wynosi `10 ms` i zapobiega zbyt szybkiemu przełączeniu kierunku transmisji przez niektóre konwertery USB-RS485.
 
-## 8. Próba zapisu musi pozostać odrzucona
+Wartość można podać jawnie:
 
 ```powershell
-python tools/read_modbus_sensor.py --port COM10 --address 1 --test-write
-python tools/read_modbus_sensor.py --port COM10 --address 2 --test-write
+python ..\..\tools\read_modbus_sensor_nodes.py --port COM10 --addresses 1,2 --inter-node-delay 0.01
+```
+
+Po zakończeniu `Ctrl+C` drukowane jest podsumowanie liczby odczytów i błędów per urządzenie.
+
+## 8. Test końcowy Stage 2B
+
+Kolejność 1,2:
+
+```powershell
+python ..\..\tools\read_modbus_sensor_nodes.py --port COM10 --addresses 1,2 --cycles 300 --interval 1 --timeout 0.5
+```
+
+Kolejność 2,1:
+
+```powershell
+python ..\..\tools\read_modbus_sensor_nodes.py --port COM10 --addresses 2,1 --cycles 100 --interval 1 --timeout 0.5
+```
+
+Wymagany wynik dla każdego węzła:
+
+```text
+errors=0 invalid=0 stale=0 map_errors=0
+```
+
+## 9. Próba zapisu musi pozostać odrzucona
+
+```powershell
+python ..\..\tools\read_modbus_sensor.py --port COM10 --address 1 --test-write
+python ..\..\tools\read_modbus_sensor.py --port COM10 --address 2 --test-write
 ```
 
 Oba testy muszą zakończyć się odpowiedzią wyjątkową Modbus, a nie zaakceptowaniem FC06.
 
-## 9. Ponowna zmiana adresu
+## 10. Ponowna zmiana adresu
 
 Aby zmienić lokalny adres urządzenia, podłącz tylko wybrany KAmod przez USB i wykonaj:
 
 ```powershell
-python tools/provision_sensor_node_address.py --port COM9 --address 2
+python ..\..\tools\provision_sensor_node_address.py --port COM9 --address 2
 ```
 
 Dozwolony zakres to `1..247`. W tej instalacji używamy wyłącznie `1` i `2`. Po zmianie urządzenie wykonuje reset i korzysta z nowego adresu przy następnym uruchomieniu.
-
-## 10. Minimalna walidacja fizyczna Stage 2B
-
-1. Odczyt slave 1 osobno.
-2. Odczyt slave 2 osobno.
-3. Odczyt obu urządzeń na jednej magistrali.
-4. Brak odpowiedzi dla adresu 3.
-5. Odłączenie slave 1 bez utraty slave 2.
-6. Ponowne podłączenie slave 1 i automatyczny powrót.
-7. Odłączenie slave 2 bez utraty slave 1.
-8. Zimny start obu urządzeń.
-9. Dłuższy test bez timeoutów i błędów CRC.
-10. `modbus_errors=0` dla obu urządzeń.
-11. FC06 odrzucone na obu urządzeniach.
-12. Potwierdzenie topologii liniowej i terminacji tylko na końcach.
