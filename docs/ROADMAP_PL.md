@@ -2,124 +2,192 @@
 
 ## Etap 0 — Platforma CM5 i uruchamianie peryferiów
 
-Status: rozpoczęty.
+Status: **zakończony dla bazowego uruchomienia CM5 i DFR0971**.
 
 - Raspberry Pi Compute Module 5 Wireless 4 GB / 32 GB eMMC uruchomiony,
 - Raspberry Pi OS Lite 64-bit / Debian 13 zainstalowany na eMMC,
-- repozytorium sklonowane na CM5,
-- gałąź `agent/cm5-hardware-bringup-stage1` przygotowana,
-- pierwszym uruchamianym peryferium jest DFRobot DFR0971 2 × 0–10 V,
-- test DAC najpierw bez wentylatorów, z pomiarem multimetrem,
-- następnie uruchomienie jednego i dwóch wentylatorów EC,
-- dopiero później integracja RS-485 z CM5 oraz rekuperatorem.
-
-Rezultatem etapu ma być zweryfikowana warstwa dostępu do DFR0971, tabela rzeczywistych napięć oraz udokumentowane zachowanie wyjść po starcie i awarii.
+- repozytorium uruchomione na CM5,
+- DFRobot DFR0971 2 × 0–10 V zwalidowany,
+- oba kanały DAC sprawdzone,
+- pierwszy wentylator EC przeszedł testy przy 1 V, 2 V, 5 V, 8 V i 10 V,
+- `ventilation-core` Stage 1 działa jako warstwowy rdzeń z osobnym workerem sprzętowym,
+- usługa `systemd` i bezpieczny start w stanie STOP zostały zwalidowane.
 
 ## Etap 1 — Zamknięcie koncepcji sprzętowej
 
-- potwierdzenie modelu wentylatora nawiewnego,
-- dobór docelowego zasilacza DIN,
-- pełna weryfikacja elektryczna DFR0971,
-- dobór izolowanego interfejsu RS-485 dla CM5,
-- decyzja o izolacji galwanicznej magistrali,
-- sprawdzenie charakterystyki Tacho,
-- potwierdzenie pinoutu złączy RJ45 Keystone używanych jako złącza nie-Ethernetowe.
-
-## Etap 2 — Prototyp modułu czujnika
-
 Status: **w toku**.
+
+Pozostaje:
+
+- potwierdzenie modelu drugiego wentylatora,
+- dobór docelowego zasilacza DIN,
+- sprawdzenie Tacho,
+- potwierdzenie pinoutu złączy RJ45 Keystone używanych jako złącza nie-Ethernetowe,
+- zamknięcie zasilania dwóch modułów DFR0845,
+- potwierdzenie budżetu prądowego szyn 12 V, 5 V i 3,3 V,
+- końcowy schemat dwóch oddzielnych magistral RS-485.
+
+## Etap 2 — Węzły pomiarowe SEN55
+
+Status: **zakończony i zwalidowany sprzętowo 2026-08-04**.
 
 ### Stage 1 — SEN55 po I²C
 
-Status: **zakończony i zwalidowany sprzętowo 2026-08-03**.
+Status: **zakończony 2026-08-03**.
 
-- przygotowanie KAmod ESP32 POW RS485 + SEN55,
-- lokalna komunikacja I²C,
+- KAmod ESP32 POW RS485 + SEN55,
+- komunikacja I²C,
 - odczyt wszystkich wymaganych wartości,
 - walidacja CRC,
-- obsługa utraty i automatycznego powrotu czujnika,
+- utrata i automatyczny powrót czujnika,
 - zimny start i restart,
-- przygotowanie OTA A/B oraz rollbacku.
+- partycje OTA A/B oraz rollback.
 
 ### Stage 2A — Modbus RTU read-only
 
-Status: **implementacja programowa rozpoczęta na `agent/kamod-modbus-stage2`; walidacja fizyczna oczekuje na konwerter USB–RS485**.
+Status: **zakończony i zwalidowany sprzętowo 2026-08-03**.
 
-- oficjalny `espressif/esp-modbus` 2.1.2,
-- UART2 i wbudowany transceiver RS-485 KAmod,
-- adres `1`, `19200 bit/s`, `8N1`,
-- funkcja `0x04`,
-- wersjonowana mapa 19 rejestrów wejściowych,
-- pomiary, maska dostępności i status,
-- wiek pomiaru, liczniki błędów, uptime i wersje,
-- narzędzie testowe dla komputera,
-- brak rejestrów zapisywalnych.
+Potwierdzony kontrakt:
 
-Kryterium zamknięcia Stage 2A:
+```text
+slave 1
+19200 bit/s
+8N1
+FC04
+mapa v1
+19 Input Registers
+brak funkcji zapisu
+```
 
-1. odczyt wszystkich 19 rejestrów przez konwerter USB–RS485,
-2. zgodność danych z logiem USB,
-3. poprawny status po odłączeniu i ponownym podłączeniu SEN55,
-4. minimum 30 minut ciągłego odpytywania,
-5. poprawne wyjątki dla nieobsługiwanych funkcji,
-6. poprawny zimny start.
+Zaliczone:
+
+- pełny odczyt mapy,
+- zgodność z logiem USB,
+- poprawne statusy po utracie SEN55,
+- automatyczny powrót,
+- zimny start,
+- minimum 30 minut stabilnego odpytywania,
+- odrzucenie FC06,
+- `modbus_errors=0`.
 
 ### Stage 2B — konfiguracja i dwa węzły
 
-Rozpocząć dopiero po walidacji Stage 2A.
+Status: **zakończony, zwalidowany sprzętowo i scalony przez PR #7 w dniu 2026-08-04**.
 
-- trwała konfiguracja adresu Modbus,
-- ewentualna konfiguracja prędkości,
-- kontrolowana sekwencja serwisowa,
-- test dwóch węzłów na wspólnej magistrali,
-- terminacja, polaryzacja spoczynkowa i zachowanie przy awarii jednego węzła.
+- jeden wspólny firmware `0.3.0-stage2b`,
+- trwałe adresy w NVS,
+- slave `1` i `2`,
+- lokalny provisioning przez USB,
+- wspólna magistrala SENSOR BUS,
+- niezależna diagnostyka obu urządzeń,
+- domyślna przerwa 10 ms między transakcjami,
+- 800/800 poprawnych odpytań w obu kolejnościach,
+- brak timeoutów, invalid, stale i błędów mapy.
+
+Dokument końcowy:
+
+```text
+docs/reports/SEN55_MODBUS_STAGE2B_FINAL_REPORT_AND_CM5_SENSOR_BUS_HANDOFF_PL.md
+```
 
 ## Etap 3 — Sterowanie wentylatorami
 
+Status: **częściowo zakończony**.
+
+Zrealizowano:
+
 - uruchomienie DAC 0–10 V,
-- niezależna regulacja nawiewu i wyciągu,
-- pomiar rzeczywistej zależności napięcie–wydajność,
+- niezależne kanały nawiewu i wyciągu,
+- ręczne sterowanie przez `ventilationctl`,
+- bezpieczny STOP,
+- nadzór komunikacji z DAC,
+- tryb FAULT i automatyczny powrót do STOP,
+- restart usługi i reboot CM5 bez samoczynnego uruchomienia wentylatora.
+
+Pozostaje:
+
+- pomiar rzeczywistej charakterystyki obu wentylatorów,
 - ustalenie minimalnego napięcia startu,
-- próba odczytu Tacho,
-- test bezpiecznego zachowania po restarcie CM5 i procesu sterującego.
+- odczyt Tacho,
+- finalny bilans nawiew–wyciąg.
 
-Etap 3 rozpoczynamy częściowo już w Etapie 0, ponieważ sprawne uruchomienie wentylatorów ma obecnie najwyższy priorytet praktyczny.
+## Etap 4 — Integracja magistral RS-485 z `ventilation-core`
 
-## Etap 4 — Pierwsza wersja `ventilation-core`
+Status: **następny główny etap**.
 
-- warstwa abstrakcji DFR0971 i wentylatorów,
-- obsługa Modbus RTU master,
-- odczyt i walidacja pomiarów,
-- ręczne sterowanie dwoma kanałami 0–10 V przez kontrolowany interfejs serwisowy,
+### Stage 1 — zasilanie i bring-up DFR0845
+
+Pierwszy problem do zamknięcia:
+
+- dwa moduły DFR0845 dla dwóch oddzielnych magistral,
+- braki magazynowe wcześniej rozważanych konwerterów 3,3 V,
+- wybór bezpiecznego sposobu zasilania strony UART,
+- sprawdzenie poboru prądu i poziomów TX/RX,
+- zachowanie izolacji galwanicznej,
+- gotowy schemat oraz lista elementów.
+
+Prompt startowy:
+
+```text
+docs/reports/CM5_DFR0845_POWER_AND_SENSOR_BUS_STAGE1_START_PROMPT_PL.md
+```
+
+### Stage 2 — CM5 SENSOR BUS worker
+
+- osobny `sensor_bus_worker`,
+- wyłączna własność portu UART/RS-485,
+- trwała nazwa portu,
+- odczyt slave `1` i `2`,
+- 10 ms przerwy pomiędzy węzłami,
+- walidacja mapy, statusów, wieku i maski dostępności,
+- niezależne błędy i odzyskiwanie per węzeł,
+- normalizowany model danych,
+- integracja z autorytatywnym stanem rdzenia,
+- diagnostyka przez `ventilationctl`,
+- testy na rzeczywistym CM5 i pod `systemd`.
+
+### Stage 3 — CM5 AERO BUS worker
+
+- osobny drugi DFR0845,
+- osobna magistrala,
+- `9600 bit/s`, `8N1`, slave `44`,
+- FC03 i kontrolowane FC06,
+- asynchroniczne potwierdzanie fizycznego wykonania,
+- `execution_timeout = 45 s`,
+- bez wpływu bezwładności AERO na SENSOR BUS.
+
+## Etap 5 — Pierwsza automatyka jakości powietrza
+
+- przypisanie czujników do stref,
+- warstwa oceny jakości powietrza,
 - podstawowe stany ECO, AUTO, PRZEWIETRZANIE i BOOST,
-- konfiguracja czasu oraz mocy,
-- lokalny dziennik zdarzeń,
-- uruchamianie przez `systemd` i watchdog procesu.
+- histerezy i opóźnienia,
+- reakcja na utratę czujnika,
+- lokalny dziennik decyzji,
+- brak zależności od GUI i MQTT.
 
-Pełny rdzeń nie jest warunkiem laboratoryjnego testu DAC. Kod uruchomieniowy ma jednak od początku oddzielać sterownik urządzenia od narzędzia testowego, aby sprawdzony adapter można było później włączyć do `ventilation-core` bez przepisywania obsługi I²C.
-
-## Etap 5 — Instalacja próbna
+## Etap 6 — Instalacja próbna
 
 - montaż w rozdzielni,
 - montaż czujników w pomieszczeniach,
 - test komunikacji na docelowych przewodach,
-- obserwacja VOC, PM, temperatury i wilgotności podczas normalnej pracy,
+- obserwacja VOC, PM, temperatury i wilgotności,
 - sprawdzenie bilansu nawiew–wyciąg,
 - weryfikacja hałasu i wydajności.
 
-## Etap 6 — Strojenie logiki
+## Etap 7 — Strojenie logiki
 
-- ustalenie harmonogramu przewietrzania,
-- dobór czasu przewietrzania po pracy,
-- ustalenie progów i histerez,
-- określenie reakcji na utratę czujnika,
-- określenie reakcji na brak Tacho,
-- dodanie wejść „myjka pracuje” i „piec pracuje”, jeżeli okażą się potrzebne.
+- harmonogram przewietrzania,
+- czas przewietrzania po pracy,
+- progi i histerezy,
+- reakcja na brak Tacho,
+- opcjonalne wejścia „myjka pracuje” i „piec pracuje”,
+- walidacja zachowania w rzeczywistych warunkach.
 
-## Etap 7 — Wersja docelowa
+## Etap 8 — Wersja docelowa
 
 - uporządkowany schemat elektryczny,
-- docelowe obudowy i uchwyty gotowych modułów,
+- docelowe obudowy i uchwyty,
 - oznaczenia przewodów i złączy,
 - instrukcja montażu i uruchomienia,
 - kopia konfiguracji,
@@ -127,21 +195,9 @@ Pełny rdzeń nie jest warunkiem laboratoryjnego testu DAC. Kod uruchomieniowy m
 
 ## Najbliższe punkty kontrolne
 
-### Węzeł SEN55
-
-1. zielone CI dla Stage 2A,
-2. flash firmware 0.2.0-stage2,
-3. odczyt Modbus przez komputer i konwerter USB–RS485,
-4. raport z walidacji sprzętowej,
-5. dopiero potem Stage 2B.
-
-### DFR0971
-
-Po uruchomieniu DFR0971 należy zapisać:
-
-1. model i adres I²C wykrytego urządzenia,
-2. schemat połączeń CM5 IO Board ↔ DFR0971,
-3. zmierzone napięcia dla kilku wartości zadanych,
-4. zachowanie obu kanałów po restarcie i awarii programu,
-5. pierwszy sterownik urządzenia oraz osobne narzędzie testowe,
-6. commit, push i krótki raport z etapu uruchomienia DAC.
+1. rozstrzygnięcie zasilania dwóch DFR0845,
+2. schemat i pomiary stanowiskowe jednego DFR0845,
+3. potwierdzenie bezpiecznych poziomów UART CM5,
+4. przygotowanie gałęzi `agent/cm5-sensor-bus-worker-stage1`,
+5. implementacja i walidacja `sensor_bus_worker`,
+6. dopiero potem osobny worker AERO BUS.
