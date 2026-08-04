@@ -23,6 +23,7 @@ from read_modbus_sensor import (
 )
 
 EXPECTED_MAP_VERSION = 1
+DEFAULT_INTER_NODE_DELAY_SECONDS = 0.010
 
 
 @dataclass
@@ -58,6 +59,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--baud", type=int, default=19200)
     parser.add_argument("--timeout", type=float, default=0.5)
     parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument(
+        "--inter-node-delay",
+        type=float,
+        default=DEFAULT_INTER_NODE_DELAY_SECONDS,
+        help=(
+            "Cisza pomiędzy zapytaniami do kolejnych slave w sekundach "
+            f"(domyślnie {DEFAULT_INTER_NODE_DELAY_SECONDS:.3f})"
+        ),
+    )
     parser.add_argument("--cycles", type=int, default=0, help="0 oznacza pracę ciągłą")
     return parser.parse_args()
 
@@ -76,6 +86,8 @@ def main() -> int:
     args = parse_args()
     if args.timeout <= 0 or args.interval <= 0:
         raise SystemExit("Timeout i interval muszą być dodatnie")
+    if args.inter_node_delay < 0:
+        raise SystemExit("Inter-node delay nie może być ujemny")
     if args.cycles < 0:
         raise SystemExit("Liczba cykli nie może być ujemna")
 
@@ -95,7 +107,7 @@ def main() -> int:
             while args.cycles == 0 or cycle < args.cycles:
                 cycle += 1
                 print(f"\n=== cykl {cycle} ===")
-                for address in args.addresses:
+                for index, address in enumerate(args.addresses):
                     node = stats[address]
                     node.polls += 1
                     print(f"[slave {address}]")
@@ -119,6 +131,10 @@ def main() -> int:
                     except ModbusError as exc:
                         node.timeouts_or_protocol_errors += 1
                         print(f"BŁĄD slave {address}: {exc}", file=sys.stderr)
+
+                    if index + 1 < len(args.addresses) and args.inter_node_delay > 0:
+                        time.sleep(args.inter_node_delay)
+
                 if args.cycles == 0 or cycle < args.cycles:
                     time.sleep(args.interval)
     except serial.SerialException as exc:
