@@ -11,7 +11,7 @@ ACTIVATE=0
 
 usage() {
     cat <<'USAGE'
-Usage: sudo tools/install_cm5_wifi_service.sh [--activate]
+Usage: sudo bash tools/install_cm5_wifi_service.sh [--activate]
 
 Installs the CM5 private service Wi-Fi configuration for KAmod/SEN55 nodes.
 Without --activate it prepares the NetworkManager profile and system files but
@@ -130,4 +130,4 @@ nmcli --wait 30 connection up "$PROFILE" ifname "$IFACE"
 systemctl restart wvc-sensor-firewall.service
 systemctl restart wvc-sensor-dhcp.service
 
-"$REPO_ROOT/tools/validate_cm5_wifi_service.sh"
+bash "$REPO_ROOT/tools/validate_cm5_wifi_service.sh"
