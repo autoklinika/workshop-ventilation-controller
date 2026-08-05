@@ -1,0 +1,5 @@
+# Local service-channel secrets and generated NVS images.
+*heartbeat-keys.json
+*service-keys.json
+*service-nvs.bin
+sensor_node_service_nvs.bin
