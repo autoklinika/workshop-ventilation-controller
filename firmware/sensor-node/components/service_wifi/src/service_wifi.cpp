@@ -181,6 +181,7 @@ void ServiceWifi::run()
                  "service Wi-Fi initialization failed: %s; SEN55 and Modbus continue",
                  esp_err_to_name(init_result));
         vTaskDelete(nullptr);
+        return;
     }
 
     auto* group = static_cast<EventGroupHandle_t>(event_group_);
@@ -196,14 +197,13 @@ void ServiceWifi::run()
                 LOG_WARN(kTag, "Wi-Fi connect request failed: %s", esp_err_to_name(connect_result));
             }
 
+            const std::uint32_t jitter_ms = esp_random() % 501U;
             bits = xEventGroupWaitBits(group,
                                        kGotIpBit,
                                        pdFALSE,
                                        pdTRUE,
-                                       pdMS_TO_TICKS(backoff_ms));
+                                       pdMS_TO_TICKS(backoff_ms + jitter_ms));
             if ((bits & kGotIpBit) == 0) {
-                const std::uint32_t jitter_ms = esp_random() % 501U;
-                vTaskDelay(pdMS_TO_TICKS(backoff_ms + jitter_ms));
                 backoff_ms = std::min(backoff_ms * 2U, kMaximumBackoffMs);
                 continue;
             }
@@ -249,10 +249,15 @@ esp_err_t ServiceWifi::initialize_wifi()
     if (result != ESP_OK) {
         return result;
     }
+    result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    if (result != ESP_OK) {
+        return result;
+    }
 
     esp_netif_inherent_config_t inherent = ESP_NETIF_INHERENT_DEFAULT_WIFI_STA();
     esp_netif_config_t netif_config = {
         .base = &inherent,
+        .driver = nullptr,
         .stack = ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA,
     };
     esp_netif_t* netif = esp_netif_new(&netif_config);
