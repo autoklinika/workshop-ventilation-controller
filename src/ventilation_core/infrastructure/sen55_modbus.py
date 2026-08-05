@@ -13,6 +13,15 @@ REGISTER_COUNT = 19
 EXPECTED_MAP_VERSION = 1
 
 
+class UnsupportedMapVersion(ValueError):
+    def __init__(self, received: int, expected: int) -> None:
+        self.received = received
+        self.expected = expected
+        super().__init__(
+            f"Unsupported register map {received}; expected {expected}"
+        )
+
+
 @dataclass(frozen=True)
 class DecodedSensorSample:
     reading: AirQualityReading
@@ -48,9 +57,17 @@ def _optional_scaled(
     return registers[index] / scale if mask & field else None
 
 
-def decode_sensor_registers(registers: list[int]) -> DecodedSensorSample:
+def decode_sensor_registers(
+    registers: list[int],
+    *,
+    expected_map_version: int = EXPECTED_MAP_VERSION,
+) -> DecodedSensorSample:
     if len(registers) != REGISTER_COUNT:
         raise ValueError(f"Expected {REGISTER_COUNT} registers, received {len(registers)}")
+
+    map_version = registers[16]
+    if map_version != expected_map_version:
+        raise UnsupportedMapVersion(map_version, expected_map_version)
 
     availability = SensorAvailability(registers[8] & 0xFF)
     status = SensorNodeStatus(registers[9] & 0xFF)
@@ -87,6 +104,6 @@ def decode_sensor_registers(registers: list[int]) -> DecodedSensorSample:
         modbus_service_errors=registers[12],
         uptime_seconds=_combine_u32(registers[13], registers[14]),
         firmware_version=f"{(firmware >> 8) & 0xFF}.{firmware & 0xFF}",
-        map_version=registers[16],
+        map_version=map_version,
         sequence=_combine_u32(registers[17], registers[18]),
     )
