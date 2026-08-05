@@ -8,16 +8,11 @@ Baza: `main` @ `40de40f84218d8e4b74ec7d57f5eb81700530746`
 
 ## 1. Punkt startowy
 
-Wcześniejsza gałąź `agent/cm5-sensor-bus-worker-stage1` zawierała walidację dwóch UART-ów i DFR0845, ale była rozbieżna z aktualnym `main`. Nie została nadpisana. Utworzono świeżą gałąź z aktualnej bazy i zachowano na niej wcześniejszy raport oraz narzędzie testowe.
-
-Sprzęt potwierdzony przed implementacją:
+Zasilanie 3,3 V obu DFR0845 zostało wykonane. Moduły są uruchomione i podłączone do CM5 według zatwierdzonego pinoutu. Dwa węzły KAmod + SEN55 są połączone w jednej magistrali SENSOR BUS i zasilone napięciem 12 V.
 
 ```text
 DFR0845 #1 -> /dev/ttyAMA0 -> SENSOR BUS
 DFR0845 #2 -> /dev/ttyAMA4 -> AERO BUS
-2× KAmod + SEN55 -> jedna magistrala SENSOR BUS
-zasilanie węzłów -> 12 V
-zasilanie strony UART DFR0845 -> zewnętrzne 3,3 V
 ```
 
 SENSOR BUS:
@@ -25,15 +20,14 @@ SENSOR BUS:
 ```text
 /dev/ttyAMA0
 19200 bit/s, 8N1
-Modbus RTU
-FC04
+Modbus RTU, FC04
 slave 1 i 2
 mapa v1
 19 Input Registers
 10 ms przerwy między węzłami
 ```
 
-AERO BUS pozostaje niezależny i jest poza zakresem tego etapu:
+AERO BUS pozostaje poza zakresem tego etapu:
 
 ```text
 /dev/ttyAMA4
@@ -41,7 +35,7 @@ AERO BUS pozostaje niezależny i jest poza zakresem tego etapu:
 slave 44
 ```
 
-Wcześniejsza walidacja sprzętowa:
+Wcześniejsza walidacja sprzętowa potwierdziła:
 
 ```text
 UART0 <-> UART4:             20/20 w obu kierunkach
@@ -49,11 +43,11 @@ UART0 <-> UART4:             20/20 w obu kierunkach
 2× DFR0845 przy 9600 bit/s:  100/100 w obu kierunkach
 ```
 
-Raport: `docs/reports/CM5_DFR0845_DUAL_UART_RS485_VALIDATION_PL.md`.
+Szczegóły: `docs/reports/CM5_DFR0845_DUAL_UART_RS485_VALIDATION_PL.md`.
 
 ## 2. Architektura
 
-Dodano trzecią, niezależną domenę procesu:
+Dodano niezależny proces SENSOR BUS:
 
 ```text
 ventilation-core
@@ -64,18 +58,18 @@ ventilation-core
     └── KAmod + SEN55, slave 2
 ```
 
-Worker SENSOR BUS:
+Worker:
 
 - otwiera `/dev/ttyAMA0` w trybie wyłącznym,
 - wysyła wyłącznie FC04,
 - czyta 19 rejestrów mapy v1,
-- zachowuje 10 ms między kolejnymi slave,
-- odpytuje każdy węzeł niezależnie,
+- zachowuje minimum 10 ms między kolejnymi slave,
+- utrzymuje niezależny stan i statystyki obu węzłów,
 - nie blokuje zdrowego węzła po timeoutcie drugiego,
 - ponownie otwiera UART po błędzie portu,
 - automatycznie wykrywa powrót węzła,
 - jest nadzorowany i restartowany po nieoczekiwanym zakończeniu,
-- usuwa zakończony obiekt procesu i stare komunikaty kolejki przed restartem.
+- usuwa zakończony obiekt procesu i stare wpisy kolejki przed restartem.
 
 ## 3. Model danych
 
@@ -89,11 +83,11 @@ Dla każdego slave publikowane są:
 - liczniki błędów SEN55 i usługi Modbus,
 - uptime, firmware, wersja mapy i sekwencja,
 - czas ostatniego sukcesu i ostatni błąd,
-- liczniki polls, success, communication errors, invalid, stale i map errors.
+- liczniki odpytań, sukcesów, błędów komunikacji, invalid, stale i błędów mapy.
 
 Pole niedostępne według maski jest reprezentowane jako `None`, a nie jako pozornie prawidłowe zero.
 
-`usable=true` wymaga jednocześnie:
+`usable=true` wymaga:
 
 ```text
 poprawnej odpowiedzi Modbus
@@ -104,9 +98,11 @@ co najmniej jednego dostępnego pola
 prawidłowego wieku pomiaru
 ```
 
+Wersja mapy jest sprawdzana przed dekodowaniem wartości. Przy nieznanej wersji urządzenie pozostaje `online=true`, ale dane są wyczyszczone, `usable=false`, a licznik błędów mapy rośnie.
+
 ## 4. Separacja awarii
 
-Zachowano rozdział:
+Obowiązuje rozdział:
 
 ```text
 DAC / I²C != SENSOR BUS != pojedynczy slave
@@ -119,13 +115,9 @@ Awaria SENSOR BUS:
 - nie przełącza trybu sterowania,
 - nie zatrzymuje `ventilation-core`.
 
-Awaria slave `1` nie zatrzymuje slave `2` i odwrotnie. Ostatnie wartości mogą pozostać w stanie diagnostycznym, lecz `online=false` i `usable=false` jednoznacznie zabraniają ich użycia jako aktualnego pomiaru.
+Awaria slave `1` nie zatrzymuje slave `2` i odwrotnie. Ostatnie wartości mogą pozostać w stanie diagnostycznym, ale `online=false` i `usable=false` zabraniają uznania ich za aktualny pomiar.
 
-Ścieżki startu i zamykania zabezpieczono tak, aby:
-
-- SENSOR BUS został zamknięty nawet po wyjątku `actuator.close()`,
-- oba procesy zostały zamknięte po błędzie utworzenia Unix socketu,
-- proces DAC został zamknięty, jeśli konfiguracja procesu SENSOR BUS nie powiedzie się przed uruchomieniem serwera.
+Ścieżki uruchamiania i zamykania zabezpieczono tak, aby procesy były sprzątane również po błędzie inicjalizacji SENSOR BUS, utworzenia Unix socketu lub zamknięcia procesu DAC.
 
 ## 5. Interfejs diagnostyczny
 
@@ -135,13 +127,13 @@ Pełny stan:
 ventilationctl status
 ```
 
-Tylko czujniki:
+Tylko SENSOR BUS:
 
 ```bash
 ventilationctl sensors
 ```
 
-Oba polecenia zwracają JSON. GUI, MQTT i przyszłe API nie otwierają UART-u i nie znają numerów rejestrów Modbus.
+Polecenia zwracają JSON. GUI, MQTT i przyszłe API nie otwierają UART-u i nie znają numerów rejestrów Modbus.
 
 ## 6. Konfiguracja runtime
 
@@ -179,14 +171,15 @@ sudo apt install python3-serial
 
 ## 7. Walidacja programowa
 
-GitHub Actions dla aktualnego HEAD Draft PR `#8`:
+GitHub Actions dla kodowego checkpointu Draft PR `#8`:
 
 ```text
+Commit:     416efae1bb3ff22e620208f962d3afb1b95cb2ae
 Workflow:   Ventilation Core Tests
-Run:        #280
+Run:        #290
 Python:     3.11.15
 compileall: PASS
-unit tests: 28/28 PASS
+unit tests: 31/31 PASS
 conclusion: success
 ```
 
@@ -200,13 +193,13 @@ Testy obejmują między innymi:
 - ujemną temperaturę `int16`,
 - pola niedostępne jako `None`,
 - stale i brak pierwszego pomiaru,
+- odrzucenie nieznanej wersji mapy przed dekodowaniem,
+- zachowanie `online=true` i wyczyszczenie danych przy nieznanej mapie,
+- brak blokowania slave `2` po timeoutcie slave `1`,
 - integrację SENSOR BUS z `CoreState`,
 - niezależność błędu czujników od DAC,
-- sprzątanie workera po błędzie zamykania DAC,
-- sprzątanie procesów po błędzie startu Unix socketu,
+- sprzątanie procesów po błędach startu i zamykania,
 - wszystkie wcześniejsze testy DFR0971, polityki napięć i nadzoru procesu.
-
-Dodatkowy smoke test bez dostępnego `pyserial`/UART potwierdził, że proces główny pozostaje aktywny, a worker publikuje stan zdegradowany zamiast zatrzymywać rdzeń.
 
 ## 8. Walidacja na rzeczywistym CM5
 
@@ -243,7 +236,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 Oczekiwane zakończenie:
 
 ```text
-Ran 28 tests
+Ran 31 tests
 OK
 ```
 
