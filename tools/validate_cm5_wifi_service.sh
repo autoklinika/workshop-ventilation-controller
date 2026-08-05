@@ -51,7 +51,7 @@ else
     fail "$IFACE does not have $EXPECTED_ADDRESS"
 fi
 
-if iw dev "$IFACE" info | grep -Eq '^\s*type AP$'; then
+if iw dev "$IFACE" info | grep -Eq '^[[:space:]]*type AP$'; then
     pass "$IFACE operates as AP"
 else
     fail "$IFACE is not operating as AP"
