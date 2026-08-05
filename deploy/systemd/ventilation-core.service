@@ -13,7 +13,7 @@ Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=workshop-ventilation
 RuntimeDirectoryMode=0770
 UMask=0007
-ExecStart=/usr/bin/python3 -m ventilation_core.main --socket /run/workshop-ventilation/ventilation-core.sock --sensor-port /dev/ttyAMA0 --sensor-addresses 1,2 --sensor-baud 19200 --sensor-timeout 0.5 --sensor-poll-interval 1.0 --sensor-inter-node-delay 0.010 --sensor-reconnect-delay 1.0 --log-level INFO
+ExecStart=/usr/bin/python3 -m ventilation_core.main --socket /run/workshop-ventilation/ventilation-core.sock --sensor-port /dev/ttyAMA0 --sensor-addresses 1,2 --sensor-baud 19200 --sensor-timeout 0.5 --sensor-poll-interval 1.0 --sensor-inter-node-delay 0.010 --sensor-reconnect-delay 1.0 --aero-port /dev/ttyAMA4 --aero-address 44 --aero-baud 9600 --aero-timeout 0.5 --aero-poll-interval 2.0 --aero-inter-register-delay 0.050 --aero-reconnect-delay 1.0 --log-level INFO
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=20
