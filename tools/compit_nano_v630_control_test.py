@@ -13,9 +13,9 @@ Allowed control addresses:
 
 Observed runtime behavior:
 - NANO may acknowledge a write immediately,
-- AERO 4A2 may need up to about 30 seconds to execute it physically,
+- AERO 4A2 may require more than 45 seconds to execute or return physically,
 - protocol acknowledgement is not treated as physical confirmation,
-- the tool observes fan-power telemetry for up to 45 seconds by default.
+- the tool observes fan-power telemetry for up to 60 seconds by default.
 
 Safety:
 - writes require --execute and --confirm NANO630,
@@ -46,7 +46,7 @@ DEFAULT_PORT = "COM10"
 DEFAULT_SLAVE = 44
 DEFAULT_BAUD = 9600
 DEFAULT_TIMEOUT = 0.6
-DEFAULT_SETTLE_TIMEOUT = 45.0
+DEFAULT_SETTLE_TIMEOUT = 60.0
 DEFAULT_POLL_INTERVAL = 2.0
 DEFAULT_HOLD_SECONDS = 10.0
 CONFIRM_TEXT = "NANO630"
