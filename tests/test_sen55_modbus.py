@@ -1,6 +1,9 @@
 import unittest
 
-from ventilation_core.infrastructure.sen55_modbus import decode_sensor_registers
+from ventilation_core.infrastructure.sen55_modbus import (
+    UnsupportedMapVersion,
+    decode_sensor_registers,
+)
 
 
 class Sen55ModbusDecoderTests(unittest.TestCase):
@@ -84,6 +87,16 @@ class Sen55ModbusDecoderTests(unittest.TestCase):
 
         self.assertIsNone(sample.age_seconds)
         self.assertFalse(sample.measurement_valid)
+
+    def test_unknown_map_is_rejected_before_value_decoding(self) -> None:
+        registers = [0xFFFF] * 19
+        registers[16] = 2
+
+        with self.assertRaises(UnsupportedMapVersion) as context:
+            decode_sensor_registers(registers)
+
+        self.assertEqual(context.exception.received, 2)
+        self.assertEqual(context.exception.expected, 1)
 
 
 if __name__ == "__main__":
