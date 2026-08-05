@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
 
+from ventilation_core.domain.sensors import SensorBusState
+
 
 class VentilationMode(StrEnum):
     STOP = "STOP"
@@ -57,6 +59,7 @@ class CoreState:
     output_state_known: bool = True
     consecutive_hardware_failures: int = 0
     active_alarms: tuple[AlarmState, ...] = ()
+    sensor_bus: SensorBusState | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,4 +69,5 @@ class CoreState:
             "output_state_known": self.output_state_known,
             "consecutive_hardware_failures": self.consecutive_hardware_failures,
             "active_alarms": [alarm.to_dict() for alarm in self.active_alarms],
+            "sensor_bus": None if self.sensor_bus is None else self.sensor_bus.to_dict(),
         }
