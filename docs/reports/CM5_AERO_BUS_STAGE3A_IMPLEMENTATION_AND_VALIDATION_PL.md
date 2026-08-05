@@ -114,11 +114,16 @@ Przykładowa struktura:
 
 ## 5. Walidacja programowa
 
-Lokalnie przygotowany zakres przeszedł:
+Walidacja lokalna i CI:
 
 ```text
-compileall: PASS
-nowe testy: 11/11 PASS
+lokalny compileall: PASS
+lokalne nowe testy: 11/11 PASS
+GitHub Actions: Ventilation Core Tests #316
+Python: 3.11.15
+pełny compileall: PASS
+pełny zestaw testów: 42/42 PASS
+conclusion: success
 ```
 
 Testy obejmują:
@@ -134,7 +139,7 @@ Testy obejmują:
 - konfigurację `/dev/ttyAMA4`, slave `44`, 9600 w systemd,
 - zachowanie bezpiecznego `KillMode=mixed`.
 
-Pełny workflow GitHub Actions musi zostać zaliczony po otwarciu Draft PR.
+Pełny workflow GitHub Actions został zaliczony. Pozostaje walidacja sprzętowa na docelowym CM5.
 
 ## 6. Walidacja sprzętowa na CM5
 
