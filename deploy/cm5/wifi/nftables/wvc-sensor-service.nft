@@ -1,0 +1,24 @@
+table inet wvc_sensor_service {
+    chain input {
+        type filter hook input priority 0; policy accept;
+
+        # DHCP klientów prywatnej sieci serwisowej.
+        iifname "wlan0" udp sport 68 udp dport 67 accept
+
+        # Minimalna diagnostyka łączności CM5 z węzła.
+        iifname "wlan0" ip protocol icmp icmp type echo-request accept
+
+        # Do czasu wdrożenia konkretnego protokołu serwisowego nie wystawiaj
+        # przez wlan0 SSH, API ani żadnych pozostałych usług lokalnych CM5.
+        iifname "wlan0" drop
+    }
+
+    chain forward {
+        type filter hook forward priority 0; policy accept;
+
+        # Węzły nie mogą korzystać z CM5 jako routera do Ethernetu,
+        # Internetu ani innych interfejsów.
+        iifname "wlan0" drop
+        oifname "wlan0" drop
+    }
+}
