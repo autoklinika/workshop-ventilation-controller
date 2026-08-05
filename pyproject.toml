@@ -12,6 +12,7 @@ dependencies = ["pyserial>=3.5"]
 [project.scripts]
 ventilation-core = "ventilation_core.main:main"
 ventilationctl = "ventilation_core.ctl:main"
+wvc-service-heartbeat = "ventilation_core.service_heartbeat:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
