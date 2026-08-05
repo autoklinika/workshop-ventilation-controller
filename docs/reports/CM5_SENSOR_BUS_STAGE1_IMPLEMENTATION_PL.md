@@ -14,6 +14,12 @@ Gałąź implementacyjna:
 agent/cm5-sensor-bus-worker-stage1-refresh
 ```
 
+Draft PR:
+
+```text
+#8
+```
+
 Punkt bazowy:
 
 ```text
@@ -29,9 +35,9 @@ W repozytorium istniała już gałąź:
 agent/cm5-sensor-bus-worker-stage1
 ```
 
-Zawierała ona raport i narzędzie wcześniejszej walidacji dwóch UART-ów CM5 oraz dwóch DFR0845, ale rozeszła się z aktualnym `main` i nie zawierała czterech najnowszych commitów dokumentujących docelowy pinout.
+Zawierała raport i narzędzie wcześniejszej walidacji dwóch UART-ów CM5 oraz dwóch DFR0845, ale rozeszła się z aktualnym `main` i nie zawierała czterech najnowszych commitów dokumentujących docelowy pinout.
 
-Nie nadpisano ani nie usunięto tej gałęzi. Utworzono świeżą gałąź z aktualnego `main`, a wartościowe materiały walidacyjne zostały zachowane również w nowej gałęzi.
+Nie nadpisano ani nie usunięto tej gałęzi. Utworzono świeżą gałąź z aktualnego `main`, a wartościowe materiały walidacyjne zachowano również na nowej gałęzi.
 
 ## 2. Potwierdzony punkt startowy sprzętu
 
@@ -59,6 +65,20 @@ slave 44
 ```
 
 Stage 1 nie otwiera ani nie obsługuje AERO BUS.
+
+Wcześniejsza walidacja sprzętowa potwierdziła:
+
+```text
+bezpośredni UART0 <-> UART4: 20/20 w obu kierunkach
+2× DFR0845 przy 19200 bit/s: 100/100 w obu kierunkach
+2× DFR0845 przy 9600 bit/s:  100/100 w obu kierunkach
+```
+
+Szczegóły:
+
+```text
+docs/reports/CM5_DFR0845_DUAL_UART_RS485_VALIDATION_PL.md
+```
 
 ## 3. Zakres implementacji
 
@@ -128,6 +148,8 @@ Konsekwencje:
 - worker jest nadzorowany i automatycznie odtwarzany po nieoczekiwanym zakończeniu procesu,
 - obiekt zakończonego procesu oraz stare stany kolejki są usuwane przed restartem workera.
 
+Smoke test procesu bez dostępnego `pyserial`/UART potwierdził, że proces główny pozostaje aktywny, worker raportuje `ready=false`, a brak SENSOR BUS nie powoduje awarii DAC ani zatrzymania rdzenia.
+
 ## 6. Integracja z autorytatywnym stanem
 
 `CoreState` zawiera teraz opcjonalny `sensor_bus`.
@@ -180,7 +202,7 @@ i2c
 dialout
 ```
 
-Uruchomienie przez `systemd` pozostaje odłożone do zakończenia walidacji ręcznej.
+Uruchomienie nowej wersji przez `systemd` pozostaje odłożone do zakończenia walidacji ręcznej.
 
 ## 8. Zależności
 
@@ -198,7 +220,7 @@ sudo apt install python3-serial
 
 Pozwala to uniknąć konfliktu z mechanizmem externally-managed Python środowiska systemowego.
 
-## 9. Testy programowe
+## 9. Walidacja programowa
 
 Dodano testy:
 
@@ -214,7 +236,18 @@ Dodano testy:
 - obecności SENSOR BUS w `CoreState`,
 - niezależności awarii monitora czujników od stanu DAC.
 
-Lokalny model implementacji przeszedł `compileall` i testy nowej ścieżki. Pełny wynik workflow gałęzi zostanie wpisany po uruchomieniu GitHub Actions dla Draft PR.
+GitHub Actions dla Draft PR `#8`:
+
+```text
+Workflow: Ventilation Core Tests
+Run:      #268
+Python:   3.11.15
+compileall: PASS
+unit tests: 26/26 PASS
+conclusion: success
+```
+
+Pełny dotychczasowy zestaw testów DAC, polityki napięć i nadzoru procesu również pozostał zielony.
 
 ## 10. Plan walidacji na rzeczywistym CM5
 
@@ -248,19 +281,27 @@ PYTHONPATH=src python3 -m compileall -q src tests
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+Oczekiwany wynik:
+
+```text
+Ran 26 tests
+OK
+```
+
 ### 10.4. Ręczne uruchomienie rdzenia
 
 Najpierw zatrzymać istniejącą usługę, aby nie otwierała DAC ani portów równolegle:
 
 ```bash
 sudo systemctl stop ventilation-core
+sudo install -d -o wentylacja -g wentylacja -m 0770 /run/workshop-ventilation
 ```
 
 Uruchomić rdzeń w pierwszym terminalu:
 
 ```bash
 cd /home/wentylacja/workshop-ventilation-controller
-sudo -u wentylacja PYTHONPATH=src python3 -m ventilation_core.main \
+sudo -u wentylacja env PYTHONPATH=src python3 -m ventilation_core.main \
   --socket /run/workshop-ventilation/ventilation-core.sock \
   --sensor-port /dev/ttyAMA0 \
   --sensor-addresses 1,2 \
@@ -270,12 +311,6 @@ sudo -u wentylacja PYTHONPATH=src python3 -m ventilation_core.main \
   --sensor-inter-node-delay 0.010 \
   --sensor-reconnect-delay 1.0 \
   --log-level INFO
-```
-
-Jeżeli katalog runtime nie istnieje po zatrzymaniu usługi, utworzyć go przed startem ręcznym:
-
-```bash
-sudo install -d -o wentylacja -g wentylacja -m 0770 /run/workshop-ventilation
 ```
 
 ### 10.5. Pierwszy odczyt
