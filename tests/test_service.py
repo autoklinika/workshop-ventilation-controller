@@ -6,6 +6,7 @@ from ventilation_core.application.service import (
 )
 from ventilation_core.domain.models import AlarmCode, FanSetpoints, VentilationMode
 from ventilation_core.domain.policy import FanSetpointPolicy
+from ventilation_core.domain.sensors import SensorBusState, SensorNodeState
 
 
 class FakeActuator:
@@ -48,6 +49,35 @@ class FakeActuator:
         self.ready = True
         self.last_error = None
         self.applied = FanSetpoints.stopped()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeSensorBus:
+    def __init__(self) -> None:
+        self.health_calls = 0
+        self.closed = False
+        self.fail_health = False
+        self.current_state = SensorBusState(
+            port="/dev/ttyAMA0",
+            baudrate=19200,
+            addresses=(1, 2),
+            ready=True,
+            worker_alive=True,
+            nodes=(
+                SensorNodeState(slave_address=1, online=True, usable=True),
+                SensorNodeState(slave_address=2, online=True, usable=True),
+            ),
+        )
+
+    def state(self) -> SensorBusState:
+        return self.current_state
+
+    def health_check(self) -> None:
+        self.health_calls += 1
+        if self.fail_health:
+            raise RuntimeError("Sensor worker stopped")
 
     def close(self) -> None:
         self.closed = True
@@ -136,3 +166,30 @@ class VentilationServiceTest(unittest.TestCase):
         self.assertFalse(state.hardware_ready)
         self.assertFalse(state.output_state_known)
         self.assertEqual(state.active_alarms[0].code, AlarmCode.DAC_COMMUNICATION_LOST)
+
+    def test_sensor_bus_is_visible_and_supervised_independently(self) -> None:
+        sensor_bus = FakeSensorBus()
+        service = VentilationService(
+            self.actuator,
+            FanSetpointPolicy(1.0, 10.0),
+            sensor_bus=sensor_bus,
+        )
+
+        state = service.health_check()
+        self.assertEqual(sensor_bus.health_calls, 1)
+        self.assertIsNotNone(state.sensor_bus)
+        self.assertEqual(state.sensor_bus.nodes[0].slave_address, 1)
+        self.assertTrue(state.hardware_ready)
+
+        sensor_bus.fail_health = True
+        state = service.health_check()
+        self.assertTrue(state.hardware_ready)
+        self.assertEqual(state.mode, VentilationMode.STOP)
+        self.assertEqual(state.active_alarms, ())
+
+        service.close()
+        self.assertTrue(sensor_bus.closed)
+
+
+if __name__ == "__main__":
+    unittest.main()
