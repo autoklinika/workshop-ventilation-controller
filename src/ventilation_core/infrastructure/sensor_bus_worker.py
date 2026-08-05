@@ -234,6 +234,8 @@ class ProcessSensorBus:
                 worker_alive=False,
                 last_error=f"Sensor bus worker exited with code {exit_code}",
             )
+            self._dispose_process()
+            self._discard_queued_states()
             self._worker_restarts += 1
             self._start_worker()
 
@@ -245,8 +247,10 @@ class ProcessSensorBus:
                 if self._process.is_alive():
                     self._process.terminate()
                     self._process.join(timeout=1.0)
-                self._process.close()
-                self._process = None
+            self._dispose_process()
+            self._discard_queued_states()
+            self._state_queue.close()
+            self._state_queue.join_thread()
             self._state = replace(self._state, ready=False, worker_alive=False)
 
     def _start_worker(self) -> None:
@@ -264,6 +268,22 @@ class ProcessSensorBus:
             self._config.port,
             self._config.addresses,
         )
+
+    def _dispose_process(self) -> None:
+        if self._process is None:
+            return
+        try:
+            self._process.join(timeout=0)
+            self._process.close()
+        finally:
+            self._process = None
+
+    def _discard_queued_states(self) -> None:
+        while True:
+            try:
+                self._state_queue.get_nowait()
+            except queue.Empty:
+                return
 
     def _drain_updates(self) -> None:
         while True:
