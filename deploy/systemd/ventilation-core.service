@@ -16,8 +16,9 @@ UMask=0007
 ExecStart=/usr/bin/python3 -m ventilation_core.main --socket /run/workshop-ventilation/ventilation-core.sock --sensor-port /dev/ttyAMA0 --sensor-addresses 1,2 --sensor-baud 19200 --sensor-timeout 0.5 --sensor-poll-interval 1.0 --sensor-inter-node-delay 0.010 --sensor-reconnect-delay 1.0 --log-level INFO
 Restart=on-failure
 RestartSec=2
-TimeoutStopSec=10
+TimeoutStopSec=20
 KillSignal=SIGTERM
+KillMode=mixed
 NoNewPrivileges=true
 
 [Install]
