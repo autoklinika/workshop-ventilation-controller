@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from ventilation_core.domain.models import FanSetpoints
+from ventilation_core.domain.sensors import SensorBusState
 
 
 class VentilationActuator(Protocol):
@@ -19,5 +20,13 @@ class VentilationActuator(Protocol):
     def health_check(self) -> None: ...
 
     def recover(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class SensorBusMonitor(Protocol):
+    def state(self) -> SensorBusState: ...
+
+    def health_check(self) -> None: ...
 
     def close(self) -> None: ...
