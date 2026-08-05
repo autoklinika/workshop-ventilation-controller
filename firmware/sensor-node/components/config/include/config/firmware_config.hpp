@@ -5,8 +5,8 @@
 namespace config::firmware {
 
 inline constexpr char kProjectName[] = "kamod-sen55-sensor-node";
-inline constexpr char kVersion[] = "0.3.0-stage2b";
-inline constexpr std::uint16_t kFirmwareVersionPacked = 0x0003;
+inline constexpr char kVersion[] = "0.4.0-stage1";
+inline constexpr std::uint16_t kFirmwareVersionPacked = 0x0004;
 
 inline constexpr std::uint32_t kApplicationLoopPeriodMs = 100;
 inline constexpr std::uint32_t kSensorPollPeriodMs = 200;
