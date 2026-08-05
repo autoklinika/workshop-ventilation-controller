@@ -18,6 +18,7 @@ class FakeActuator:
         self.fail_health = False
         self.fail_apply = False
         self.fail_recover = False
+        self.fail_close = False
         self.health_calls = 0
         self.recover_calls = 0
 
@@ -52,6 +53,8 @@ class FakeActuator:
 
     def close(self) -> None:
         self.closed = True
+        if self.fail_close:
+            raise RuntimeError("Actuator close failed")
 
 
 class FakeSensorBus:
@@ -188,6 +191,21 @@ class VentilationServiceTest(unittest.TestCase):
         self.assertEqual(state.active_alarms, ())
 
         service.close()
+        self.assertTrue(sensor_bus.closed)
+
+    def test_sensor_bus_closes_even_if_actuator_close_fails(self) -> None:
+        sensor_bus = FakeSensorBus()
+        self.actuator.fail_close = True
+        service = VentilationService(
+            self.actuator,
+            FanSetpointPolicy(1.0, 10.0),
+            sensor_bus=sensor_bus,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Actuator close failed"):
+            service.close()
+
+        self.assertTrue(self.actuator.closed)
         self.assertTrue(sensor_bus.closed)
 
 
