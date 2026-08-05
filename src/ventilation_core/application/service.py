@@ -129,9 +129,11 @@ class VentilationService:
             except Exception:
                 LOGGER.exception("Failed to force DAC outputs to zero during shutdown")
             finally:
-                self._actuator.close()
-                if self._sensor_bus is not None:
-                    self._sensor_bus.close()
+                try:
+                    self._actuator.close()
+                finally:
+                    if self._sensor_bus is not None:
+                        self._sensor_bus.close()
 
     def _require_operational_hardware(self) -> None:
         if self._recovery_required or not self._actuator.ready or self._active_alarms:
