@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "esp_err.h"
+#include "nvs.h"
 
 namespace config {
 
@@ -22,8 +23,8 @@ struct ServiceCredentials {
     std::array<std::uint8_t, kServiceAuthenticationKeyBytes> authentication_key{};
 };
 
-// The service channel is optional. ESP_ERR_NOT_FOUND means that the node has
-// no local service credentials and must continue production operation on
+// The service channel is optional. ESP_ERR_NVS_NOT_FOUND means that the node
+// has no local service credentials and must continue production operation on
 // SEN55 + Modbus RTU without starting Wi-Fi.
 esp_err_t load_service_credentials(ServiceCredentials& credentials);
 
