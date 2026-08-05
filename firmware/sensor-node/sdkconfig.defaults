@@ -13,7 +13,6 @@ CONFIG_PARTITION_TABLE_OFFSET=0x8000
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # USB-C serial console through the on-board CH340.
-# UART0 and 115200 bit/s are ESP-IDF defaults for this target.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 
 # Diagnostics and crash handling
@@ -23,12 +22,21 @@ CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=y
 
-# Runtime safety
+# Runtime safety. The production main task remains on core 0. Service Wi-Fi
+# and lwIP run on core 1, so reconnect or radio work cannot starve the SEN55 /
+# Modbus application loop. The optional service task is deliberately not
+# registered as a Task WDT client.
 CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU0=y
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU1=y
+
+# PSA Crypto provides HMAC-SHA256 for authenticated heartbeat frames.
+CONFIG_MBEDTLS_SHA256_C=y
 
 # Keep the embedded C++ runtime deterministic and small
 CONFIG_COMPILER_CXX_EXCEPTIONS=n
