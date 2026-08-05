@@ -27,24 +27,28 @@ class CoreServer:
         self._server: asyncio.AbstractServer | None = None
 
     async def run(self) -> None:
-        self._prepare_socket_path()
-        self._server = await asyncio.start_unix_server(
-            self._handle_client,
-            path=str(self._socket_path),
-        )
-        os.chmod(self._socket_path, 0o660)
-        health_task = asyncio.create_task(self._health_monitor())
-        LOGGER.info("ventilation-core listening on %s", self._socket_path)
+        health_task: asyncio.Task[None] | None = None
         try:
+            self._prepare_socket_path()
+            self._server = await asyncio.start_unix_server(
+                self._handle_client,
+                path=str(self._socket_path),
+            )
+            os.chmod(self._socket_path, 0o660)
+            health_task = asyncio.create_task(self._health_monitor())
+            LOGGER.info("ventilation-core listening on %s", self._socket_path)
             await self._shutdown.wait()
         finally:
-            health_task.cancel()
-            await asyncio.gather(health_task, return_exceptions=True)
+            if health_task is not None:
+                health_task.cancel()
+                await asyncio.gather(health_task, return_exceptions=True)
             if self._server is not None:
                 self._server.close()
                 await self._server.wait_closed()
-            await asyncio.to_thread(self._service.close)
-            self._remove_socket()
+            try:
+                await asyncio.to_thread(self._service.close)
+            finally:
+                self._remove_socket()
 
     def request_shutdown(self) -> None:
         self._shutdown.set()
