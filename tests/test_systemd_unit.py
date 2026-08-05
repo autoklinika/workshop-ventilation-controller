@@ -26,6 +26,15 @@ class SystemdUnitTest(unittest.TestCase):
 
         self.assertGreaterEqual(timeout_seconds, 20)
 
+    def test_aero_bus_is_explicitly_configured_read_only_runtime(self) -> None:
+        unit = UNIT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("--aero-port /dev/ttyAMA4", unit)
+        self.assertIn("--aero-address 44", unit)
+        self.assertIn("--aero-baud 9600", unit)
+        self.assertIn("--aero-inter-register-delay 0.050", unit)
+        self.assertNotIn("--aero-write", unit)
+
 
 if __name__ == "__main__":
     unittest.main()
