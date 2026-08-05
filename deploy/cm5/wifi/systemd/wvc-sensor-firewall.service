@@ -1,0 +1,15 @@
+[Unit]
+Description=WVC firewall for private KAmod sensor Wi-Fi
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sh -c '/usr/sbin/nft delete table inet wvc_sensor_service 2>/dev/null || true'
+ExecStart=/usr/sbin/nft --file /etc/nftables.d/wvc-sensor-service.nft
+ExecReload=/bin/sh -c '/usr/sbin/nft delete table inet wvc_sensor_service 2>/dev/null || true; /usr/sbin/nft --file /etc/nftables.d/wvc-sensor-service.nft'
+ExecStop=-/usr/sbin/nft delete table inet wvc_sensor_service
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
