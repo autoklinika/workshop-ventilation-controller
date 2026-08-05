@@ -65,7 +65,7 @@ class CoreServer:
             try:
                 await asyncio.to_thread(self._service.health_check)
             except Exception:
-                LOGGER.exception("Hardware worker health check failed")
+                LOGGER.exception("Core hardware health check failed")
 
     async def _handle_client(
         self,
@@ -87,7 +87,14 @@ class CoreServer:
         command = request.get("command")
         if command == "status":
             state = self._service.state()
-        elif command == "set":
+            return {"ok": True, "state": state.to_dict()}
+        if command == "sensors":
+            sensor_bus = self._service.state().sensor_bus
+            return {
+                "ok": True,
+                "sensor_bus": None if sensor_bus is None else sensor_bus.to_dict(),
+            }
+        if command == "set":
             state = await asyncio.to_thread(
                 self._service.set_manual,
                 float(request["supply_voltage"]),
