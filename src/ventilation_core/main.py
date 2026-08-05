@@ -65,35 +65,48 @@ async def run_core(args: argparse.Namespace) -> None:
         timeout_seconds=args.command_timeout,
     )
     sensor_bus = None
-    if not args.disable_sensor_bus:
-        sensor_bus = ProcessSensorBus(
-            SensorBusConfig(
-                port=args.sensor_port,
-                addresses=args.sensor_addresses,
-                baudrate=args.sensor_baud,
-                timeout_seconds=args.sensor_timeout,
-                poll_interval_seconds=args.sensor_poll_interval,
-                inter_node_delay_seconds=args.sensor_inter_node_delay,
-                reconnect_delay_seconds=args.sensor_reconnect_delay,
+    try:
+        if not args.disable_sensor_bus:
+            sensor_bus = ProcessSensorBus(
+                SensorBusConfig(
+                    port=args.sensor_port,
+                    addresses=args.sensor_addresses,
+                    baudrate=args.sensor_baud,
+                    timeout_seconds=args.sensor_timeout,
+                    poll_interval_seconds=args.sensor_poll_interval,
+                    inter_node_delay_seconds=args.sensor_inter_node_delay,
+                    reconnect_delay_seconds=args.sensor_reconnect_delay,
+                )
             )
+        service = VentilationService(
+            actuator=actuator,
+            policy=FanSetpointPolicy(
+                minimum_running_voltage=args.minimum_running_voltage,
+                maximum_voltage=args.maximum_voltage,
+            ),
+            hardware_failure_threshold=args.hardware_failure_threshold,
+            sensor_bus=sensor_bus,
         )
-    service = VentilationService(
-        actuator=actuator,
-        policy=FanSetpointPolicy(
-            minimum_running_voltage=args.minimum_running_voltage,
-            maximum_voltage=args.maximum_voltage,
-        ),
-        hardware_failure_threshold=args.hardware_failure_threshold,
-        sensor_bus=sensor_bus,
-    )
-    server = CoreServer(
-        service=service,
-        socket_path=args.socket,
-        health_interval_seconds=args.health_interval,
-    )
+        server = CoreServer(
+            service=service,
+            socket_path=args.socket,
+            health_interval_seconds=args.health_interval,
+        )
+    except BaseException:
+        try:
+            if sensor_bus is not None:
+                sensor_bus.close()
+        finally:
+            actuator.close()
+        raise
+
     loop = asyncio.get_running_loop()
-    for signum in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(signum, server.request_shutdown)
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(signum, server.request_shutdown)
+    except BaseException:
+        await asyncio.to_thread(service.close)
+        raise
     await server.run()
 
 
