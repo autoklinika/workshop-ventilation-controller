@@ -9,11 +9,16 @@ from multiprocessing.queues import Queue
 from threading import RLock
 from typing import Any
 
-from ventilation_core.domain.sensors import SensorBusState, SensorNodeState
+from ventilation_core.domain.sensors import (
+    AirQualityReading,
+    SensorBusState,
+    SensorNodeState,
+)
 from ventilation_core.infrastructure.modbus_rtu import ModbusError, read_input_registers
 from ventilation_core.infrastructure.sen55_modbus import (
     EXPECTED_MAP_VERSION,
     REGISTER_COUNT,
+    UnsupportedMapVersion,
     decode_sensor_registers,
 )
 
@@ -75,6 +80,32 @@ def _publish_latest(state_queue: Queue, state: SensorBusState) -> None:
                 return
 
 
+def _unsupported_map_state(
+    previous: SensorNodeState,
+    polls: int,
+    error: UnsupportedMapVersion,
+) -> SensorNodeState:
+    return SensorNodeState(
+        slave_address=previous.slave_address,
+        online=True,
+        usable=False,
+        measurement_valid=False,
+        measurement_stale=True,
+        sensor_present=False,
+        reading=AirQualityReading(),
+        map_version=error.received,
+        last_success_at=_now_iso(),
+        last_error=str(error),
+        polls=polls,
+        successful_polls=previous.successful_polls + 1,
+        communication_errors=previous.communication_errors,
+        consecutive_failures=0,
+        invalid_measurements=previous.invalid_measurements,
+        stale_measurements=previous.stale_measurements,
+        map_version_errors=previous.map_version_errors + 1,
+    )
+
+
 def _poll_node(port: Any, config: SensorBusConfig, previous: SensorNodeState) -> SensorNodeState:
     polls = previous.polls + 1
     try:
@@ -85,12 +116,14 @@ def _poll_node(port: Any, config: SensorBusConfig, previous: SensorNodeState) ->
             quantity=REGISTER_COUNT,
             timeout_seconds=config.timeout_seconds,
         )
-        sample = decode_sensor_registers(registers)
-        map_ok = sample.map_version == config.expected_map_version
+        sample = decode_sensor_registers(
+            registers,
+            expected_map_version=config.expected_map_version,
+        )
         return SensorNodeState(
             slave_address=previous.slave_address,
             online=True,
-            usable=map_ok and sample.measurement_valid,
+            usable=sample.measurement_valid,
             measurement_valid=sample.measurement_valid,
             measurement_stale=sample.measurement_stale,
             sensor_present=sample.sensor_present,
@@ -105,11 +138,7 @@ def _poll_node(port: Any, config: SensorBusConfig, previous: SensorNodeState) ->
             map_version=sample.map_version,
             sequence=sample.sequence,
             last_success_at=_now_iso(),
-            last_error=(
-                None
-                if map_ok
-                else f"Unsupported register map {sample.map_version}; expected {config.expected_map_version}"
-            ),
+            last_error=None,
             polls=polls,
             successful_polls=previous.successful_polls + 1,
             communication_errors=previous.communication_errors,
@@ -120,8 +149,10 @@ def _poll_node(port: Any, config: SensorBusConfig, previous: SensorNodeState) ->
             stale_measurements=(
                 previous.stale_measurements + (1 if sample.measurement_stale else 0)
             ),
-            map_version_errors=previous.map_version_errors + (0 if map_ok else 1),
+            map_version_errors=previous.map_version_errors,
         )
+    except UnsupportedMapVersion as exc:
+        return _unsupported_map_state(previous, polls, exc)
     except (ModbusError, ValueError) as exc:
         return replace(
             previous,
