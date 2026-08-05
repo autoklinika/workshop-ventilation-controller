@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("status")
     subparsers.add_parser("sensors")
+    subparsers.add_parser("aero")
     set_command = subparsers.add_parser("set")
     set_command.add_argument("--supply", type=float, required=True)
     set_command.add_argument("--extract", type=float, required=True)
