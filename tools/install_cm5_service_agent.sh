@@ -35,7 +35,14 @@ for node_id, node in value["nodes"].items():
 PY
 
 install -d -m 0700 -o wentylacja -g wentylacja /etc/wvc-service-heartbeat
-install -m 0600 -o wentylacja -g wentylacja "${KEYS_SOURCE}" "${KEYS_TARGET}"
+source_real="$(realpath "${KEYS_SOURCE}")"
+target_real="$(realpath -m "${KEYS_TARGET}")"
+if [[ "${source_real}" != "${target_real}" ]]; then
+    install -m 0600 -o wentylacja -g wentylacja "${KEYS_SOURCE}" "${KEYS_TARGET}"
+else
+    chown wentylacja:wentylacja "${KEYS_TARGET}"
+    chmod 0600 "${KEYS_TARGET}"
+fi
 install -m 0644 "${ROOT_DIR}/deploy/systemd/wvc-service-agent.service" "${UNIT_TARGET}"
 install -m 0644 "${ROOT_DIR}/deploy/cm5/wifi/nftables/wvc-sensor-service.nft" "${NFT_TARGET}"
 install -m 0755 "${ROOT_DIR}/tools/wvc-servicectl" "${CTL_TARGET}"
@@ -49,7 +56,7 @@ systemctl reload wvc-sensor-firewall.service
 systemctl disable --now wvc-service-heartbeat.service 2>/dev/null || true
 systemctl enable wvc-service-agent.service
 # Keys are loaded only during process startup, therefore installation always
-# performs a full restart after replacing the registry.
+# performs a full restart after replacing or validating the registry.
 systemctl restart wvc-service-agent.service
 
 systemctl --no-pager --full status wvc-service-agent.service
