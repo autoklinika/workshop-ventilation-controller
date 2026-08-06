@@ -43,6 +43,23 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertIn("net.ipv6.conf.all.forwarding", validator)
         self.assertIn("ventilation_core.service_ctl status", validator)
 
+    def test_soak_validator_checks_agent_sensor_bus_and_core_pid(self) -> None:
+        validator = (ROOT / "tools/validate_cm5_service_agent_soak.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("DURATION_SECONDS=", validator)
+        self.assertIn("INTERVAL_SECONDS=", validator)
+        self.assertIn("ventilation_core.service_ctl status", validator)
+        self.assertIn("ventilation_core.ctl sensors", validator)
+        self.assertIn("worker_restarts", validator)
+        self.assertIn("communication_errors", validator)
+        self.assertIn("polls did not increase", validator)
+        self.assertIn("ventilation-core PID changed", validator)
+        self.assertIn("validate_cm5_service_agent.sh", validator)
+        self.assertNotIn("systemctl restart ventilation-core", validator)
+        self.assertNotIn("systemctl stop ventilation-core", validator)
+
     def test_agent_does_not_import_control_or_sensor_bus_components(self) -> None:
         agent = (ROOT / "src/ventilation_core/service_agent.py").read_text(encoding="utf-8")
 
