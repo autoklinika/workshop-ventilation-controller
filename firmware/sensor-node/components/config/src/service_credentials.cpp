@@ -11,7 +11,6 @@ namespace config {
 namespace {
 constexpr char kNamespace[] = "service_cfg";
 constexpr char kWifiSsidKey[] = "wifi_ssid";
-constexpr char kWifiPskKey[] = "wifi_psk";
 constexpr char kNodeIdKey[] = "node_id";
 constexpr char kKeyIdKey[] = "key_id";
 constexpr char kAuthenticationKey[] = "auth_key";
@@ -63,18 +62,6 @@ esp_err_t read_string(const nvs_handle_t handle,
     destination.back() = '\0';
     return ESP_OK;
 }
-
-bool printable_ascii(const char* value)
-{
-    for (const unsigned char* current = reinterpret_cast<const unsigned char*>(value);
-         *current != '\0';
-         ++current) {
-        if (*current < 32 || *current > 126) {
-            return false;
-        }
-    }
-    return true;
-}
 }  // namespace
 
 esp_err_t load_service_credentials(ServiceCredentials& credentials)
@@ -93,9 +80,6 @@ esp_err_t load_service_credentials(ServiceCredentials& credentials)
     }
 
     result = read_string(handle, kWifiSsidKey, credentials.wifi_ssid);
-    if (result == ESP_OK) {
-        result = read_string(handle, kWifiPskKey, credentials.wifi_psk);
-    }
     if (result == ESP_OK) {
         result = read_string(handle, kNodeIdKey, credentials.node_id);
     }
@@ -120,10 +104,7 @@ esp_err_t load_service_credentials(ServiceCredentials& credentials)
     }
 
     const std::size_t ssid_length = std::strlen(credentials.wifi_ssid.data());
-    const std::size_t psk_length = std::strlen(credentials.wifi_psk.data());
     if (ssid_length == 0 || ssid_length > kWifiSsidMaximumBytes ||
-        psk_length < 16 || psk_length > kWifiPskMaximumBytes ||
-        !printable_ascii(credentials.wifi_psk.data()) ||
         !valid_node_id(credentials.node_id.data()) ||
         !valid_key_id(credentials.key_id.data())) {
         credentials = {};
