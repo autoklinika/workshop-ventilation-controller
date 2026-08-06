@@ -35,8 +35,13 @@ CONFIG_ESP_MAIN_TASK_AFFINITY_CPU0=y
 CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
 CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU1=y
 
-# PSA Crypto provides HMAC-SHA256 for authenticated heartbeat frames.
+# PSA Crypto provides HMAC-SHA256 for heartbeat and manual OTA authorization.
 CONFIG_MBEDTLS_SHA256_C=y
+
+# Manual authenticated OTA HTTP endpoint. Header capacity covers the one-time
+# challenge metadata and HMAC without exposing any CM5 listener on wlan0.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=128
 
 # Keep the embedded C++ runtime deterministic and small
 CONFIG_COMPILER_CXX_EXCEPTIONS=n
