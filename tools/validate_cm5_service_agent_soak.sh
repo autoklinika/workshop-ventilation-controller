@@ -26,8 +26,14 @@ fi
 (( INTERVAL_SECONDS < DURATION_SECONDS )) || fail "interval must be shorter than duration"
 
 tmp_dir="$(mktemp -d /tmp/wvc-service-agent-soak.XXXXXX)"
+test_completed=false
 cleanup() {
-    rm -rf "${tmp_dir}"
+    local status=$?
+    if [[ "${test_completed}" == true && ${status} -eq 0 ]]; then
+        rm -rf "${tmp_dir}"
+    else
+        echo "Soak diagnostics preserved in: ${tmp_dir}" >&2
+    fi
 }
 trap cleanup EXIT INT TERM
 
@@ -76,16 +82,41 @@ service_nodes = service.get("nodes")
 if not isinstance(agent, dict) or agent.get("ready") is not True:
     raise SystemExit("service agent is not ready")
 if agent.get("registered_nodes") != expected_nodes:
-    raise SystemExit("unexpected registered node count")
+    raise SystemExit(
+        f"unexpected registered node count: {agent.get('registered_nodes')}"
+    )
+if not isinstance(service_nodes, list) or len(service_nodes) != expected_nodes:
+    raise SystemExit("service node list has unexpected size")
 if agent.get("online_nodes") != expected_nodes:
-    raise SystemExit("not all service nodes are online")
+    details = []
+    for node in service_nodes:
+        heartbeat = node.get("heartbeat")
+        heartbeat = heartbeat if isinstance(heartbeat, dict) else {}
+        details.append(
+            {
+                "node_id": node.get("node_id"),
+                "online": node.get("online"),
+                "received_unix_ms": node.get("received_unix_ms"),
+                "source_ip": node.get("source_ip"),
+                "boot_id": heartbeat.get("boot_id"),
+                "seq": heartbeat.get("seq"),
+                "uptime_s": heartbeat.get("uptime_s"),
+                "wifi_rssi_dbm": heartbeat.get("wifi_rssi_dbm"),
+                "modbus_requests_total": heartbeat.get("modbus_requests_total"),
+            }
+        )
+    raise SystemExit(
+        "not all service nodes are online: "
+        + json.dumps(details, sort_keys=True)
+    )
 if not isinstance(network, dict) or network.get("ready") is not True:
-    raise SystemExit("service network is not ready")
+    raise SystemExit(
+        "service network is not ready: "
+        + json.dumps(network, sort_keys=True)
+    )
 for field in ("ap_active", "address_present", "dhcp_active", "firewall_active"):
     if network.get(field) is not True:
         raise SystemExit(f"network field {field} is not true")
-if not isinstance(service_nodes, list) or len(service_nodes) != expected_nodes:
-    raise SystemExit("service node list has unexpected size")
 
 service_by_address = {}
 for node in service_nodes:
@@ -164,6 +195,41 @@ current_path.write_text(json.dumps(current, sort_keys=True), encoding="utf-8")
 PY
 }
 
+collect_failure_diagnostics() {
+    local prefix="$1"
+    local sample="$2"
+
+    {
+        echo "failure_sample=${sample}"
+        echo "captured_at=$(date --iso-8601=seconds)"
+        echo "ventilation_core_pid=$(systemctl show -p MainPID --value ventilation-core.service)"
+        echo "service_agent_pid=$(systemctl show -p MainPID --value wvc-service-agent.service)"
+    } > "${prefix}-failure-summary.txt"
+
+    journalctl -u wvc-service-agent.service \
+        --since "@${start_epoch}" --no-pager -o short-iso \
+        > "${prefix}-service-agent-journal.txt" 2>&1 || true
+    journalctl -k --since "@${start_epoch}" --no-pager -o short-iso \
+        > "${prefix}-kernel-journal.txt" 2>&1 || true
+    iw dev wlan0 station dump \
+        > "${prefix}-iw-station-dump.txt" 2>&1 || true
+    ip -4 neighbor show dev wlan0 \
+        > "${prefix}-ip-neighbor.txt" 2>&1 || true
+    nmcli -f GENERAL,IP4 device show wlan0 \
+        > "${prefix}-nmcli-wlan0.txt" 2>&1 || true
+    cat /var/lib/misc/dnsmasq.leases \
+        > "${prefix}-dnsmasq-leases.txt" 2>&1 || true
+
+    echo "Failure diagnostics: ${tmp_dir}" >&2
+    [[ -f "${prefix}-validation-error.txt" ]] \
+        && cat "${prefix}-validation-error.txt" >&2
+    echo "Current service snapshot:" >&2
+    cat "${prefix}-service.json" >&2 || true
+    echo "Recent service-agent transitions:" >&2
+    grep -E 'heartbeat (online|offline)|rejected heartbeat|service agent' \
+        "${prefix}-service-agent-journal.txt" >&2 || true
+}
+
 systemctl is-active --quiet ventilation-core.service \
     || fail "ventilation-core is not active"
 systemctl is-active --quiet wvc-service-agent.service \
@@ -199,11 +265,15 @@ while (( $(date +%s) < end_epoch )); do
         || fail "ventilation-core PID changed ${core_pid} -> ${current_pid}"
 
     capture_snapshot "${prefix}"
-    validate_snapshot \
+    if ! validate_snapshot \
         "${prefix}-service.json" \
         "${prefix}-sensors.json" \
         "${previous_state}" \
-        "${last_state}"
+        "${last_state}" \
+        2> "${prefix}-validation-error.txt"; then
+        collect_failure_diagnostics "${prefix}" "${sample}"
+        exit 1
+    fi
 
     if [[ ! -e "${baseline_state}" ]]; then
         cp "${last_state}" "${baseline_state}"
@@ -247,3 +317,4 @@ PY
 pass "service agent and SENSOR BUS soak completed"
 pass "ventilation-core PID remained ${core_pid}"
 pass "network isolation checks passed before and after soak"
+test_completed=true
