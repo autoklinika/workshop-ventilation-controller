@@ -7,6 +7,7 @@ KEYS_TARGET="/etc/wvc-service-heartbeat/keys.json"
 UNIT_TARGET="/etc/systemd/system/wvc-service-agent.service"
 NFT_TARGET="/etc/nftables.d/wvc-sensor-service.nft"
 CTL_TARGET="/usr/local/bin/wvc-servicectl"
+SOCKET_PATH="/run/wvc-service-agent/service-agent.sock"
 
 if [[ "${EUID}" -ne 0 ]]; then
     echo "Run as root." >&2
@@ -59,6 +60,27 @@ systemctl enable wvc-service-agent.service
 # performs a full restart after replacing or validating the registry.
 systemctl restart wvc-service-agent.service
 
+# systemctl may report the process as running before the Python daemon has
+# created and started serving its Unix socket. Wait for a real API response.
+agent_status=""
+agent_ready=false
+for _ in $(seq 1 50); do
+    if [[ -S "${SOCKET_PATH}" ]]; then
+        if agent_status="$(sudo -u wentylacja wvc-servicectl status 2>&1)"; then
+            agent_ready=true
+            break
+        fi
+    fi
+    sleep 0.2
+done
+
+if [[ "${agent_ready}" != true ]]; then
+    echo "Service agent API did not become ready." >&2
+    [[ -n "${agent_status}" ]] && echo "${agent_status}" >&2
+    journalctl -u wvc-service-agent.service -n 50 --no-pager >&2 || true
+    exit 1
+fi
+
 systemctl --no-pager --full status wvc-service-agent.service
 ss -lunp | grep -E '10\.55\.0\.1:45551|0\.0\.0\.0:45551' || true
-sudo -u wentylacja wvc-servicectl status
+printf '%s\n' "${agent_status}"
