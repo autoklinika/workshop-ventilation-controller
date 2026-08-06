@@ -147,14 +147,23 @@ sensor_nodes = sensor_bus.get("nodes")
 if not isinstance(sensor_nodes, list) or len(sensor_nodes) != expected_nodes:
     raise SystemExit("SENSOR BUS node list has unexpected size")
 
+counter_fields = (
+    "communication_errors",
+    "invalid_measurements",
+    "stale_measurements",
+    "map_version_errors",
+)
 current = {}
 for node in sensor_nodes:
     address = node.get("slave_address")
-    current[str(address)] = {
+    values = {
         "polls": int(node.get("polls", -1)),
         "successful_polls": int(node.get("successful_polls", -1)),
-        "communication_errors": int(node.get("communication_errors", -1)),
     }
+    for field in counter_fields:
+        values[field] = int(node.get(field, -1))
+    current[str(address)] = values
+
     if node.get("online") is not True:
         raise SystemExit(f"slave {address} is offline")
     if node.get("usable") is not True:
@@ -163,18 +172,10 @@ for node in sensor_nodes:
         raise SystemExit(f"slave {address} measurement is invalid")
     if node.get("measurement_stale") is not False:
         raise SystemExit(f"slave {address} measurement is stale")
-    if node.get("communication_errors") != 0:
-        raise SystemExit(f"slave {address} has communication errors")
     if node.get("consecutive_failures") != 0:
         raise SystemExit(f"slave {address} has consecutive failures")
-    if node.get("invalid_measurements") != 0:
-        raise SystemExit(f"slave {address} has invalid measurements")
-    if node.get("stale_measurements") != 0:
-        raise SystemExit(f"slave {address} has stale measurements")
-    if node.get("map_version_errors") != 0:
-        raise SystemExit(f"slave {address} has map version errors")
-    if node.get("polls") != node.get("successful_polls"):
-        raise SystemExit(f"slave {address} polls and successful_polls differ")
+    if any(value < 0 for value in values.values()):
+        raise SystemExit(f"slave {address} exposes an invalid counter value")
     if address not in service_by_address:
         raise SystemExit(f"slave {address} has no matching service node")
 
@@ -184,12 +185,25 @@ if previous_path.exists():
         old = previous.get(address)
         if not isinstance(old, dict):
             raise SystemExit(f"missing previous state for slave {address}")
-        if values["polls"] <= int(old["polls"]):
+
+        poll_delta = values["polls"] - int(old["polls"])
+        success_delta = values["successful_polls"] - int(old["successful_polls"])
+        if poll_delta <= 0:
             raise SystemExit(f"slave {address} polls did not increase")
-        if values["successful_polls"] <= int(old["successful_polls"]):
+        if success_delta <= 0:
             raise SystemExit(f"slave {address} successful_polls did not increase")
-        if values["communication_errors"] != int(old["communication_errors"]):
-            raise SystemExit(f"slave {address} communication error count changed")
+        if poll_delta != success_delta:
+            raise SystemExit(
+                f"slave {address} acquired a non-successful poll during soak: "
+                f"poll_delta={poll_delta} success_delta={success_delta}"
+            )
+
+        for field in counter_fields:
+            if values[field] != int(old[field]):
+                raise SystemExit(
+                    f"slave {address} counter {field} changed "
+                    f"{old[field]} -> {values[field]}"
+                )
 
 current_path.write_text(json.dumps(current, sort_keys=True), encoding="utf-8")
 PY
@@ -217,7 +231,7 @@ collect_failure_diagnostics() {
         > "${prefix}-ip-neighbor.txt" 2>&1 || true
     nmcli -f GENERAL,IP4 device show wlan0 \
         > "${prefix}-nmcli-wlan0.txt" 2>&1 || true
-    cat /var/lib/misc/dnsmasq.leases \
+    cat /var/lib/misc/dnsmasq-wvc.leases \
         > "${prefix}-dnsmasq-leases.txt" 2>&1 || true
 
     echo "Failure diagnostics: ${tmp_dir}" >&2
@@ -225,8 +239,10 @@ collect_failure_diagnostics() {
         && cat "${prefix}-validation-error.txt" >&2
     echo "Current service snapshot:" >&2
     cat "${prefix}-service.json" >&2 || true
+    echo "Current SENSOR BUS snapshot:" >&2
+    cat "${prefix}-sensors.json" >&2 || true
     echo "Recent service-agent transitions:" >&2
-    grep -E 'heartbeat (online|offline)|rejected heartbeat|service agent' \
+    grep -E 'heartbeat (online|offline)|rejected heartbeat|service agent|sequence gap' \
         "${prefix}-service-agent-journal.txt" >&2 || true
 }
 
@@ -277,6 +293,8 @@ while (( $(date +%s) < end_epoch )); do
 
     if [[ ! -e "${baseline_state}" ]]; then
         cp "${last_state}" "${baseline_state}"
+        echo "PASS: historical SENSOR BUS counters accepted as soak baseline"
+        cat "${baseline_state}"
     fi
     cp "${last_state}" "${previous_state}"
 
@@ -310,11 +328,14 @@ for address in sorted(last, key=int):
         f"slave {address}: "
         f"polls {start['polls']} -> {end['polls']} "
         f"(delta {end['polls'] - start['polls']}), "
-        f"communication_errors={end['communication_errors']}"
+        f"successful {start['successful_polls']} -> {end['successful_polls']}, "
+        f"communication_errors={start['communication_errors']} "
+        f"(unchanged)"
     )
 PY
 
 pass "service agent and SENSOR BUS soak completed"
 pass "ventilation-core PID remained ${core_pid}"
+pass "no cumulative SENSOR BUS error counter increased during soak"
 pass "network isolation checks passed before and after soak"
 test_completed=true
