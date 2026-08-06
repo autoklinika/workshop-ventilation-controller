@@ -1,4 +1,4 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(kamod_sen55_sensor_node VERSION 0.5.0)
+project(kamod_sen55_sensor_node VERSION 0.5.1)
