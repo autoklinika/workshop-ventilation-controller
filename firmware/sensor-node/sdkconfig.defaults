@@ -21,6 +21,15 @@ CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
 CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT=y
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+CONFIG_ESP_COREDUMP_STACK_SIZE=2048
+
+# Detect stack exhaustion before task metadata or adjacent RAM is corrupted.
+# Canary checking runs on context switches, the end-of-stack watchpoint catches
+# overwrites close to the boundary, and GCC strong stack protection guards
+# functions with local arrays such as the OTA HTTP handler.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y
 
 # Runtime safety. The production main task remains on core 0. Service Wi-Fi
 # and lwIP run on core 1, so reconnect or radio work cannot starve the SEN55 /
