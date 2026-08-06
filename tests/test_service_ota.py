@@ -10,7 +10,9 @@ from pathlib import Path
 from ventilation_core.service_heartbeat import NodeKey
 from ventilation_core.service_ota import (
     OtaCoordinator,
+    OtaHttpClient,
     ServiceOtaError,
+    ServiceOtaUncertainError,
     calculate_authorization,
     canonical_authorization_message,
     resolve_node_address,
@@ -22,12 +24,14 @@ class FakeClient:
     def __init__(self) -> None:
         self.install_calls = 0
         self.status_calls = 0
+        self.installed = False
 
     def install(self, *, address, node_key, image_path, progress=None):
         self.install_calls += 1
         size = image_path.stat().st_size
         if progress:
             progress(size, size)
+        self.installed = True
         return {
             "ok": True,
             "result": "accepted",
@@ -40,10 +44,19 @@ class FakeClient:
         return {
             "ok": True,
             "node_id": "sensor-node-1",
-            "partition": "ota_1",
+            "partition": "ota_1" if self.installed else "ota_0",
             "pending": False,
             "state": "idle",
         }
+
+
+class UncertainClient(FakeClient):
+    def install(self, *, address, node_key, image_path, progress=None):
+        self.install_calls += 1
+        size = image_path.stat().st_size
+        if progress:
+            progress(size, size)
+        raise ServiceOtaUncertainError("complete body sent; response lost")
 
 
 class ServiceOtaTests(unittest.TestCase):
@@ -109,6 +122,10 @@ class ServiceOtaTests(unittest.TestCase):
                 "10.55.0.110",
             )
 
+    def test_default_transfer_timeout_allows_slow_flash_commit(self) -> None:
+        client = OtaHttpClient()
+        self.assertEqual(client._transfer_timeout_seconds, 180.0)
+
     def test_coordinator_runs_one_node_and_persists_success(self) -> None:
         key = NodeKey(
             "sensor-node-1",
@@ -142,11 +159,75 @@ class ServiceOtaTests(unittest.TestCase):
                 include_remote=False,
             )
             self.assertEqual(status["operation"]["state"], "succeeded")
+            self.assertEqual(status["operation"]["source_partition"], "ota_0")
+            self.assertEqual(status["operation"]["target_partition"], "ota_1")
             persisted = json.loads(
                 (root / "state" / "ota" / f"{key.node_id}.json").read_text()
             )
             self.assertEqual(persisted["state"], "succeeded")
             self.assertEqual(fake.install_calls, 1)
+
+    def test_active_status_does_not_open_second_node_connection(self) -> None:
+        key = NodeKey(
+            "sensor-node-1",
+            "sensor-node-1-v1",
+            b"k" * 32,
+            "88:13:BF:00:52:D0",
+        )
+        fake = FakeClient()
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = OtaCoordinator(
+                keys={key.node_id: key},
+                state_dir=Path(directory) / "state",
+                client=fake,
+            )
+            coordinator._operations[key.node_id] = {
+                "node_id": key.node_id,
+                "address": "10.55.0.106",
+                "state": "uploading",
+                "remote": None,
+            }
+            status = coordinator.status(
+                node_id=key.node_id,
+                nodes=[{"node_id": key.node_id, "source_ip": "10.55.0.106"}],
+            )
+            self.assertTrue(status["remote_deferred"])
+            self.assertIsNone(status["remote"])
+            self.assertEqual(fake.status_calls, 0)
+
+    def test_complete_send_without_commit_is_reconciled_as_failed(self) -> None:
+        key = NodeKey(
+            "sensor-node-1",
+            "sensor-node-1-v1",
+            b"k" * 32,
+            "88:13:BF:00:52:D0",
+        )
+        fake = UncertainClient()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "app.bin"
+            image.write_bytes(b"\xE9" + b"firmware")
+            coordinator = OtaCoordinator(
+                keys={key.node_id: key},
+                state_dir=root / "state",
+                client=fake,
+                sleep=lambda _: None,
+            )
+            coordinator.start_install(
+                node_id=key.node_id,
+                image_path=image,
+                nodes=[{"node_id": key.node_id, "source_ip": "10.55.0.106"}],
+            )
+            thread = coordinator._threads[key.node_id]
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            status = coordinator.status(
+                node_id=key.node_id,
+                nodes=[{"node_id": key.node_id, "source_ip": "10.55.0.106"}],
+                include_remote=False,
+            )
+            self.assertEqual(status["operation"]["state"], "failed")
+            self.assertIn("source partition", status["operation"]["error"])
 
 
 if __name__ == "__main__":
