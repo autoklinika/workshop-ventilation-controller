@@ -195,7 +195,63 @@ restart wvc-service-agent podczas aktywnego Modbus: PASS
 izolacja failure domains service plane / SENSOR BUS: PASS
 ```
 
-## 6. Defekty wykryte i poprawione podczas bring-up
+## 6. Utrata heartbeat pojedynczego węzła
+
+Na CM5 dodano tymczasową regułę nftables blokującą wyłącznie heartbeat UDP/45551 z adresu `10.55.0.110`, należącego do `sensor-node-2`. Zasilanie, SEN55 i RS-485 pozostały podłączone.
+
+Przed blokadą:
+
+```text
+sensor-node-1 online=true, modbus_address=1
+sensor-node-2 online=true, modbus_address=2
+```
+
+Po 45 sekundach blokady:
+
+```text
+sensor-node-1 online=true,  modbus_address=1
+sensor-node-2 online=false, modbus_address=2
+```
+
+Agent poprawnie zachował ostatnią uwierzytelnioną diagnostykę i adres Modbus węzła oznaczonego offline.
+
+W tym samym okresie produkcyjny SENSOR BUS pracował bez przerwy:
+
+```text
+przed blokadą:       polls=3853, successful=3853
+podczas blokady:     polls=3895, successful=3895
+po odblokowaniu:     polls=3914, successful=3914
+```
+
+Dla obu slave przez cały test:
+
+```text
+online=true
+usable=true
+communication_errors=0
+worker_restarts=0
+last_error=null
+```
+
+Po usunięciu tymczasowej reguły `sensor-node-2` automatycznie wrócił do `online=true`, bez restartu agenta, firmware ani `ventilation-core`.
+
+Logi zawierają prawidłową parę przejść:
+
+```text
+2026-08-06 12:55:42,962 WARNING node=sensor-node-2 service heartbeat offline
+2026-08-06 12:55:57,132 INFO    node=sensor-node-2 service heartbeat online
+```
+
+Wynik:
+
+```text
+pojedynczy heartbeat offline/online detection: PASS
+brak fałszywego oznaczenia awarii Modbus:      PASS
+izolacja sensor-node-1 od awarii node-2:       PASS
+ciągłość SENSOR BUS podczas awarii Wi-Fi:      PASS
+```
+
+## 7. Defekty wykryte i poprawione podczas bring-up
 
 1. Installer wykonywał `wvc-servicectl status` zanim daemon utworzył Unix socket.
    - Poprawka: oczekiwanie na realną odpowiedź API z limitem czasu.
@@ -213,21 +269,21 @@ sensor-node-2 modbus_address=2
 installer kończy się bez przejściowego błędu socketu
 ```
 
-## 7. Pozostałe testy Stage 1
+## 8. Pozostałe testy Stage 1
 
 Do wykonania przed końcowym raportem:
 
-1. kontrolowana utrata heartbeat pojedynczego węzła bez wpływu na drugi i SENSOR BUS,
-2. potwierdzenie odzyskania pojedynczego węzła po usunięciu blokady,
-3. zatrzymanie całego agenta na ponad 35 s i potwierdzenie braku wpływu na `ventilation-core`,
-4. minimum 30 min soak testu obu heartbeat przy aktywnym Modbus,
-5. końcowa kontrola braku portów TCP i braku routingu.
+1. zatrzymanie całego agenta na ponad 35 s i potwierdzenie braku wpływu na `ventilation-core`,
+2. potwierdzenie odtworzenia stanu obu węzłów po ponownym uruchomieniu agenta,
+3. minimum 30 min soak testu obu heartbeat przy aktywnym Modbus,
+4. końcowa kontrola braku portów TCP i braku routingu.
 
-## 8. Status
+## 9. Status
 
 ```text
 pierwszy sprzętowy bring-up po poprawkach: PASS
 restart agent / Modbus isolation:          PASS
+single-node heartbeat isolation:           PASS
 Stage 1 final validation:                  IN PROGRESS
 ```
 
