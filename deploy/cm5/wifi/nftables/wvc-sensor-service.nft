@@ -2,17 +2,20 @@ table inet wvc_sensor_service {
     chain input {
         type filter hook input priority 0; policy accept;
 
+        # Replies to CM5-initiated service operations, including manual OTA.
+        # No TCP listener is opened on the CM5 service interface.
+        iifname "wlan0" ct state established,related accept
+
         # DHCP clients of the private service network.
         iifname "wlan0" udp sport 68 udp dport 67 accept
 
         # Minimal link diagnostics to the CM5.
         iifname "wlan0" ip protocol icmp icmp type echo-request accept
 
-        # Stage 1 service channel: authenticated, node-to-CM5 UDP heartbeat.
-        # No return application port and no node listener are opened.
+        # Best-effort, authenticated node-to-CM5 heartbeat.
         iifname "wlan0" ip daddr 10.55.0.1 udp dport 45551 accept
 
-        # SSH, APIs and every other local CM5 service remain unavailable from wlan0.
+        # SSH, APIs and every other new connection to the CM5 remain unavailable.
         iifname "wlan0" drop
     }
 
