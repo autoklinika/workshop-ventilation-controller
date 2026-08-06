@@ -68,9 +68,58 @@ state:    online
 
 `boot_id` pozostał taki sam jak przed incydentem, a uptime był ciągły. Nie nastąpił więc restart ESP32, watchdog reset ani ponowne uruchomienie całego firmware.
 
-Stosunek `seq` do uptime pozostaje zgodny z nominalnym okresem około 10 sekund. To silnie wskazuje, że zadanie heartbeat nadal wykonywało kolejne cykle albo co najmniej nie zatrzymało się na około 50 sekund. Samo powodzenie UDP `sendto()` nie potwierdza jednak dostarczenia pakietu do CM5.
+Stosunek `seq` do uptime pozostaje zgodny z nominalnym okresem około 10 sekund. Dodatkowo oba węzły miały niemal identyczną relację liczby wysłanych heartbeat do czasu pracy:
 
-## 4. Stan CM5 i sieci serwisowej
+```text
+sensor-node-1: seq=1188, uptime_s=11895
+sensor-node-2: seq=1187, uptime_s=11887
+```
+
+To silnie wskazuje, że zadanie heartbeat w `sensor-node-2` wykonywało kolejne cykle. Samo powodzenie UDP `sendto()` potwierdza jednak tylko przyjęcie datagramu przez lokalny stos sieciowy ESP32, nie jego dostarczenie do CM5.
+
+## 4. Stan stacji Wi-Fi na AP
+
+Snapshot `iw dev wlan0 station dump` wykonany po incydencie pokazał:
+
+### sensor-node-2
+
+```text
+associated:      yes
+authenticated:   yes
+connected time:  11861 s
+inactive time:   4000 ms
+signal/RSSI HB:  około -52 dBm
+tx failed AP->STA: 0
+```
+
+### sensor-node-1
+
+```text
+associated:      yes
+authenticated:   yes
+connected time:  11876 s
+inactive time:   8000 ms
+signal/RSSI HB:  około -47 dBm
+tx failed AP->STA: 1
+```
+
+Czasy `connected time` są ciągłe i zgodne z czasem pracy firmware. Nie ma śladu rozłączenia i ponownej asocjacji `sensor-node-2` podczas incydentu.
+
+Pole `authorized=no` występowało dla obu stacji w otwartej sieci serwisowej, mimo prawidłowej asocjacji, uwierzytelnienia i rzeczywistego przepływu danych. Nie jest ono samo w sobie dowodem awarii.
+
+Licznik `tx failed` z `iw station dump` opisuje transmisję AP do stacji, natomiast heartbeat płynie ze stacji do AP. Wartość `0` dla węzła 2 nie mierzy więc bezpośrednio utraty jego datagramów przychodzących, ale potwierdza brak widocznego problemu w kierunku przeciwnym.
+
+## 5. Stan CM5 i sieci serwisowej
+
+NetworkManager raportował:
+
+```text
+wlan0 state:       100 connected
+profile:           wvc-sensor-service
+address:           10.55.0.1/24
+driver:            brcmfmac 7.45.16.144
+firmware:          01-b677b91b
+```
 
 W zebranym oknie nie znaleziono zdarzeń kernela dotyczących:
 
@@ -85,24 +134,35 @@ timeout
 
 Agent działał bez restartu, a drugi węzeł pozostał online. Nie ma dowodu na globalną awarię AP, procesu agenta ani interfejsu Wi-Fi CM5.
 
-Brak wpisów kernela nie wyklucza krótkiego problemu radiowego lub stacyjnego po stronie pojedynczego ESP32. Zebrany dotychczas journal nie obejmuje pełnej telemetrii NetworkManager/wpa_supplicant dla historycznego momentu incydentu.
+Tablica sąsiadów zawierała oba adresy jako `STALE`, co jest normalnym stanem wpisu ARP bez bieżącej potrzeby transmisji zwrotnej i nie oznacza utraty asocjacji.
 
-## 5. Najbardziej prawdopodobna klasyfikacja
+Pierwsza wersja kolektora sprawdzała błędną ścieżkę `/var/lib/misc/dnsmasq.leases`. Konfiguracja tej instalacji zapisuje dzierżawy w:
+
+```text
+/var/lib/misc/dnsmasq-wvc.leases
+```
+
+Kolektor został poprawiony.
+
+## 6. Najbardziej prawdopodobna klasyfikacja
 
 Na obecnym materiale incydent należy klasyfikować jako:
 
 ```text
 około 50-sekundowa przerwa w dostarczaniu heartbeat UDP
 z sensor-node-2 do CM5
+przy ciągłej asocjacji Wi-Fi
 bez restartu firmware i bez awarii Modbus RTU
 ```
 
 Najbardziej prawdopodobne scenariusze:
 
-1. chwilowa utrata lub degradacja łącza radiowego pojedynczego węzła,
-2. utrata kilku kolejnych datagramów mimo pozornie aktywnej asocjacji,
-3. krótkie rozłączenie/reasocjacja niewidoczne w zebranym journalu kernela,
-4. pakiety przyjęte przez stos UDP ESP32, ale niedostarczone przez warstwę Wi-Fi.
+1. utrata kilku kolejnych datagramów w ścieżce ESP32 Wi-Fi -> radio -> AP,
+2. chwilowa degradacja radiowa niewywołująca utraty asocjacji,
+3. pakiety przyjęte przez lokalny stos UDP ESP32, ale niedostarczone przez sterownik lub warstwę radiową,
+4. rzadki problem sterownika/firmware Wi-Fi pojedynczego KAmod.
+
+Po odczytaniu ciągłego `connected time` scenariusz pełnego rozłączenia i ponownej asocjacji stał się mało prawdopodobny.
 
 Nie ma podstaw, aby przypisywać incydent do:
 
@@ -114,7 +174,7 @@ Nie ma podstaw, aby przypisywać incydent do:
 
 W journalu agenta nie było wpisów `rejected heartbeat`.
 
-## 6. Defekt walidatora ujawniony przez incydent
+## 7. Defekt walidatora ujawniony przez incydent
 
 Pierwsza wersja soak walidatora:
 
@@ -139,29 +199,69 @@ Dodano także kolektor:
 tools/diagnose_cm5_service_agent_dropout.sh
 ```
 
-## 7. Dalsze działania
+## 8. Dodana obserwowalność transportu heartbeat
 
-Przed ponownym końcowym soak testem należy:
+Service Agent został rozszerzony o trwałe, per-node liczniki przechowywane w:
 
-1. sprawdzić historyczne logi NetworkManager/wpa_supplicant w dokładnym oknie 13:22:30–13:25:30,
-2. dodać do diagnostyki firmware liczniki rozłączeń Wi-Fi, ponownych uzyskań IP oraz prób i błędów wysyłki heartbeat,
-3. dodać po stronie odbiornika licznik luk sekwencji i maksymalnego odstępu między zaakceptowanymi heartbeat,
-4. powtórzyć soak z zachowywaniem pełnych artefaktów przy pierwszym incydencie.
+```text
+/var/lib/wvc-service-heartbeat/diagnostics/<node_id>.json
+```
+
+API `wvc-servicectl status|nodes` publikuje teraz sekcję `transport` zawierającą:
+
+```text
+accepted_heartbeats
+online_transitions
+offline_transitions
+boot_changes
+sequence_gap_events
+missing_heartbeats_total
+max_sequence_gap
+last_sequence_gap
+last_receive_gap_ms
+max_receive_gap_ms
+last_boot_id
+last_seq
+last_received_unix_ms
+last_offline_unix_ms
+```
+
+Przy wykryciu luki `seq` agent zapisuje ostrzeżenie z poprzednią i bieżącą sekwencją, liczbą brakujących heartbeat oraz odstępem odbioru. Liczniki przetrwają restart samego agenta.
+
+Kolektor diagnostyczny został rozszerzony o te dane, journal NetworkManagera i wpa_supplicant oraz prawidłową ścieżkę pliku dzierżaw DHCP.
+
+Checkpoint przeszedł CI:
+
+```text
+Ventilation Core Tests #460: success
+```
+
+## 9. Dalsze działania
+
+Przed końcowym soak testem należy:
+
+1. wdrożyć nową wersję Service Agent z licznikami transportu,
+2. potwierdzić pojawienie się sekcji `transport` dla obu węzłów,
+3. wykonać krótki test kontrolny licznika sekwencji,
+4. powtórzyć 30-minutowy soak z zachowywaniem pełnych artefaktów przy pierwszym incydencie,
+5. osobno zaplanować rozszerzenie firmware o liczniki rozłączeń Wi-Fi, uzyskań IP oraz prób i błędów wysyłki heartbeat.
 
 Nie należy zwiększać progu offline ponad 35 sekund wyłącznie w celu ukrycia tej przerwy.
 
-## 8. Status
+## 10. Status
 
 ```text
 soak #1:                         FAIL
 węzeł:                           sensor-node-2
 czas przerwy dostarczania:        około 50 s
+ciągłość asocjacji Wi-Fi:         TAK
 restart firmware:                 NIE
-awaria całego AP/CM5:             NIE POTWIERDZONA; MAŁO PRAWDOPODOBNA
+awaria całego AP/CM5:             NIE
 błąd HMAC/replay:                 BRAK DOWODÓW
-ciągłość produkcyjnego Modbus:    zachowana poza service-plane incident
-przyczyna transportowa:           DO DALSZEGO USTALENIA
-Stage 1 final validation:         BLOCKED BY INVESTIGATION
+ciągłość produkcyjnego Modbus:    zachowana
+przyczyna transportowa:           utrata datagramów / degradacja ścieżki Wi-Fi
+obserwowalność transportu:        ROZSZERZONA
+Stage 1 final validation:         BLOCKED UNTIL REPEATED SOAK
 ```
 
 PR #12 pozostaje Draft. Nie wykonano merge ani nie oznaczono Ready for Review.
