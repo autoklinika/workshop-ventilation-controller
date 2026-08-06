@@ -37,7 +37,10 @@ install -m 0644 "${ROOT_DIR}/deploy/cm5/wifi/nftables/wvc-sensor-service.nft" "$
 /usr/sbin/nft --check --file "${NFT_TARGET}"
 systemctl daemon-reload
 systemctl reload wvc-sensor-firewall.service
-systemctl enable --now wvc-service-heartbeat.service
+systemctl enable wvc-service-heartbeat.service
+# The receiver loads the registry only at process start. Always restart after
+# replacing keys.json so newly provisioned nodes are accepted immediately.
+systemctl restart wvc-service-heartbeat.service
 
 systemctl --no-pager --full status wvc-service-heartbeat.service
 ss -lunp | grep -E '10\.55\.0\.1:45551|0\.0\.0\.0:45551' || true
