@@ -60,6 +60,18 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertNotIn("systemctl restart ventilation-core", validator)
         self.assertNotIn("systemctl stop ventilation-core", validator)
 
+    def test_soak_validator_uses_fault_injection_counters_as_baseline(self) -> None:
+        soak = (ROOT / "tools/validate_cm5_service_agent_soak.sh").read_text(encoding="utf-8")
+
+        self.assertIn("historical SENSOR BUS counters accepted as soak baseline", soak)
+        self.assertIn("acquired a non-successful poll during soak", soak)
+        self.assertIn("counter {field} changed", soak)
+        self.assertIn("invalid_measurements", soak)
+        self.assertIn("stale_measurements", soak)
+        self.assertIn("map_version_errors", soak)
+        self.assertNotIn('if node.get("communication_errors") != 0', soak)
+        self.assertNotIn('if node.get("polls") != node.get("successful_polls")', soak)
+
     def test_soak_validator_preserves_and_explains_failure_diagnostics(self) -> None:
         soak = (ROOT / "tools/validate_cm5_service_agent_soak.sh").read_text(encoding="utf-8")
 
@@ -70,6 +82,8 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertIn("iw dev wlan0 station dump", soak)
         self.assertIn("service-agent-journal.txt", soak)
         self.assertIn("collect_failure_diagnostics", soak)
+        self.assertIn("Current SENSOR BUS snapshot", soak)
+        self.assertIn("/var/lib/misc/dnsmasq-wvc.leases", soak)
 
     def test_dropout_collector_captures_service_wifi_and_modbus_context(self) -> None:
         diagnostic = (ROOT / "tools/diagnose_cm5_service_agent_dropout.sh").read_text(
