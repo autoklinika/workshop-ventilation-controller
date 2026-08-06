@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from ventilation_core.service_agent import (
     CommandResult,
@@ -36,6 +38,7 @@ class ServiceAgentStateTests(unittest.TestCase):
         self.assertFalse(nodes[0]["online"])
         self.assertFalse(nodes[1]["online"])
         self.assertIsNone(nodes[0]["heartbeat"])
+        self.assertEqual(nodes[0]["transport"]["accepted_heartbeats"], 0)
 
     def test_authenticated_persisted_state_is_normalised(self) -> None:
         state = ServiceAgentState(self.keys)
@@ -43,6 +46,8 @@ class ServiceAgentStateTests(unittest.TestCase):
             "node_id": "sensor-node-1",
             "mac": "88:13:BF:00:52:D0",
             "firmware": "0.4.0-stage1",
+            "boot_id": "0123456789abcdef",
+            "seq": 12,
             "uptime_s": 123,
             "wifi_rssi_dbm": -42,
             "sensor_state": "running",
@@ -73,6 +78,8 @@ class ServiceAgentStateTests(unittest.TestCase):
         self.assertEqual(node["wifi_rssi_dbm"], -42)
         self.assertTrue(node["rs485_ready"])
         self.assertEqual(node["heartbeat"], heartbeat)
+        self.assertEqual(node["transport"]["accepted_heartbeats"], 1)
+        self.assertEqual(node["transport"]["last_seq"], 12)
 
     def test_expiration_marks_only_selected_node_offline(self) -> None:
         state = ServiceAgentState(self.keys)
@@ -95,6 +102,67 @@ class ServiceAgentStateTests(unittest.TestCase):
         self.assertTrue(nodes["sensor-node-1"]["online"])
         self.assertFalse(nodes["sensor-node-2"]["online"])
         self.assertIsNone(nodes["sensor-node-2"]["source_ip"])
+        self.assertEqual(nodes["sensor-node-2"]["transport"]["offline_transitions"], 1)
+
+    def test_transport_diagnostics_count_and_persist_sequence_gaps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            state_dir = Path(temp)
+            state = ServiceAgentState(self.keys, state_dir=state_dir)
+
+            state.record(
+                {
+                    "online": True,
+                    "received_unix_ms": 100_000,
+                    "source_ip": "10.55.0.110",
+                    "heartbeat": {
+                        "node_id": "sensor-node-2",
+                        "boot_id": "0123456789abcdef",
+                        "seq": 10,
+                    },
+                }
+            )
+            state.record(
+                {
+                    "online": True,
+                    "received_unix_ms": 150_000,
+                    "source_ip": "10.55.0.110",
+                    "heartbeat": {
+                        "node_id": "sensor-node-2",
+                        "boot_id": "0123456789abcdef",
+                        "seq": 15,
+                    },
+                }
+            )
+            state.mark_offline(["sensor-node-2"])
+            state.record(
+                {
+                    "online": True,
+                    "received_unix_ms": 160_000,
+                    "source_ip": "10.55.0.110",
+                    "heartbeat": {
+                        "node_id": "sensor-node-2",
+                        "boot_id": "0123456789abcdef",
+                        "seq": 16,
+                    },
+                }
+            )
+
+            node = {node["node_id"]: node for node in state.nodes()}["sensor-node-2"]
+            transport = node["transport"]
+            self.assertEqual(transport["accepted_heartbeats"], 3)
+            self.assertEqual(transport["sequence_gap_events"], 1)
+            self.assertEqual(transport["missing_heartbeats_total"], 4)
+            self.assertEqual(transport["max_sequence_gap"], 4)
+            self.assertEqual(transport["max_receive_gap_ms"], 50_000)
+            self.assertEqual(transport["offline_transitions"], 1)
+            self.assertEqual(transport["online_transitions"], 2)
+
+            restored = ServiceAgentState(self.keys, state_dir=state_dir)
+            restored_node = {
+                node["node_id"]: node for node in restored.nodes()
+            }["sensor-node-2"]
+            self.assertEqual(restored_node["transport"]["missing_heartbeats_total"], 4)
+            self.assertEqual(restored_node["transport"]["last_seq"], 16)
 
     def test_unknown_persisted_node_is_rejected(self) -> None:
         state = ServiceAgentState(self.keys)
