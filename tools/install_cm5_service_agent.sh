@@ -6,6 +6,7 @@ KEYS_SOURCE="${1:-}"
 KEYS_TARGET="/etc/wvc-service-heartbeat/keys.json"
 UNIT_TARGET="/etc/systemd/system/wvc-service-agent.service"
 NFT_TARGET="/etc/nftables.d/wvc-sensor-service.nft"
+CTL_TARGET="/usr/local/bin/wvc-servicectl"
 
 if [[ "${EUID}" -ne 0 ]]; then
     echo "Run as root." >&2
@@ -37,6 +38,7 @@ install -d -m 0700 -o wentylacja -g wentylacja /etc/wvc-service-heartbeat
 install -m 0600 -o wentylacja -g wentylacja "${KEYS_SOURCE}" "${KEYS_TARGET}"
 install -m 0644 "${ROOT_DIR}/deploy/systemd/wvc-service-agent.service" "${UNIT_TARGET}"
 install -m 0644 "${ROOT_DIR}/deploy/cm5/wifi/nftables/wvc-sensor-service.nft" "${NFT_TARGET}"
+install -m 0755 "${ROOT_DIR}/tools/wvc-servicectl" "${CTL_TARGET}"
 
 /usr/sbin/nft --check --file "${NFT_TARGET}"
 systemctl daemon-reload
@@ -52,5 +54,4 @@ systemctl restart wvc-service-agent.service
 
 systemctl --no-pager --full status wvc-service-agent.service
 ss -lunp | grep -E '10\.55\.0\.1:45551|0\.0\.0\.0:45551' || true
-sudo -u wentylacja env PYTHONPATH="${ROOT_DIR}/src" \
-    python3 -m ventilation_core.service_ctl status
+sudo -u wentylacja wvc-servicectl status
