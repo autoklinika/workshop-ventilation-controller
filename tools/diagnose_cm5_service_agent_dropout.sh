@@ -40,6 +40,10 @@ journalctl -u wvc-service-agent.service --since "${since}" --no-pager -o short-i
     > "${out_dir}/service-agent-journal.txt" 2>&1 || true
 journalctl -u ventilation-core.service --since "${since}" --no-pager -o short-iso \
     > "${out_dir}/ventilation-core-journal.txt" 2>&1 || true
+journalctl -u NetworkManager.service --since "${since}" --no-pager -o short-iso \
+    > "${out_dir}/networkmanager-journal.txt" 2>&1 || true
+journalctl -u wpa_supplicant.service --since "${since}" --no-pager -o short-iso \
+    > "${out_dir}/wpa-supplicant-journal.txt" 2>&1 || true
 journalctl -k --since "${since}" --no-pager -o short-iso \
     > "${out_dir}/kernel-journal.txt" 2>&1 || true
 
@@ -49,7 +53,7 @@ iw dev wlan0 station dump \
     > "${out_dir}/iw-station-dump.txt" 2>&1 || true
 ip -4 neighbor show dev wlan0 \
     > "${out_dir}/ip-neighbor.txt" 2>&1 || true
-cat /var/lib/misc/dnsmasq.leases \
+cat /var/lib/misc/dnsmasq-wvc.leases \
     > "${out_dir}/dnsmasq-leases.txt" 2>&1 || true
 ss -lunp > "${out_dir}/udp-listeners.txt" 2>&1 || true
 nft -a list table inet wvc_sensor_service \
@@ -70,6 +74,7 @@ status = json.loads(status_path.read_text(encoding="utf-8"))
 print("\nCURRENT SERVICE NODES")
 for node in status.get("nodes", []):
     heartbeat = node.get("heartbeat") or {}
+    transport = node.get("transport") or {}
     print(
         f"{node.get('node_id')}: "
         f"online={node.get('online')} "
@@ -80,17 +85,32 @@ for node in status.get("nodes", []):
         f"rssi={heartbeat.get('wifi_rssi_dbm')} "
         f"modbus_requests_total={heartbeat.get('modbus_requests_total')}"
     )
+    if transport:
+        print(
+            "  transport: "
+            f"accepted={transport.get('accepted_heartbeats')} "
+            f"gap_events={transport.get('sequence_gap_events')} "
+            f"missing_total={transport.get('missing_heartbeats_total')} "
+            f"max_seq_gap={transport.get('max_sequence_gap')} "
+            f"last_rx_gap_ms={transport.get('last_receive_gap_ms')} "
+            f"max_rx_gap_ms={transport.get('max_receive_gap_ms')} "
+            f"offline_transitions={transport.get('offline_transitions')} "
+            f"boot_changes={transport.get('boot_changes')}"
+        )
 PY
 
 echo
-echo "RECENT HEARTBEAT TRANSITIONS"
-grep -E 'heartbeat (online|offline)|rejected heartbeat|service agent' \
+echo "RECENT HEARTBEAT TRANSITIONS AND GAPS"
+grep -E 'heartbeat (online|offline)|heartbeat sequence gap|heartbeat boot changed|rejected heartbeat|service agent' \
     "${out_dir}/service-agent-journal.txt" || true
 
 echo
 echo "RECENT WLAN/KERNEL EVENTS"
-grep -Ei 'wlan0|brcmfmac|deauth|disassoc|disconnect|firmware|timeout' \
-    "${out_dir}/kernel-journal.txt" || true
+cat \
+    "${out_dir}/networkmanager-journal.txt" \
+    "${out_dir}/wpa-supplicant-journal.txt" \
+    "${out_dir}/kernel-journal.txt" |
+grep -Ei 'wlan0|brcmfmac|deauth|disassoc|disconnect|firmware|timeout|88:13:bf|10\.55\.0\.' || true
 
 echo
 echo "Diagnostics saved in: ${out_dir}"
