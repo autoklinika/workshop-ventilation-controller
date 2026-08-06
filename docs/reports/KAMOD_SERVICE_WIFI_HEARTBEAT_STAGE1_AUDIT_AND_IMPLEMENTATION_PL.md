@@ -1,281 +1,204 @@
-# KAmod Service Wi-Fi Heartbeat Stage 1 — audyt, architektura i implementacja
+# KAmod Service Wi-Fi Heartbeat Stage 1 — audyt i implementacja
 
 ## 1. Punkt wyjścia
 
 - repozytorium: `autoklinika/workshop-ventilation-controller`,
-- rzeczywisty HEAD `main` przy rozpoczęciu: `2ed28a8a5ba2e219493984732eca890ae0700cab`,
-- gałąź implementacyjna: `agent/kamod-service-wifi-heartbeat-stage1`,
-- Draft PR #9 / gałąź AERO BUS: poza zakresem i bez zmian,
+- bazowy HEAD `main`: `2ed28a8a5ba2e219493984732eca890ae0700cab`,
+- gałąź: `agent/kamod-service-wifi-heartbeat-stage1`,
+- Draft PR: #11,
+- Draft PR #9 / AERO BUS: poza zakresem i bez zmian,
 - RS-485 Modbus RTU: jedyny kanał produkcyjny,
-- Wi-Fi: wyłącznie niezależny kanał serwisowy.
+- Wi-Fi: niezależny kanał wyłącznie serwisowy.
 
-## 2. Wynik audytu firmware Stage 2B
+## 2. Audyt istniejącego firmware
 
-### 2.1. Architektura ESP-IDF
-
-Firmware jest prawidłowo rozdzielony na komponenty:
+Firmware zachowuje rozdział odpowiedzialności:
 
 ```text
-main -> app
-         -> services -> sen55 -> drivers/I2C
-         -> modbus -> esp-modbus -> UART2/RS-485
-         -> diagnostics
-         -> platform
-         -> logging
-         -> config/NVS
+app -> services/SEN55 -> I2C
+app -> modbus -> UART2/RS-485
+app -> diagnostics
+app -> service_wifi
 ```
 
-`main.cpp` nie zawiera logiki protokołów. SEN55 nie zna Modbus, a Modbus koduje gotowy snapshot pomiaru i diagnostyki.
+Potwierdzone niezmienniki:
 
-### 2.2. SEN55 i diagnostyka
+- SEN55 nie zna protokołu Modbus,
+- Modbus publikuje gotowy snapshot,
+- Wi-Fi nie dostarcza pomiarów do logiki sterującej,
+- Wi-Fi nie steruje DAC/AERO,
+- błąd kanału Wi-Fi nie zatrzymuje SEN55 ani Modbus,
+- firmware nie implementuje w Stage 1 OTA transportu, zdalnego restartu ani zdalnego provisioningu.
 
-- I²C 100 kHz, SDA GPIO33, SCL GPIO32, adres SEN55 `0x69`,
-- odczyt ośmiu pól oraz CRC-8 Sensirion,
-- poll 200 ms,
-- trzy kolejne błędy powodują przejście do offline,
-- ponowna detekcja co 5 s,
-- pierwszy pomiar: timeout 10 s,
-- stale po 5 s,
-- liczniki detekcji, komunikacji, CRC i poprawnych pomiarów,
-- ostatni błąd i czas ostatniego sukcesu.
-
-### 2.3. Modbus RTU
-
-- ESP-Modbus 2.1.2,
-- slave, UART2, half-duplex,
-- TX GPIO25, RX GPIO27, DE/RE GPIO26,
-- 19200 bit/s, 8N1,
-- wyłącznie FC04 Read Input Registers,
-- mapa v1, 19 rejestrów,
-- aktualizacja pod blokadą kontrolera,
-- adres urządzenia z `device_config/modbus_addr` w NVS,
-- produkcyjne adresy `1` i `2`,
-- brak rejestrów zapisywalnych.
-
-Brakujący element dla planowanego heartbeatu: firmware nie liczył poprawnych odczytów Modbus ani wieku ostatniego żądania. Stage 1 dodaje pasywny monitor zdarzeń `MB_EVENT_INPUT_REG_RD`; nie zmienia obsługi ramki ani mapy rejestrów.
-
-### 2.4. OTA, watchdog i pamięć konfiguracji
-
-- flash 4 MB,
-- `ota_0` i `ota_1` po `0x1D0000`,
-- `otadata`, NVS i coredump,
-- rollback bootloadera włączony,
-- obraz pending jest potwierdzany po 30 s, gdy GPIO, I²C i RS-485 są gotowe,
-- Task WDT: 10 s,
-- panic: log i reboot,
-- firmware Stage 1 nie implementuje transportu OTA, restartu ani polecenia zdalnego,
-- Modbus address i poświadczenia serwisowe są lokalne w NVS.
-
-### 2.5. Walidacja Stage 2B
-
-- dwa węzły z tym samym firmware i osobnymi adresami NVS,
-- 800/800 poprawnych cykli odczytu,
-- 0 timeoutów,
-- 0 błędów protokołu,
-- 0 błędów wersji mapy,
-- 0 próbek invalid/stale,
-- stabilność po wprowadzeniu 10 ms odstępu między węzłami,
-- hostowe testy mapy i pełny build ESP-IDF 6.0.2: PASS.
-
-### 2.6. Drift dokumentacji
-
-`docs/MODBUS_MAP_PL.md` nadal opisywał Stage 2A, stały adres `1` i firmware `0x0002`. Został zaktualizowany do rzeczywistego kontraktu Stage 2B i wersji firmware Stage 1.
-
-## 3. Architektura kanału serwisowego Stage 1
-
-### 3.1. Transport i role
+## 3. Kontrakt heartbeat
 
 - transport: UDP unicast,
-- kierunek: wyłącznie KAmod -> CM5,
-- KAmod: klient/stacja Wi-Fi i nadawca heartbeatów,
-- CM5: serwer/odbiornik,
-- adres odbiornika: `10.55.0.1`,
-- port: UDP `45551`,
-- węzeł nie otwiera żadnego portu aplikacyjnego,
-- brak TCP, HTTP, MQTT, SSH i mDNS w Stage 1.
+- kierunek: KAmod -> CM5,
+- odbiornik: `10.55.0.1:45551`,
+- okres: 10 s,
+- początkowy jitter: 0–2 s,
+- offline timeout: 35 s,
+- protokół: `WVC-HB1`, schema 1,
+- ramka: JSON + separator LF + HMAC-SHA256 hex.
 
-UDP wybrano, ponieważ heartbeat jest samodzielnym, okresowym snapshotem. Utrata pojedynczego datagramu nie tworzy kolejki, nie wymaga sesji ani utrzymywania połączenia i nie może zablokować produkcyjnej pętli.
+Każdy węzeł ma osobny losowy klucz 32 B. CM5 sprawdza:
 
-### 3.2. Format ramki
+- subnet źródłowy,
+- `node_id` i `key_id`,
+- opcjonalnie MAC,
+- HMAC,
+- `boot_id + seq` przeciw replay.
 
-```text
-<ASCII JSON payload>\n<64 lowercase hex characters HMAC-SHA256>
-```
+Heartbeat nie zawiera PM, temperatury, wilgotności, VOC ani NOx.
 
-HMAC jest liczony po dokładnych bajtach JSON przed separatorem. Maksymalny datagram odbiornika: 2048 B.
+## 4. Model sieci po walidacji sprzętowej
 
-Pola schematu `WVC-HB1`, wersja `1`:
+Podczas bring-up wykryto, że wspólne WPA2-PSK utrudniało odtwarzalny provisioning. Użytkownik podjął decyzję o usunięciu hasła z prywatnego AP.
 
-- `protocol`, `schema`,
-- `node_id`, `key_id`, `mac`,
-- `boot_id`, `seq`,
-- `firmware`, `uptime_s`, `reset_reason`,
-- `ota_partition`, `ota_pending`,
-- `wifi_rssi_dbm`,
-- `sensor_state`, `measurement_age_ms`, `sensor_last_error`,
-- liczniki detekcji, komunikacji, CRC i poprawnych pomiarów,
-- `rs485_ready`, `modbus_slave`, `modbus_monitor_ready`,
-- `modbus_requests_total`, `modbus_requests_last_60s`,
-- `last_modbus_request_age_ms`, `modbus_service_errors`.
+Stan końcowy Stage 1:
 
-Heartbeat świadomie nie zawiera PM, temperatury, wilgotności, VOC ani NOx. Dane produkcyjne pozostają wyłącznie w Modbus RTU.
+- SSID `WVC-SERVICE`,
+- otwarta warstwa Wi-Fi (`WIFI_AUTH_OPEN`),
+- brak `wifi_psk` w aktualnym kontrakcie NVS,
+- brak pytania o hasło w provisioningu,
+- HMAC-SHA256 per node pozostaje wymagane,
+- AP isolation pozostaje włączone,
+- firewall dopuszcza tylko DHCP i jawnie otwarty port heartbeat,
+- brak routera, DNS, NAT i forwardingu.
 
-### 3.3. Częstotliwość i stan online
+Ruch radiowy nie jest szyfrowany. Jest to zaakceptowane dla diagnostycznego, jednokierunkowego heartbeatu bez danych produkcyjnych i bez poleceń sterujących.
 
-- heartbeat co 10 s,
-- losowy startowy jitter 0–2 s,
-- CM5 uznaje węzeł za offline po 35 s bez poprawnego, uwierzytelnionego heartbeatu,
-- utrata datagramu nie wymaga retransmisji,
-- `seq` rośnie w ramach jednego `boot_id`.
+## 5. Provisioning
 
-### 3.4. Identyfikacja i uwierzytelnienie
-
-- `node_id`: stabilna nazwa logiczna, np. `sensor-zone-1`,
-- MAC: atrybut identyfikacyjny i opcjonalnie pinowany w rejestrze CM5,
-- MAC nie jest samodzielnym mechanizmem bezpieczeństwa,
-- `key_id`: identyfikator wersji klucza,
-- klucz: losowe 32 B per węzeł,
-- HMAC-SHA256: uwierzytelnienie i integralność,
-- WPA2-PSK: ochrona warstwy radiowej,
-- `boot_id + seq`: ochrona przed replay i odwróceniem kolejności,
-- CM5 przechowuje bieżącą oraz zamknięte sesje boot w `/var/lib/wvc-service-heartbeat`.
-
-Poświadczenia nie są logowane. Rejestr kluczy na CM5 ma tryb `0600`. W repozytorium jest tylko przykład z wartością zastępczą.
-
-### 3.5. Reconnect i backoff
-
-- 1, 2, 4, 8, 16, 32, 60 s,
-- limit 60 s,
-- jitter 0–500 ms,
-- reset backoff po otrzymaniu adresu DHCP,
-- brak bramy i DNS nie jest traktowany jako błąd,
-- błąd inicjalizacji lub wysyłki Wi-Fi jest tylko ostrzeżeniem kanału serwisowego.
-
-### 3.6. Izolacja tasków
-
-- główny task aplikacji: core 0,
-- Wi-Fi driver: core 1,
-- lwIP TCP/IP: core 1,
-- task heartbeat: core 1, priorytet 2,
-- Modbus monitor: blokujący task zdarzeń, nie ingeruje w obsługę ramek,
-- snapshot między produkcją a Wi-Fi jest krótką kopią pod spinlockiem,
-- task Wi-Fi nie posiada referencji do sterownika SEN55, rejestrów Modbus ani DAC/AERO,
-- task Wi-Fi nie jest klientem Task WDT; jego zawieszenie nie może restartować sprawnej ścieżki produkcyjnej.
-
-### 3.7. CM5 receiver
-
-Osobny proces i unit `wvc-service-heartbeat.service`:
-
-- nie jest częścią `ventilation-core.service`,
-- nie importuje ani nie aktualizuje `VentilationService` lub `CoreState`,
-- weryfikuje subnet, schema, allowlist, HMAC, MAC i replay,
-- zapisuje atomowy stan per node do `/run/wvc-service-heartbeat/nodes/*.json`,
-- zapisuje replay state do `/var/lib/wvc-service-heartbeat`,
-- loguje przejścia online/offline oraz odrzucenia,
-- awaria odbiornika nie wpływa na SENSOR BUS, AERO BUS ani DAC.
-
-### 3.8. Minimalna zmiana nftables
-
-Jedyna nowa reguła input przed końcowym drop:
-
-```nft
-iifname "wlan0" ip daddr 10.55.0.1 udp dport 45551 accept
-```
-
-Forwarding pozostaje zablokowany. SSH i wszystkie inne porty pozostają niedostępne od `wlan0`.
-
-## 4. Provisioning lokalny Stage 1
-
-`tools/provision_sensor_node_service.py` tworzy jeden obraz NVS zawierający:
+Aktualny obraz NVS zawiera:
 
 ```text
 device_config/modbus_addr
 service_cfg/wifi_ssid
-service_cfg/wifi_psk
 service_cfg/node_id
 service_cfg/key_id
 service_cfg/auth_key
 ```
 
-Narzędzie:
+Narzędzie `tools/provision_sensor_node_service.py`:
 
-- pobiera WPA2 PSK przez `getpass`,
-- generuje osobny 32-bajtowy klucz HMAC,
-- nie wypisuje sekretów,
-- zapisuje rejestr CM5 z prawami `0600`,
-- opcjonalnie pinuje rzeczywisty MAC,
-- może wygenerować obraz bez flashowania,
-- ostrzega przez sam zakres operacji: zapis NVS zastępuje dotychczasową zawartość partycji, dlatego zawiera również adres Modbus.
+- waliduje adres Modbus 1–247,
+- waliduje `node_id`, `key_id`, SSID i opcjonalny MAC,
+- generuje osobny klucz HMAC 32 B,
+- aktualizuje lokalny rejestr CM5 atomowo,
+- ustawia tryb pliku rejestru na `0600`,
+- może generować obraz bez flashowania,
+- nie pyta o hasło Wi-Fi i go nie zapisuje.
 
-Nie jest to provisioning sieciowy. Zdalna zmiana konfiguracji pozostaje poza Stage 1.
+## 6. Receiver CM5
 
-## 5. Plan etapów
+`wvc-service-heartbeat.service` jest osobnym procesem od `ventilation-core`.
 
-1. **Heartbeat Stage 1 — ten zakres**: STA do WVC-SERVICE, UDP/HMAC, diagnostyka, receiver CM5, nftables.
-2. **Provisioning Stage 2**: uwierzytelniona i jawnie autoryzowana zmiana konfiguracji; osobny protokół i threat model.
-3. **Log retrieval Stage 3**: limitowany bufor zdarzeń, kontrola rozmiaru i rate limit.
-4. **Remote restart Stage 4**: osobna autoryzacja polecenia, nonce, audit log, brak restartu produkcji od błędu Wi-Fi.
-5. **OTA Stage 5**: podpisany obraz, A/B, walidacja, rollback, kontrola wersji i zasilania.
+Receiver:
 
-Stage 1 nie implementuje etapów 2–5.
+- nasłuchuje tylko na `10.55.0.1:45551/UDP`,
+- weryfikuje HMAC i replay,
+- zapisuje stan runtime do `/run/wvc-service-heartbeat/nodes`,
+- zapisuje stan replay do `/var/lib/wvc-service-heartbeat`,
+- loguje przejścia online/offline i odrzucenia,
+- nie aktualizuje `CoreState` ani logiki wentylacji.
 
-## 6. Kryteria PASS
+Podczas wdrażania drugiego węzła wykryto operacyjny błąd installera: rejestr zawierał oba węzły, ale działający proces nadal miał starą allowlistę w pamięci. Installer został zmieniony tak, aby po każdej instalacji `keys.json` wykonywał restart receivera.
 
-### 6.1. Programowe
+## 7. Walidator AP
 
-- pełny build ESP-IDF 6.0.2,
-- istniejące testy mapy Modbus PASS,
-- testy receivera: poprawny HMAC, zły HMAC, subnet, MAC pinning, replay, zamknięty boot, offline timeout,
-- test rozdzielenia systemd i minimalnej reguły nftables,
-- brak sekretów w repozytorium,
-- brak TCP/app listenera na węźle,
-- receiver nie jest połączony z `ventilation-core`.
+Na docelowym NetworkManager wartość `802-11-wireless.powersave=2` jest prezentowana tekstowo jako `disable`. Stary validator zgłaszał fałszywy FAIL.
 
-### 6.2. Sprzętowe — dwa węzły
+Validator akceptuje teraz oba równoważne warianty:
 
-- oba węzły łączą się z `WVC-SERVICE` i dostają DHCP bez router/DNS,
-- poprawne `node_id`, MAC, firmware, slave i RSSI w CM5,
-- heartbeat co około 10 s,
-- poprawny wzrost `seq`, uptime i liczników Modbus,
-- odłączenie AP/wyłączenie `wlan0`: nieprzerwany odczyt obu slave po RS-485, pomiary SEN55 i brak resetu WDT,
-- restart DHCP/receivera: Modbus bez przerwy; heartbeat wraca automatycznie,
-- odłączenie RS-485: Wi-Fi i SEN55 działają; heartbeat zgłasza brak aktywności Modbus,
-- odłączenie SEN55: Modbus nadal odpowiada diagnostyką; heartbeat zgłasza offline/stale,
-- fałszywy HMAC i replay są odrzucane,
-- brak dostępu węzła do Internetu, Ethernetu i SSH CM5,
-- test równoległy minimum 30 min bez degradacji dotychczasowego wyniku Stage 2B.
+```text
+2
+disable
+```
 
-## 7. Pliki implementacji
+Dodatkowo sprawdza, że profil AP nie zawiera konfiguracji key management.
 
-### Firmware
+## 8. Walidacja programowa przed checkpointem
 
-- `firmware/sensor-node/components/service_wifi/**`,
-- `firmware/sensor-node/components/config/include/config/service_credentials.hpp`,
-- `firmware/sensor-node/components/config/src/service_credentials.cpp`,
-- `firmware/sensor-node/components/app/include/app/application.hpp`,
-- `firmware/sensor-node/components/app/src/application.cpp`,
-- `firmware/sensor-node/components/modbus/include/modbus/modbus_rtu_slave.hpp`,
-- `firmware/sensor-node/components/modbus/src/modbus_rtu_slave.cpp`,
-- odpowiednie `CMakeLists.txt`, `firmware_config.hpp`, `sdkconfig.defaults`.
+Zakres walidacji repozytorium:
 
-### CM5 i narzędzia
+- `python -m unittest discover -s tests -v`,
+- `python -m compileall -q src tools tests`,
+- `bash -n` dla skryptów wdrożeniowych,
+- pełny build ESP-IDF 6.0.2 w workflow `Sensor node firmware`,
+- kontrola, że firmware używa `WIFI_AUTH_OPEN`,
+- kontrola braku `wifi_psk` i promptu WPA2,
+- kontrola restartu receivera po zmianie rejestru.
 
-- `src/ventilation_core/service_heartbeat.py`,
-- `deploy/systemd/wvc-service-heartbeat.service`,
-- `deploy/cm5/wifi/nftables/wvc-sensor-service.nft`,
-- `deploy/cm5/wifi/heartbeat/heartbeat-keys.example.json`,
-- `tools/provision_sensor_node_service.py`,
-- `tools/install_cm5_service_heartbeat.sh`,
-- `tools/validate_cm5_service_heartbeat.sh`,
-- `tests/test_service_heartbeat.py`,
-- `tests/test_service_heartbeat_systemd.py`,
-- workflowy i `.gitignore`.
+Wynik workflow należy odczytać dla końcowego HEAD checkpointu.
 
-## 8. Stan po implementacji programowej
+## 9. Walidacja sprzętowa 2026-08-06
 
-- lokalne testy receivera i deploymentu: `9/9 PASS`,
-- `compileall`: PASS,
-- składnia obu skryptów shell: PASS,
-- pełny build ESP-IDF i testy GitHub Actions: wymagane po push,
-- walidacja na docelowych dwóch KAmod i CM5: wymagana przed merge,
-- brak merge i brak zmiany statusu Draft PR #9.
+### 9.1. CM5
+
+Potwierdzono:
+
+- `wlan0` działa jako AP na `10.55.0.1/24`,
+- profil `wvc-sensor-service` jest aktywny,
+- DHCP działa na `10.55.0.100–10.55.0.119`,
+- firewall i DHCP są enabled/active,
+- receiver nasłuchuje na `10.55.0.1:45551`,
+- AP nie wysyła routera ani DNS,
+- otwarta autoryzacja radiowa działa.
+
+### 9.2. sensor-node-1
+
+```text
+node_id: sensor-node-1
+Modbus slave: 1
+MAC: 88:13:BF:00:52:D0
+DHCP: 10.55.0.106
+firmware: 0.4.0-stage1
+RSSI w próbce: -32 dBm
+sensor_state: running
+rs485_ready: true
+błędy SEN55: 0
+online: true
+```
+
+### 9.3. sensor-node-2
+
+```text
+node_id: sensor-node-2
+Modbus slave: 2
+MAC: 88:13:BF:01:37:28
+DHCP: 10.55.0.110
+firmware: 0.4.0-stage1
+RSSI w próbce: -57 dBm
+sensor_state: running
+rs485_ready: true
+błędy SEN55: 0
+online: true
+```
+
+CM5 zaakceptował HMAC obu węzłów i utworzył dwa osobne pliki runtime.
+
+Wynik bring-up dwóch fizycznych węzłów: **PASS**.
+
+## 10. Zakres nadal otwarty przed merge
+
+Nie wykonano jeszcze kompletnego testu wszystkich kryteriów fault-injection i soak:
+
+- utrata AP podczas ciągłego odczytu obu slave,
+- restart DHCP i receivera podczas pracy Modbus,
+- odłączenie RS-485,
+- odłączenie SEN55,
+- fałszywy HMAC i replay na docelowym sprzęcie,
+- próba dostępu do Ethernetu i SSH od strony AP,
+- minimum 30 min pracy równoległej bez degradacji.
+
+Dlatego PR #11 pozostaje Draft. Nie wykonywać merge ani Ready for Review bez jawnego polecenia użytkownika.
+
+## 11. Wynik checkpointu
+
+- implementacja kanału heartbeat: gotowa,
+- otwarta sieć serwisowa: wdrożona,
+- dwa węzły online: potwierdzone,
+- HMAC per node: potwierdzone,
+- poprawki operacyjne installera i validatora: wprowadzone,
+- pełne kryteria przed merge: częściowo otwarte.
