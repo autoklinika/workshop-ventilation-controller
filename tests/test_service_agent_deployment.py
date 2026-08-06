@@ -11,7 +11,7 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
     def test_unit_is_hardened_and_keeps_service_plane_independent(self) -> None:
         unit = (ROOT / "deploy/systemd/wvc-service-agent.service").read_text(encoding="utf-8")
 
-        self.assertIn("ExecStart=/usr/bin/python3 -m ventilation_core.service_agent", unit)
+        self.assertIn("ExecStart=/usr/bin/python3 -m ventilation_core.service_agent_ota", unit)
         self.assertIn("RuntimeDirectory=wvc-service-agent", unit)
         self.assertIn("StateDirectory=wvc-service-heartbeat", unit)
         self.assertIn("RestrictAddressFamilies=AF_INET AF_UNIX", unit)
@@ -39,9 +39,12 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertIn("/run/wvc-service-agent/service-agent.sock", validator)
         self.assertIn("10.55.0.1:45551", validator)
         self.assertIn("udp dport 45551 accept", validator)
+        self.assertIn("ct state established,related accept", validator)
         self.assertIn("net.ipv4.ip_forward", validator)
         self.assertIn("net.ipv6.conf.all.forwarding", validator)
         self.assertIn("ventilation_core.service_ctl status", validator)
+        self.assertIn("ota-install", validator)
+        self.assertIn("ota-status", validator)
 
     def test_soak_validator_checks_agent_sensor_bus_and_core_pid(self) -> None:
         validator = (ROOT / "tools/validate_cm5_service_agent_soak.sh").read_text(
@@ -99,12 +102,14 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertIn("modbus_requests_total", diagnostic)
 
     def test_agent_does_not_import_control_or_sensor_bus_components(self) -> None:
-        agent = (ROOT / "src/ventilation_core/service_agent.py").read_text(encoding="utf-8")
+        base_agent = (ROOT / "src/ventilation_core/service_agent.py").read_text(encoding="utf-8")
+        ota_agent = (ROOT / "src/ventilation_core/service_agent_ota.py").read_text(encoding="utf-8")
 
-        self.assertNotIn("sensor_bus_worker", agent)
-        self.assertNotIn("process_actuator", agent)
-        self.assertNotIn("FanSetpointPolicy", agent)
-        self.assertNotIn("ventilation_core.main", agent)
+        for agent in (base_agent, ota_agent):
+            self.assertNotIn("sensor_bus_worker", agent)
+            self.assertNotIn("process_actuator", agent)
+            self.assertNotIn("FanSetpointPolicy", agent)
+            self.assertNotIn("ventilation_core.main", agent)
 
 
 if __name__ == "__main__":
