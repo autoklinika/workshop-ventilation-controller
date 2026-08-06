@@ -21,6 +21,20 @@ class ServiceOtaStage1ContractTests(unittest.TestCase):
         self.assertIn("ota_1", partitions)
         self.assertIn("CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y", sdkconfig)
 
+    def test_ota_bootstrap_has_stack_corruption_guards(self) -> None:
+        sdkconfig = (ROOT / "firmware/sensor-node/sdkconfig.defaults").read_text(
+            encoding="utf-8"
+        )
+        required = (
+            "CONFIG_ESP_COREDUMP_STACK_SIZE=2048",
+            "CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y",
+            "CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y",
+            "CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, sdkconfig)
+
     def test_health_guard_requires_continuous_healthy_window(self) -> None:
         header = (
             ROOT
