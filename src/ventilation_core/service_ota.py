@@ -251,7 +251,12 @@ class OtaHttpClient:
         )
         bytes_sent = 0
         try:
-            connection.putrequest("POST", OTA_IMAGE_PATH)
+            connection.putrequest(
+                "POST",
+                OTA_IMAGE_PATH,
+                skip_host=True,
+                skip_accept_encoding=True,
+            )
             connection.putheader("Host", address)
             connection.putheader("Connection", "close")
             connection.putheader("Content-Type", "application/octet-stream")
@@ -429,6 +434,12 @@ class OtaCoordinator:
                 except ServiceOtaError:
                     continue
                 self._set(node_id, state="validating", remote=remote)
+                remote_node_id = remote.get("node_id")
+                if remote_node_id != node_id:
+                    raise ServiceOtaError(
+                        f"post-reboot OTA endpoint identity mismatch: "
+                        f"expected {node_id}, got {remote_node_id!r}"
+                    )
                 partition = remote.get("partition")
                 pending = remote.get("pending")
                 if partition == target_partition and pending is True:
