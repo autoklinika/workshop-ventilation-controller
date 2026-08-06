@@ -49,7 +49,7 @@ class ServiceAgentStateTests(unittest.TestCase):
             "measurement_age_ms": 250,
             "rs485_ready": True,
             "modbus_monitor_ready": True,
-            "modbus_address": 1,
+            "modbus_slave": 1,
             "modbus_requests_total": 500,
             "modbus_requests_last_60s": 58,
             "last_modbus_request_age_ms": 300,
@@ -113,7 +113,7 @@ class ServiceNetworkProbeTests(unittest.TestCase):
         results = {
             ("nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"): CommandResult(0, "wvc-sensor-service"),
             ("nmcli", "-g", "GENERAL.STATE", "device", "show", "wlan0"): CommandResult(0, "100 (connected)"),
-            ("ip", "-4", "-o", "address", "show", "dev", "wlan0"): CommandResult(0, "3: wlan0 inet 10.55.0.1/24 brd 10.55.0.255 scope global wlan0"),
+            ("nmcli", "-g", "IP4.ADDRESS", "device", "show", "wlan0"): CommandResult(0, "10.55.0.1/24"),
             ("systemctl", "is-active", "wvc-sensor-dhcp.service"): CommandResult(0, "active"),
             ("systemctl", "is-active", "wvc-sensor-firewall.service"): CommandResult(0, "active"),
         }
@@ -132,10 +132,10 @@ class ServiceNetworkProbeTests(unittest.TestCase):
                 return CommandResult(3, "inactive")
             if command[0] == "nmcli" and "CONNECTION" in command[2]:
                 return CommandResult(0, "wvc-sensor-service")
-            if command[0] == "nmcli":
+            if command[0] == "nmcli" and "STATE" in command[2]:
                 return CommandResult(0, "100 (connected)")
-            if command[0] == "ip":
-                return CommandResult(0, "wlan0 inet 10.55.0.1/24")
+            if command[0] == "nmcli" and "IP4.ADDRESS" in command[2]:
+                return CommandResult(0, "10.55.0.1/24")
             return CommandResult(0, "active")
 
         state = probe_service_network(runner)
