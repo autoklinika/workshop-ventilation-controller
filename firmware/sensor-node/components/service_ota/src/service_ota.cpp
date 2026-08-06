@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <new>
 
 #include "config/firmware_config.hpp"
 #include "esp_ota_ops.h"
@@ -29,7 +31,8 @@ constexpr std::size_t kDigestBytes = 32;
 constexpr std::size_t kHeaderCapacity = 128;
 constexpr std::size_t kReceiveBufferBytes = 4'096;
 constexpr std::size_t kCanonicalCapacity = 512;
-constexpr std::uint32_t kRestartDelayMs = 1'000;
+constexpr std::size_t kServerTaskStackBytes = 16'384;
+constexpr std::uint32_t kRestartDelayMs = 3'000;
 constexpr int kMaximumReceiveTimeouts = 3;
 
 const char* state_name(const ServiceOta::State state)
@@ -215,6 +218,11 @@ bool parse_size(const char* text, std::uint32_t& output)
     output = static_cast<std::uint32_t>(value);
     return true;
 }
+
+unsigned stack_high_watermark()
+{
+    return static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr));
+}
 }  // namespace
 
 esp_err_t ServiceOta::start(const config::ServiceCredentials& credentials)
@@ -231,9 +239,10 @@ esp_err_t ServiceOta::start(const config::ServiceCredentials& credentials)
     }
     started_ = true;
     LOG_INFO(kTag,
-             "manual authenticated OTA server started node_id=%s port=%u; RS-485 remains production channel",
+             "manual authenticated OTA server started node_id=%s port=%u stack=%u; RS-485 remains production channel",
              credentials_.node_id.data(),
-             static_cast<unsigned>(kServerPort));
+             static_cast<unsigned>(kServerPort),
+             static_cast<unsigned>(kServerTaskStackBytes));
     return ESP_OK;
 }
 
@@ -250,7 +259,7 @@ esp_err_t ServiceOta::start_server()
     config.recv_wait_timeout = 15;
     config.send_wait_timeout = 15;
     config.lru_purge_enable = true;
-    config.stack_size = 8'192;
+    config.stack_size = kServerTaskStackBytes;
 
     esp_err_t result = httpd_start(&server_, &config);
     if (result != ESP_OK) {
@@ -588,6 +597,24 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
                           "OTA image does not fit the inactive partition");
     }
 
+    auto buffer = std::unique_ptr<std::uint8_t[]>(
+        new (std::nothrow) std::uint8_t[kReceiveBufferBytes]);
+    if (!buffer) {
+        set_error("OTA receive buffer allocation failed");
+        return send_error(request,
+                          "503 Service Unavailable",
+                          "OTA receive buffer allocation failed");
+    }
+
+    LOG_INFO(kTag,
+             "OTA begin node_id=%s image_size=%lu source=%s target=%s free_heap=%lu stack_hwm=%u",
+             credentials_.node_id.data(),
+             static_cast<unsigned long>(image_size),
+             running->label,
+             update_partition->label,
+             static_cast<unsigned long>(esp_get_free_heap_size()),
+             stack_high_watermark());
+
     esp_ota_handle_t ota_handle{};
     const esp_err_t begin_result = esp_ota_begin(update_partition,
                                                  image_size,
@@ -609,16 +636,15 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
                           "SHA-256 initialization failed");
     }
 
-    std::array<std::uint8_t, kReceiveBufferBytes> buffer{};
     std::uint32_t bytes_written = 0;
     int timeout_count = 0;
     esp_err_t transfer_result = ESP_OK;
     while (bytes_written < image_size) {
         const std::size_t remaining = image_size - bytes_written;
-        const std::size_t requested = std::min(buffer.size(), remaining);
+        const std::size_t requested = std::min(kReceiveBufferBytes, remaining);
         const int received = httpd_req_recv(
             request,
-            reinterpret_cast<char*>(buffer.data()),
+            reinterpret_cast<char*>(buffer.get()),
             requested);
         if (received == HTTPD_SOCK_ERR_TIMEOUT) {
             ++timeout_count;
@@ -634,11 +660,11 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
         }
         timeout_count = 0;
         transfer_result = esp_ota_write(ota_handle,
-                                        buffer.data(),
+                                        buffer.get(),
                                         static_cast<std::size_t>(received));
         if (transfer_result != ESP_OK ||
             mbedtls_sha256_update(&sha,
-                                  buffer.data(),
+                                  buffer.get(),
                                   static_cast<std::size_t>(received)) != 0) {
             if (transfer_result == ESP_OK) {
                 transfer_result = ESP_FAIL;
@@ -648,6 +674,14 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
         bytes_written += static_cast<std::uint32_t>(received);
         set_progress(bytes_written);
     }
+
+    LOG_INFO(kTag,
+             "OTA receive finished bytes=%lu expected=%lu result=%s free_heap=%lu stack_hwm=%u",
+             static_cast<unsigned long>(bytes_written),
+             static_cast<unsigned long>(image_size),
+             esp_err_to_name(transfer_result),
+             static_cast<unsigned long>(esp_get_free_heap_size()),
+             stack_high_watermark());
 
     std::array<std::uint8_t, kDigestBytes> computed_digest{};
     if (transfer_result == ESP_OK && bytes_written == image_size) {
@@ -679,6 +713,16 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
                               : "OTA transfer was incomplete");
     }
 
+    LOG_INFO(kTag,
+             "OTA SHA-256 verified bytes=%lu stack_hwm=%u",
+             static_cast<unsigned long>(bytes_written),
+             stack_high_watermark());
+
+    LOG_INFO(kTag,
+             "OTA image validation begin target=%s free_heap=%lu stack_hwm=%u",
+             update_partition->label,
+             static_cast<unsigned long>(esp_get_free_heap_size()),
+             stack_high_watermark());
     const esp_err_t end_result = esp_ota_end(ota_handle);
     if (end_result != ESP_OK) {
         set_error(esp_err_to_name(end_result));
@@ -686,6 +730,11 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
                           "400 Bad Request",
                           "ESP application image validation failed");
     }
+    LOG_INFO(kTag,
+             "OTA image validation complete target=%s stack_hwm=%u",
+             update_partition->label,
+             stack_high_watermark());
+
     const esp_err_t boot_result = esp_ota_set_boot_partition(update_partition);
     if (boot_result != ESP_OK) {
         set_error(esp_err_to_name(boot_result));
@@ -693,6 +742,10 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
                           "500 Internal Server Error",
                           "cannot select the new boot partition");
     }
+    LOG_INFO(kTag,
+             "OTA boot partition selected target=%s stack_hwm=%u",
+             update_partition->label,
+             stack_high_watermark());
 
     set_success(update_partition->label);
     std::array<char, 320> body{};
@@ -713,10 +766,14 @@ esp_err_t ServiceOta::handle_image(httpd_req_t* request)
     }
 
     const esp_err_t response_result = send_json(request, "200 OK", body.data());
+    LOG_INFO(kTag,
+             "OTA final response result=%s restart_delay_ms=%lu",
+             esp_err_to_name(response_result),
+             static_cast<unsigned long>(kRestartDelayMs));
     TaskHandle_t restart_handle{};
     if (xTaskCreate(&ServiceOta::restart_task,
                     "wvc_ota_restart",
-                    2'048,
+                    3'072,
                     nullptr,
                     3,
                     &restart_handle) != pdPASS) {
