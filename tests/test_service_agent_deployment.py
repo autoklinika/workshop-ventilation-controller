@@ -60,6 +60,30 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertNotIn("systemctl restart ventilation-core", validator)
         self.assertNotIn("systemctl stop ventilation-core", validator)
 
+    def test_soak_validator_preserves_and_explains_failure_diagnostics(self) -> None:
+        soak = (ROOT / "tools/validate_cm5_service_agent_soak.sh").read_text(encoding="utf-8")
+
+        self.assertIn("Soak diagnostics preserved in", soak)
+        self.assertIn("not all service nodes are online:", soak)
+        self.assertIn("boot_id", soak)
+        self.assertIn("received_unix_ms", soak)
+        self.assertIn("iw dev wlan0 station dump", soak)
+        self.assertIn("service-agent-journal.txt", soak)
+        self.assertIn("collect_failure_diagnostics", soak)
+
+    def test_dropout_collector_captures_service_wifi_and_modbus_context(self) -> None:
+        diagnostic = (ROOT / "tools/diagnose_cm5_service_agent_dropout.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("ventilation_core.service_ctl status", diagnostic)
+        self.assertIn("ventilation_core.ctl sensors", diagnostic)
+        self.assertIn("journalctl -u wvc-service-agent.service", diagnostic)
+        self.assertIn("iw dev wlan0 station dump", diagnostic)
+        self.assertIn("brcmfmac", diagnostic)
+        self.assertIn("boot_id", diagnostic)
+        self.assertIn("modbus_requests_total", diagnostic)
+
     def test_agent_does_not_import_control_or_sensor_bus_components(self) -> None:
         agent = (ROOT / "src/ventilation_core/service_agent.py").read_text(encoding="utf-8")
 
