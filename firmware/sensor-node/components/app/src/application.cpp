@@ -63,9 +63,25 @@ Application::Application()
         update_status_led();
 
         const diagnostics::Snapshot& snapshot = diagnostics_.snapshot();
+        const modbus::Activity modbus_activity = modbus_slave_.activity();
+        const std::int64_t now_us = esp_timer_get_time();
+        const bool measurement_fresh = snapshot.last_success_us > 0 &&
+                                       now_us >= snapshot.last_success_us &&
+                                       (now_us - snapshot.last_success_us) <=
+                                           static_cast<std::int64_t>(
+                                               config::firmware::kMeasurementStaleAfterMs) *
+                                               1'000;
         const bool platform_healthy = snapshot.gpio_ready &&
                                       snapshot.i2c_ready &&
-                                      snapshot.rs485_ready;
+                                      snapshot.rs485_ready &&
+                                      snapshot.sensor_present &&
+                                      snapshot.measurement_running &&
+                                      snapshot.first_measurement_received &&
+                                      snapshot.sensor_state == diagnostics::SensorState::kRunning &&
+                                      snapshot.successful_measurements > 0 &&
+                                      snapshot.last_error == ESP_OK &&
+                                      measurement_fresh &&
+                                      modbus_activity.monitor_ready;
         const esp_err_t ota_result = ota_health_guard_.confirm_if_due(platform_healthy);
         if (ota_result != ESP_OK) {
             LOG_WARN(kTag, "OTA image confirmation failed: %s", esp_err_to_name(ota_result));
