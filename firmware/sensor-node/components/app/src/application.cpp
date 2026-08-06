@@ -44,7 +44,7 @@ Application::Application()
     sensor_service_.start();
     start_optional_service_wifi();
     LOG_INFO(kTag,
-             "Stage 1 service heartbeat runtime started; SEN55 and read-only Modbus RTU slave=%u remain production services",
+             "Stage 1 service OTA runtime started; SEN55 and read-only Modbus RTU slave=%u remain production services",
              static_cast<unsigned>(modbus_slave_.slave_address()));
 
     while (true) {
@@ -158,12 +158,20 @@ void Application::start_optional_service_wifi()
     if (!service_credentials_available_) {
         return;
     }
+
+    const esp_err_t ota_result = service_ota_.start(service_credentials_);
+    if (ota_result != ESP_OK) {
+        LOG_WARN(kTag,
+                 "manual service OTA endpoint did not start: %s; SEN55 and Modbus continue",
+                 esp_err_to_name(ota_result));
+    }
+
     publish_service_snapshot();
-    const esp_err_t result = service_wifi_.start(service_credentials_);
-    if (result != ESP_OK) {
+    const esp_err_t wifi_result = service_wifi_.start(service_credentials_);
+    if (wifi_result != ESP_OK) {
         LOG_WARN(kTag,
                  "optional service Wi-Fi did not start: %s; SEN55 and Modbus continue",
-                 esp_err_to_name(result));
+                 esp_err_to_name(wifi_result));
     }
 }
 
