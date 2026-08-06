@@ -30,6 +30,29 @@ class ServiceOtaDeploymentTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, source)
 
+    def test_firmware_ota_handler_has_panic_margin_and_commit_checkpoints(self) -> None:
+        source = (
+            ROOT
+            / "firmware/sensor-node/components/service_ota/src/service_ota.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("kServerTaskStackBytes = 16'384", source)
+        self.assertIn("std::unique_ptr<std::uint8_t[]>", source)
+        self.assertIn("new (std::nothrow) std::uint8_t[kReceiveBufferBytes]", source)
+        self.assertNotIn(
+            "std::array<std::uint8_t, kReceiveBufferBytes> buffer", source
+        )
+        for checkpoint in (
+            "OTA begin node_id=",
+            "OTA receive finished",
+            "OTA SHA-256 verified",
+            "OTA image validation begin",
+            "OTA image validation complete",
+            "OTA boot partition selected",
+            "OTA final response result=",
+        ):
+            with self.subTest(checkpoint=checkpoint):
+                self.assertIn(checkpoint, source)
+
     def test_cm5_uses_background_worker_and_local_commands(self) -> None:
         agent = (ROOT / "src/ventilation_core/service_agent_ota.py").read_text(
             encoding="utf-8"
