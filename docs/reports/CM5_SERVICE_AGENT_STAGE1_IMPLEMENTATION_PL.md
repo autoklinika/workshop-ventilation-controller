@@ -224,12 +224,6 @@ Ventilation Core Tests #416: success
 57/57 testów: PASS
 ```
 
-Końcowy HEAD dokumentacyjny:
-
-```text
-2246bf3dd67ab81bcd7a16b1cd67474b9267af52
-```
-
 ## 9. Walidacja
 
 ```bash
