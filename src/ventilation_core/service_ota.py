@@ -34,6 +34,10 @@ class ServiceOtaError(RuntimeError):
     """Raised when a manual service OTA operation cannot complete safely."""
 
 
+class ServiceOtaUncertainError(ServiceOtaError):
+    """Raised when the complete body was sent but commit status is unknown."""
+
+
 def _atomic_write_json(path: Path, value: Any, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -171,7 +175,7 @@ class OtaHttpClient:
         *,
         port: int = OTA_PORT,
         connect_timeout_seconds: float = 5.0,
-        transfer_timeout_seconds: float = 20.0,
+        transfer_timeout_seconds: float = 180.0,
         connection_factory: Callable[..., http.client.HTTPConnection] = http.client.HTTPConnection,
     ) -> None:
         self._port = port
@@ -278,9 +282,9 @@ class OtaHttpClient:
             return self._decode_response(connection.getresponse())
         except (OSError, http.client.HTTPException) as exc:
             if bytes_sent >= image_size:
-                raise ServiceOtaError(
+                raise ServiceOtaUncertainError(
                     "OTA image body was sent completely but the final response was lost; "
-                    "operation state is uncertain and must be verified with ota-status"
+                    "the coordinator will reconcile the node state before reporting a result"
                 ) from exc
             raise ServiceOtaError(
                 f"OTA transfer failed after {bytes_sent}/{image_size} bytes: {exc}"
@@ -374,6 +378,8 @@ class OtaCoordinator:
                 "image_size": image_size,
                 "image_sha256": image_sha256,
                 "bytes_sent": 0,
+                "source_partition": None,
+                "target_partition": None,
                 "state": "queued",
                 "result": None,
                 "error": None,
@@ -410,22 +416,60 @@ class OtaCoordinator:
             self._set(node_id, state="uploading", bytes_sent=written, image_size=expected)
 
         try:
-            self._set(node_id, state="authorizing")
-            accepted = self._client.install(
-                address=address,
-                node_key=node_key,
-                image_path=image_path,
-                progress=progress,
-            )
-            target_partition = accepted.get("target_partition")
+            self._set(node_id, state="preflight")
+            source_remote = self._client.status(address)
+            if source_remote.get("node_id") != node_id:
+                raise ServiceOtaError(
+                    f"preflight OTA endpoint identity mismatch: expected {node_id}, "
+                    f"got {source_remote.get('node_id')!r}"
+                )
+            source_partition = source_remote.get("partition")
+            if source_partition not in {"ota_0", "ota_1"}:
+                raise ServiceOtaError(
+                    f"preflight returned unsupported source partition: {source_partition!r}"
+                )
+            target_partition = "ota_1" if source_partition == "ota_0" else "ota_0"
             self._set(
                 node_id,
-                state="rebooting",
-                bytes_sent=int(accepted.get("bytes_written", 0)),
-                result=accepted,
+                state="authorizing",
+                source_partition=source_partition,
+                target_partition=target_partition,
+                remote=source_remote,
             )
 
-            deadline = self._monotonic() + 120.0
+            response_lost = False
+            accepted: dict[str, Any] | None = None
+            try:
+                accepted = self._client.install(
+                    address=address,
+                    node_key=node_key,
+                    image_path=image_path,
+                    progress=progress,
+                )
+            except ServiceOtaUncertainError as exc:
+                response_lost = True
+                self._set(
+                    node_id,
+                    state="reconciling",
+                    bytes_sent=image_path.stat().st_size,
+                    error=str(exc),
+                )
+
+            if accepted is not None:
+                accepted_target = accepted.get("target_partition")
+                if accepted_target != target_partition:
+                    raise ServiceOtaError(
+                        f"node selected unexpected target partition: {accepted_target!r}"
+                    )
+                self._set(
+                    node_id,
+                    state="rebooting",
+                    bytes_sent=int(accepted.get("bytes_written", 0)),
+                    result=accepted,
+                    error=None,
+                )
+
+            deadline = self._monotonic() + 180.0
             saw_pending = False
             while self._monotonic() < deadline:
                 self._sleep(2.0)
@@ -433,7 +477,8 @@ class OtaCoordinator:
                     remote = self._client.status(address)
                 except ServiceOtaError:
                     continue
-                self._set(node_id, state="validating", remote=remote)
+                state = "reconciling" if response_lost else "validating"
+                self._set(node_id, state=state, remote=remote)
                 remote_node_id = remote.get("node_id")
                 if remote_node_id != node_id:
                     raise ServiceOtaError(
@@ -442,13 +487,14 @@ class OtaCoordinator:
                     )
                 partition = remote.get("partition")
                 pending = remote.get("pending")
+                remote_state = remote.get("state")
                 if partition == target_partition and pending is True:
                     saw_pending = True
                     continue
                 if partition == target_partition and pending is False:
                     self._set(node_id, state="succeeded", remote=remote, error=None)
                     return
-                if pending is False and partition != target_partition and saw_pending:
+                if pending is False and partition == source_partition and saw_pending:
                     self._set(
                         node_id,
                         state="rolled_back",
@@ -456,15 +502,32 @@ class OtaCoordinator:
                         error="new image did not pass health validation and the node rolled back",
                     )
                     return
+                if (
+                    response_lost
+                    and pending is False
+                    and partition == source_partition
+                    and remote_state in {"idle", "error"}
+                ):
+                    remote_error = remote.get("last_error")
+                    self._set(
+                        node_id,
+                        state="failed",
+                        remote=remote,
+                        error=(
+                            str(remote_error)
+                            if remote_error
+                            else "complete image send was not committed; node remains on the source partition"
+                        ),
+                    )
+                    return
 
             self._set(
                 node_id,
                 state="uncertain",
-                error="OTA image was accepted but post-reboot validation did not finish within 120 seconds",
+                error="post-transfer validation did not finish within 180 seconds",
             )
         except ServiceOtaError as exc:
-            state = "uncertain" if "uncertain" in str(exc).lower() else "failed"
-            self._set(node_id, state=state, error=str(exc))
+            self._set(node_id, state="failed", error=str(exc))
         except Exception as exc:
             LOGGER.exception("unexpected OTA worker failure for node=%s", node_id)
             self._set(node_id, state="failed", error=f"unexpected OTA worker failure: {exc}")
@@ -482,6 +545,12 @@ class OtaCoordinator:
         operation = self._load_last(node_id)
         result: dict[str, Any] = {"node_id": node_id, "operation": operation}
         if not include_remote:
+            return result
+
+        if operation is not None and operation.get("state") not in TERMINAL_STATES:
+            result["address"] = operation.get("address")
+            result["remote"] = operation.get("remote")
+            result["remote_deferred"] = True
             return result
 
         try:
