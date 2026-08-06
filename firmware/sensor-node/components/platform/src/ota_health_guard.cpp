@@ -29,18 +29,36 @@ esp_err_t OtaHealthGuard::initialize()
     }
 
     pending_ = state == ESP_OTA_IMG_PENDING_VERIFY;
-    started_us_ = esp_timer_get_time();
-    LOG_INFO(kTag, "image_state=%d pending_confirmation=%s", static_cast<int>(state), pending_ ? "yes" : "no");
+    healthy_since_us_ = 0;
+    LOG_INFO(kTag,
+             "image_state=%d pending_confirmation=%s",
+             static_cast<int>(state),
+             pending_ ? "yes" : "no");
     return ESP_OK;
 }
 
 esp_err_t OtaHealthGuard::confirm_if_due(const bool platform_healthy)
 {
-    if (!pending_ || !platform_healthy) {
+    if (!pending_) {
         return ESP_OK;
     }
 
-    const std::int64_t elapsed_ms = (esp_timer_get_time() - started_us_) / 1000;
+    const std::int64_t now_us = esp_timer_get_time();
+    if (!platform_healthy) {
+        if (healthy_since_us_ != 0) {
+            LOG_WARN(kTag, "OTA health window reset because the platform became unhealthy");
+        }
+        healthy_since_us_ = 0;
+        return ESP_OK;
+    }
+
+    if (healthy_since_us_ == 0) {
+        healthy_since_us_ = now_us;
+        LOG_INFO(kTag, "OTA continuous health confirmation window started");
+        return ESP_OK;
+    }
+
+    const std::int64_t elapsed_ms = (now_us - healthy_since_us_) / 1000;
     if (elapsed_ms < static_cast<std::int64_t>(config::firmware::kOtaConfirmationDelayMs)) {
         return ESP_OK;
     }
@@ -48,7 +66,10 @@ esp_err_t OtaHealthGuard::confirm_if_due(const bool platform_healthy)
     const esp_err_t result = esp_ota_mark_app_valid_cancel_rollback();
     if (result == ESP_OK) {
         pending_ = false;
-        LOG_INFO(kTag, "running image confirmed after %lld ms", static_cast<long long>(elapsed_ms));
+        healthy_since_us_ = 0;
+        LOG_INFO(kTag,
+                 "running image confirmed after %lld ms of continuous healthy operation",
+                 static_cast<long long>(elapsed_ms));
     } else {
         LOG_ERROR(kTag, "failed to confirm running image: %s", esp_err_to_name(result));
     }
