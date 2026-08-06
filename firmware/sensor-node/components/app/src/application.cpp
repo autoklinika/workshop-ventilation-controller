@@ -7,6 +7,8 @@
 #include "config/board_config.hpp"
 #include "config/firmware_config.hpp"
 #include "config/modbus_address.hpp"
+#include "esp_event.h"
+#include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -156,6 +158,21 @@ esp_err_t Application::initialize()
 void Application::start_optional_service_wifi()
 {
     if (!service_credentials_available_) {
+        return;
+    }
+
+    esp_err_t network_result = esp_netif_init();
+    if (network_result != ESP_OK && network_result != ESP_ERR_INVALID_STATE) {
+        LOG_WARN(kTag,
+                 "service network initialization failed: %s; SEN55 and Modbus continue",
+                 esp_err_to_name(network_result));
+        return;
+    }
+    network_result = esp_event_loop_create_default();
+    if (network_result != ESP_OK && network_result != ESP_ERR_INVALID_STATE) {
+        LOG_WARN(kTag,
+                 "service event loop initialization failed: %s; SEN55 and Modbus continue",
+                 esp_err_to_name(network_result));
         return;
     }
 
