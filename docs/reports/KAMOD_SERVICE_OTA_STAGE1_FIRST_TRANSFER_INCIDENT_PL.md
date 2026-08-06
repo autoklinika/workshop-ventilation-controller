@@ -157,7 +157,7 @@ Handler `POST /v1/ota/image` działał w zadaniu HTTP o stosie 8192 B. Na jego s
 - bufory digestów i odpowiedzi,
 - ramki wywołań `esp_ota_write`, PSA Crypto i `esp_ota_end`.
 
-Panika nastąpiła po przesłaniu pełnego obrazu, w rejonie najgłębszej ścieżki stosu: finalizacja SHA-256, `esp_ota_end` albo przygotowanie końcowej odpowiedzi. Najbardziej prawdopodobne jest przepełnienie stosu zadania HTTP. Dokładną linię ma potwierdzić zapisany w flash coredump.
+Panika nastąpiła po przesłaniu pełnego obrazu, w rejonie najgłębszej ścieżki stosu: finalizacja SHA-256, `esp_ota_end` albo przygotowanie końcowej odpowiedzi. Najbardziej prawdopodobne jest przepełnienie stosu zadania HTTP.
 
 ## 8. Poprawka firmware
 
@@ -182,12 +182,51 @@ Zmiany:
   - przed i po `esp_ota_end`,
   - po `esp_ota_set_boot_partition`,
   - po wysłaniu końcowej odpowiedzi,
-- checkpointy raportują wolny heap i high-water mark stosu zadania HTTP.
+- checkpointy raportują wolny heap i high-water mark stosu zadania HTTP,
+- włączony FreeRTOS stack canary,
+- włączony hardware watchpoint końca stosu,
+- włączony `CONFIG_COMPILER_STACK_CHECK_MODE_STRONG`,
+- osobny stos 2048 B dla zapisu coredumpu.
 
-## 9. Dalsza procedura
+## 9. Zabezpieczony coredump i wynik analizy
+
+Coredump odczytano przed przebudowaniem lokalnego obrazu:
+
+```text
+plik: ota_panic_sensor-node-1_coredump.raw
+rozmiar: 262144 B
+offset partycji: 0x3C0000
+SHA-256: 4C2696D08BF796E0396C4ABFA57E35EAED05A5AC35CE9C7F286997B528EF7E95
+```
+
+`idf.py coredump-info` potwierdził:
+
+```text
+EXCCAUSE: 0x1c LoadProhibitedCause
+EXCVADDR: 0x800d879f
+PC: 0x4008b9a1 prvSelectHighestPriorityTaskSMP
+A2: 0xA5A5A5A5
+A3: 0xA5A5A5A5
+```
+
+Coredump nie odtworzył nazw zadań ani pełnego stosu aplikacji. Dane TCB i raportowane rozmiary stosów były niespójne, co jest dodatkowym dowodem uszkodzenia pamięci zadania przed wejściem w obsługę paniki.
+
+Mapowanie adresów z ELF działającego `0.5.0-stage1`:
+
+```text
+0x400d875b: uart_write, uart_vfs.c:237
+0x400d879f: uart_fstat, uart_vfs.c:350
+0x40081312: spi_flash_op_block_func, cache_utils.c:108
+0x4008b9a1: prvSelectHighestPriorityTaskSMP, tasks.c:3619
+0x4008bd21: vTaskSwitchContext / prvTaskExitCriticalSafeSMPOnly
+```
+
+Adresy `uart_write` i `uart_fstat` są fragmentami uszkodzonej ramki wywołań lub zakodowanymi adresami powrotu, a nie dowodem awarii sprzętowego UART. Wyjątek został zarejestrowany w schedulerze podczas operacji zapisu flash, gdy FreeRTOS używał już uszkodzonego TCB/stosu. Całość jest spójna z przepełnieniem stosu zadania HTTP podczas jednoczesnego odbioru, zapisu flash, SHA-256 i logowania.
+
+## 10. Dalsza procedura
 
 1. Nie wykonywać kolejnej próby OTA na `0.5.0-stage1`.
-2. Przed zmianą lokalnego builda odczytać zapisany coredump przez USB poleceniem `idf.py coredump-info`.
+2. Zachować pliki `ota_panic_sensor-node-1_coredump.raw` i `ota_panic_sensor-node-1_coredump.txt`.
 3. Zbudować i wykonać `app-flash` wyłącznie `sensor-node-1` obrazem `0.5.0-stage1-fix1`, bez kasowania NVS.
 4. Potwierdzić oba slave Modbus, SEN55, heartbeat i endpoint OTA.
 5. Zbudować osobny docelowy obraz z tą samą poprawką i wyższą wersją.
