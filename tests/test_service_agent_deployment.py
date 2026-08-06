@@ -27,6 +27,8 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
         self.assertIn("systemctl enable wvc-service-agent.service", installer)
         self.assertIn("systemctl restart wvc-service-agent.service", installer)
         self.assertIn("/var/lib/wvc-service-heartbeat", installer)
+        self.assertIn("/run/wvc-service-agent/service-agent.sock", installer)
+        self.assertIn("Service agent API did not become ready", installer)
         self.assertNotIn("systemctl restart ventilation-core", installer)
         self.assertNotIn("systemctl stop ventilation-core", installer)
 
