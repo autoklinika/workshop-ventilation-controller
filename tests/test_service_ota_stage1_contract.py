@@ -68,7 +68,7 @@ class ServiceOtaStage1ContractTests(unittest.TestCase):
         self.assertIn("POST /v1/ota/image", report)
         self.assertIn("WVC-OTA1", report)
         self.assertIn("esp_ota_abort", report)
-        self.assertIn("automatyczne OTA na podstawie błędu RS-485 jest zabronione", report)
+        self.assertIn("Automatyczne OTA na podstawie błędu RS-485 jest zabronione", report)
 
 
 if __name__ == "__main__":
