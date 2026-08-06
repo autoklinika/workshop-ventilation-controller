@@ -301,11 +301,8 @@ esp_err_t ServiceWifi::initialize_wifi()
     std::memcpy(wifi_config.sta.ssid,
                 credentials_.wifi_ssid.data(),
                 std::strlen(credentials_.wifi_ssid.data()));
-    std::memcpy(wifi_config.sta.password,
-                credentials_.wifi_psk.data(),
-                std::strlen(credentials_.wifi_psk.data()));
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    wifi_config.sta.pmf_cfg.capable = true;
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    wifi_config.sta.pmf_cfg.capable = false;
     wifi_config.sta.pmf_cfg.required = false;
 
     result = esp_wifi_set_mode(WIFI_MODE_STA);
