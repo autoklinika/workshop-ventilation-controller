@@ -96,7 +96,7 @@ def probe_service_network(
         ("nmcli", "-g", "GENERAL.CONNECTION", "device", "show", interface)
     )
     state = command_runner(("nmcli", "-g", "GENERAL.STATE", "device", "show", interface))
-    addresses = command_runner(("ip", "-4", "-o", "address", "show", "dev", interface))
+    addresses = command_runner(("nmcli", "-g", "IP4.ADDRESS", "device", "show", interface))
     dhcp = command_runner(("systemctl", "is-active", "wvc-sensor-dhcp.service"))
     firewall = command_runner(("systemctl", "is-active", "wvc-sensor-firewall.service"))
 
@@ -109,8 +109,9 @@ def probe_service_network(
     address_present = (
         addresses.returncode == 0
         and any(
-            token.startswith(f"{bind_address}/")
-            for token in addresses.stdout.split()
+            address.strip().split("/", 1)[0] == bind_address
+            for address in addresses.stdout.splitlines()
+            if address.strip()
         )
     )
     return ServiceNetworkState(
@@ -167,6 +168,8 @@ class ServiceAgentState:
         modbus_address = payload.get("modbus_address")
         if modbus_address is None:
             modbus_address = payload.get("modbus_slave_address")
+        if modbus_address is None:
+            modbus_address = payload.get("modbus_slave")
         return {
             "node_id": node_id,
             "key_id": self._keys[node_id].key_id,
