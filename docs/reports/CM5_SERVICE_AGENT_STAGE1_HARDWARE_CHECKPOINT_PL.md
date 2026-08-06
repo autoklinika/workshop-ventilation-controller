@@ -147,7 +147,55 @@ Wynik:
 restart i migracja service-agent nie wpłynęły na SENSOR BUS
 ```
 
-## 5. Defekty wykryte i poprawione podczas bring-up
+## 5. Restart agenta podczas aktywnego Modbus
+
+Wykonano kontrolowany restart `wvc-service-agent.service` podczas ciągłego odpytywania obu slave przez `ventilation-core`.
+
+Wynik:
+
+```text
+ventilation-core PID przed: 23824
+ventilation-core PID po:    23824
+```
+
+Dla obu slave w 20-sekundowym oknie:
+
+```text
+polls:                  3464 -> 3482, delta +18
+successful_polls:       3464 -> 3482
+online:                 true
+usable:                 true
+communication_errors:   0
+consecutive_failures:   0
+```
+
+Stan workera po restarcie agenta:
+
+```text
+ready:             true
+worker_alive:      true
+worker_restarts:   0
+last_error:        null
+```
+
+Agent po restarcie odzyskał oba węzły:
+
+```text
+registered_nodes: 2
+online_nodes:     2
+network.ready:    true
+```
+
+Logi potwierdziły uporządkowane zatrzymanie i ponowne uruchomienie agenta oraz ponowne przejście obu węzłów do `online`.
+
+Wynik:
+
+```text
+restart wvc-service-agent podczas aktywnego Modbus: PASS
+izolacja failure domains service plane / SENSOR BUS: PASS
+```
+
+## 6. Defekty wykryte i poprawione podczas bring-up
 
 1. Installer wykonywał `wvc-servicectl status` zanim daemon utworzył Unix socket.
    - Poprawka: oczekiwanie na realną odpowiedź API z limitem czasu.
@@ -165,22 +213,22 @@ sensor-node-2 modbus_address=2
 installer kończy się bez przejściowego błędu socketu
 ```
 
-## 6. Pozostałe testy Stage 1
+## 7. Pozostałe testy Stage 1
 
 Do wykonania przed końcowym raportem:
 
-1. restart `wvc-service-agent.service` podczas aktywnego Modbus i potwierdzenie ciągłości liczników SENSOR BUS,
-2. zatrzymanie agenta na ponad 35 s i potwierdzenie braku wpływu na `ventilation-core`,
-3. utrata heartbeat pojedynczego węzła bez wpływu na drugi,
-4. kontrola odtworzenia stanu po ponownym uruchomieniu agenta,
-5. minimum 30 min soak testu obu heartbeat przy aktywnym Modbus,
-6. końcowa kontrola braku portów TCP i braku routingu.
+1. kontrolowana utrata heartbeat pojedynczego węzła bez wpływu na drugi i SENSOR BUS,
+2. potwierdzenie odzyskania pojedynczego węzła po usunięciu blokady,
+3. zatrzymanie całego agenta na ponad 35 s i potwierdzenie braku wpływu na `ventilation-core`,
+4. minimum 30 min soak testu obu heartbeat przy aktywnym Modbus,
+5. końcowa kontrola braku portów TCP i braku routingu.
 
-## 7. Status
+## 8. Status
 
 ```text
 pierwszy sprzętowy bring-up po poprawkach: PASS
-Stage 1 final validation:                 IN PROGRESS
+restart agent / Modbus isolation:          PASS
+Stage 1 final validation:                  IN PROGRESS
 ```
 
 PR #12 pozostaje Draft. Nie wykonano merge ani nie oznaczono Ready for Review.
