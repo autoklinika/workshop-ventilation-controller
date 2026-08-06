@@ -9,6 +9,7 @@
 #include "platform/ota_health_guard.hpp"
 #include "platform/status_led.hpp"
 #include "sen55/sen55.hpp"
+#include "service_ota/service_ota.hpp"
 #include "service_wifi/service_wifi.hpp"
 #include "services/sensor_service.hpp"
 
@@ -35,6 +36,7 @@ private:
     modbus::ModbusRtuSlave modbus_slave_{};
     platform::StatusLed status_led_{};
     platform::OtaHealthGuard ota_health_guard_{};
+    service_ota::ServiceOta service_ota_{};
     service_wifi::ServiceWifi service_wifi_{};
     config::ServiceCredentials service_credentials_{};
     bool service_credentials_available_{false};
