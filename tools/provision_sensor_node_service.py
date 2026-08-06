@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Provision local Modbus and Wi-Fi service credentials into the sensor-node NVS."""
+"""Provision Modbus, open service Wi-Fi, and HMAC credentials into sensor-node NVS."""
 
 from __future__ import annotations
 
 import argparse
 import csv
-import getpass
 import json
 import os
 import re
@@ -105,12 +104,6 @@ def main() -> int:
     if mac is not None and not MAC_RE.fullmatch(mac):
         raise SystemExit("MAC must use AA:BB:CC:DD:EE:FF format")
 
-    wifi_psk = getpass.getpass("WVC-SERVICE WPA2 PSK (minimum 16 characters): ")
-    if not 16 <= len(wifi_psk) <= 63:
-        raise SystemExit("WPA2 PSK must contain 16..63 characters for this project")
-    if any(ord(char) < 32 or ord(char) > 126 for char in wifi_psk):
-        raise SystemExit("WPA2 PSK must contain printable ASCII characters")
-
     auth_key = secrets.token_bytes(32)
     generator = find_nvs_generator()
     registry = load_registry(args.registry)
@@ -133,7 +126,6 @@ def main() -> int:
                     ("modbus_addr", "data", "u8", args.modbus_address),
                     ("service_cfg", "namespace", "", ""),
                     ("wifi_ssid", "data", "string", args.ssid),
-                    ("wifi_psk", "data", "string", wifi_psk),
                     ("node_id", "data", "string", args.node_id),
                     ("key_id", "data", "string", key_id),
                     ("auth_key", "data", "hex2bin", auth_key.hex()),
@@ -171,6 +163,7 @@ def main() -> int:
 
     write_registry(args.registry, registry)
     print(f"Provisioned node_id={args.node_id}, Modbus slave={args.modbus_address}, key_id={key_id}.")
+    print("The service AP is open; heartbeat authentication remains HMAC-SHA256 per node.")
     print("Secrets were written only to the local NVS image and the mode-0600 CM5 registry.")
     return 0
 
