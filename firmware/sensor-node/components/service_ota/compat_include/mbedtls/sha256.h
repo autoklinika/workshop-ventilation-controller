@@ -5,17 +5,18 @@
 
 #include "psa/crypto.h"
 
-// ESP-IDF 6.0.2 ships Mbed TLS 4, which no longer exposes the legacy
-// mbedtls/sha256.h streaming API used by the first OTA implementation.
-// Keep this adapter private to service_ota and implement the same small API
-// on top of the supported PSA Crypto hash interface.
+// ESP-IDF 6.0.2 ships Mbed TLS 4, which no longer exposes the legacy public
+// mbedtls/sha256.h streaming API. Keep this adapter private to service_ota and
+// map the small legacy call surface used by the OTA stream to unique WVC names
+// backed by the supported PSA Crypto hash API. The unique names avoid a clash
+// with Mbed TLS private SHA-256 types pulled in internally by psa/crypto.h.
 
-typedef struct mbedtls_sha256_context {
+struct wvc_sha256_context {
     psa_hash_operation_t operation;
     bool active;
-} mbedtls_sha256_context;
+};
 
-static inline void mbedtls_sha256_init(mbedtls_sha256_context* context)
+static inline void wvc_sha256_init(wvc_sha256_context* context)
 {
     if (context == nullptr) {
         return;
@@ -25,8 +26,8 @@ static inline void mbedtls_sha256_init(mbedtls_sha256_context* context)
     context->active = false;
 }
 
-static inline int mbedtls_sha256_starts(mbedtls_sha256_context* context,
-                                        const int is224)
+static inline int wvc_sha256_starts(wvc_sha256_context* context,
+                                    const int is224)
 {
     if (context == nullptr || is224 != 0) {
         return -1;
@@ -41,9 +42,9 @@ static inline int mbedtls_sha256_starts(mbedtls_sha256_context* context,
     return context->active ? 0 : -1;
 }
 
-static inline int mbedtls_sha256_update(mbedtls_sha256_context* context,
-                                        const unsigned char* input,
-                                        const std::size_t input_length)
+static inline int wvc_sha256_update(wvc_sha256_context* context,
+                                    const unsigned char* input,
+                                    const std::size_t input_length)
 {
     if (context == nullptr || !context->active ||
         (input == nullptr && input_length != 0)) {
@@ -54,8 +55,8 @@ static inline int mbedtls_sha256_update(mbedtls_sha256_context* context,
                : -1;
 }
 
-static inline int mbedtls_sha256_finish(mbedtls_sha256_context* context,
-                                        unsigned char output[32])
+static inline int wvc_sha256_finish(wvc_sha256_context* context,
+                                    unsigned char output[32])
 {
     if (context == nullptr || !context->active || output == nullptr) {
         return -1;
@@ -70,7 +71,7 @@ static inline int mbedtls_sha256_finish(mbedtls_sha256_context* context,
     return status == PSA_SUCCESS && output_length == 32 ? 0 : -1;
 }
 
-static inline void mbedtls_sha256_free(mbedtls_sha256_context* context)
+static inline void wvc_sha256_free(wvc_sha256_context* context)
 {
     if (context == nullptr) {
         return;
@@ -82,3 +83,10 @@ static inline void mbedtls_sha256_free(mbedtls_sha256_context* context)
     context->operation = initial;
     context->active = false;
 }
+
+#define mbedtls_sha256_context wvc_sha256_context
+#define mbedtls_sha256_init wvc_sha256_init
+#define mbedtls_sha256_starts wvc_sha256_starts
+#define mbedtls_sha256_update wvc_sha256_update
+#define mbedtls_sha256_finish wvc_sha256_finish
+#define mbedtls_sha256_free wvc_sha256_free
