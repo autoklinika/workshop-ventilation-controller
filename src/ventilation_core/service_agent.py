@@ -7,6 +7,7 @@ import os
 import selectors
 import socket
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +71,22 @@ class ServiceNetworkState:
         }
 
 
+def _atomic_write_json(path: Path, value: Any, *, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def run_command(command: tuple[str, ...]) -> CommandResult:
     try:
         completed = subprocess.run(
@@ -127,8 +144,31 @@ def probe_service_network(
 
 
 class ServiceAgentState:
-    def __init__(self, keys: dict[str, NodeKey]) -> None:
+    _DIAGNOSTIC_DEFAULTS: dict[str, Any] = {
+        "accepted_heartbeats": 0,
+        "online_transitions": 0,
+        "offline_transitions": 0,
+        "boot_changes": 0,
+        "sequence_gap_events": 0,
+        "missing_heartbeats_total": 0,
+        "max_sequence_gap": 0,
+        "last_sequence_gap": 0,
+        "last_receive_gap_ms": None,
+        "max_receive_gap_ms": 0,
+        "last_boot_id": None,
+        "last_seq": None,
+        "last_received_unix_ms": None,
+        "last_offline_unix_ms": None,
+    }
+
+    def __init__(
+        self,
+        keys: dict[str, NodeKey],
+        *,
+        state_dir: Path | None = None,
+    ) -> None:
         self._keys = keys
+        self._state_dir = state_dir
         self._nodes: dict[str, dict[str, Any]] = {
             node_id: {
                 "online": False,
@@ -138,6 +178,36 @@ class ServiceAgentState:
             }
             for node_id in keys
         }
+        self._diagnostics: dict[str, dict[str, Any]] = {
+            node_id: self._load_diagnostics(node_id) for node_id in keys
+        }
+
+    def _diagnostics_path(self, node_id: str) -> Path | None:
+        if self._state_dir is None:
+            return None
+        return self._state_dir / "diagnostics" / f"{node_id}.json"
+
+    def _load_diagnostics(self, node_id: str) -> dict[str, Any]:
+        diagnostics = dict(self._DIAGNOSTIC_DEFAULTS)
+        path = self._diagnostics_path(node_id)
+        if path is None:
+            return diagnostics
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return diagnostics
+        if not isinstance(loaded, dict):
+            return diagnostics
+        for key in diagnostics:
+            if key in loaded:
+                diagnostics[key] = loaded[key]
+        return diagnostics
+
+    def _persist_diagnostics(self, node_id: str) -> None:
+        path = self._diagnostics_path(node_id)
+        if path is None:
+            return
+        _atomic_write_json(path, self._diagnostics[node_id])
 
     def record(self, persisted: dict[str, Any]) -> None:
         heartbeat = persisted.get("heartbeat")
@@ -146,13 +216,84 @@ class ServiceAgentState:
         node_id = heartbeat.get("node_id")
         if node_id not in self._keys:
             raise ValueError("persisted heartbeat belongs to an unknown node")
+
+        previous = self._nodes[node_id]
+        diagnostics = self._diagnostics[node_id]
+        received_unix_ms = persisted.get("received_unix_ms")
+        boot_id = heartbeat.get("boot_id")
+        sequence = heartbeat.get("seq")
+
+        diagnostics["accepted_heartbeats"] = int(diagnostics["accepted_heartbeats"]) + 1
+        if not bool(previous.get("online")):
+            diagnostics["online_transitions"] = int(diagnostics["online_transitions"]) + 1
+
+        previous_received = diagnostics.get("last_received_unix_ms")
+        receive_gap_ms: int | None = None
+        if isinstance(previous_received, int) and isinstance(received_unix_ms, int):
+            receive_gap_ms = max(0, received_unix_ms - previous_received)
+            diagnostics["last_receive_gap_ms"] = receive_gap_ms
+            diagnostics["max_receive_gap_ms"] = max(
+                int(diagnostics["max_receive_gap_ms"]),
+                receive_gap_ms,
+            )
+        if isinstance(received_unix_ms, int):
+            diagnostics["last_received_unix_ms"] = received_unix_ms
+
+        previous_boot_id = diagnostics.get("last_boot_id")
+        previous_sequence = diagnostics.get("last_seq")
+        sequence_gap = 0
+        if isinstance(boot_id, str) and isinstance(sequence, int):
+            if previous_boot_id == boot_id and isinstance(previous_sequence, int):
+                sequence_gap = max(0, sequence - previous_sequence - 1)
+                diagnostics["last_sequence_gap"] = sequence_gap
+                if sequence_gap > 0:
+                    diagnostics["sequence_gap_events"] = (
+                        int(diagnostics["sequence_gap_events"]) + 1
+                    )
+                    diagnostics["missing_heartbeats_total"] = (
+                        int(diagnostics["missing_heartbeats_total"]) + sequence_gap
+                    )
+                    diagnostics["max_sequence_gap"] = max(
+                        int(diagnostics["max_sequence_gap"]),
+                        sequence_gap,
+                    )
+                    LOGGER.warning(
+                        "node=%s heartbeat sequence gap previous=%d current=%d missing=%d receive_gap_ms=%s",
+                        node_id,
+                        previous_sequence,
+                        sequence,
+                        sequence_gap,
+                        receive_gap_ms,
+                    )
+            elif previous_boot_id is not None and previous_boot_id != boot_id:
+                diagnostics["boot_changes"] = int(diagnostics["boot_changes"]) + 1
+                diagnostics["last_sequence_gap"] = 0
+                LOGGER.warning(
+                    "node=%s heartbeat boot changed previous=%s current=%s",
+                    node_id,
+                    previous_boot_id,
+                    boot_id,
+                )
+            else:
+                diagnostics["last_sequence_gap"] = 0
+            diagnostics["last_boot_id"] = boot_id
+            diagnostics["last_seq"] = sequence
+
         self._nodes[node_id] = dict(persisted)
+        self._persist_diagnostics(node_id)
 
     def mark_offline(self, node_ids: Iterable[str]) -> None:
         for node_id in node_ids:
             current = self._nodes.get(node_id)
             if current is None:
                 continue
+            diagnostics = self._diagnostics[node_id]
+            if bool(current.get("online")):
+                diagnostics["offline_transitions"] = (
+                    int(diagnostics["offline_transitions"]) + 1
+                )
+                diagnostics["last_offline_unix_ms"] = int(time.time() * 1000)
+                self._persist_diagnostics(node_id)
             current = dict(current)
             current["online"] = False
             current["source_ip"] = None
@@ -190,6 +331,7 @@ class ServiceAgentState:
             "last_modbus_request_age_ms": payload.get("last_modbus_request_age_ms"),
             "ota_partition": payload.get("ota_partition"),
             "ota_pending": payload.get("ota_pending"),
+            "transport": dict(self._diagnostics[node_id]),
             "heartbeat": heartbeat,
         }
 
@@ -220,7 +362,7 @@ class ServiceAgent:
             state_dir=state_dir,
             stale_after_seconds=stale_after_seconds,
         )
-        self._state = ServiceAgentState(keys)
+        self._state = ServiceAgentState(keys, state_dir=state_dir)
         self._network_probe_interval_seconds = network_probe_interval_seconds
         self._network_probe = network_probe or (
             lambda: probe_service_network(bind_address=bind_address)
