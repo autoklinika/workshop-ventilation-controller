@@ -165,12 +165,211 @@ brak restartu node: PASS
 ciągłość Modbus/SEN55 i workera CM5: PASS
 ```
 
-## 4. Pozostały test Stage 1
+## 4. Wymuszony niepotwierdzony obraz i automatyczny rollback — PASS
 
-Nadal wyłącznie na `sensor-node-1` pozostaje:
+Do deterministycznej walidacji przygotowano wyłącznie testowy obraz:
 
-1. wymuszony niezdrowy obraz — automatyczny rollback do poprzedniego obrazu.
+```text
+service firmware: 0.5.2-stage1-rollback-test
+plik: kamod_sen55_sensor_node-0.5.2-stage1-rollback-test.bin
+rozmiar: 1005760 B
+SHA-256: 26f4557aebe91c8e6615510aa06bf34c4d22798017f0aeecd31951afdc3bfe7a
+```
 
-Dopiero po pełnym PASS tego scenariusza można rozważyć bootstrap OTA dla `sensor-node-2`.
+Obraz testowy ma hook domyślnie wyłączony w normalnym buildzie. Po świadomym włączeniu przez `sdkconfig.rollback-test.defaults` wykonuje kontrolowany restart po 15 s tylko wtedy, gdy uruchomiona aplikacja znajduje się w stanie `ESP_OTA_IMG_PENDING_VERIFY`. Normalne okno potwierdzenia zdrowego obrazu pozostaje 30 s.
+
+### 4.1 Incydent preflight i hardening klienta CM5
+
+Pierwsza próba testu rollback zakończyła się bezpiecznie jeszcze przed transferem:
+
+```text
+state: failed
+bytes_sent: 0
+source_partition: null
+target_partition: null
+error: cannot reach OTA endpoint at 10.55.0.106:45552: timed out
+```
+
+Chwilę później ten sam endpoint odpowiadał poprawnie. Przyczyną był brak retry dla krótkich `GET /status` i `GET /challenge` w kanale Wi-Fi, który z założenia jest best-effort.
+
+Klient CM5 został utwardzony:
+
+```text
+GET request attempts: 3
+retry delay: 1.0 s
+connect timeout per attempt: 5.0 s
+POST firmware transfer: bez automatycznego retry
+```
+
+Odrzucone odpowiedzi protokołu, błędna tożsamość i błędy autoryzacji nadal nie są ponawiane. Automatyczne retry dotyczy wyłącznie przejściowych błędów transportowych krótkich GET-ów.
+
+Commity hardeningu:
+
+```text
+eb09f2f338fda1f65b3070a777ce7787d90d5ffe  fix: retry transient OTA service GET timeouts
+3011c3a6fbfb42d2c7621db0c247469958dc88ce  tests: cover transient OTA GET retries
+```
+
+`Ventilation Core Tests` dla `3011c3a6...` zakończyły się PASS.
+
+### 4.2 Właściwy test rollback
+
+Operacja:
+
+```text
+operation_id: 1786182636-a26cfd7c
+source_partition: ota_1
+target_partition: ota_0
+image_size: 1005760 B
+image_sha256: 26f4557aebe91c8e6615510aa06bf34c4d22798017f0aeecd31951afdc3bfe7a
+```
+
+Preflight i autoryzacja przeszły poprawnie. Cały obraz został wysłany i zaakceptowany:
+
+```text
+bytes_sent: 1005760
+result: accepted
+bytes_written: 1005760
+target_partition: ota_0
+rebooting: true
+```
+
+Koordynator przeszedł przez stan walidacji, zaobserwował nowy obraz jako niepotwierdzony, a następnie po kontrolowanym restarcie obrazu testowego rozpoznał automatyczny rollback do poprzedniej partycji.
+
+Stan terminalny operacji:
+
+```text
+state: rolled_back
+error: new image did not pass health validation and the node rolled back
+```
+
+Końcowy stan zdalny:
+
+```text
+firmware: 0.5.1-stage1-fix1
+partition: ota_1
+pending: false
+image_state: valid
+state: idle
+bytes_written: 0
+expected_bytes: 0
+target_partition: ""
+last_error: ""
+```
+
+Heartbeat po rollbacku:
+
+```text
+sensor-node-1:
+  online: true
+  firmware: 0.5.1-stage1-fix1
+  ota_partition: ota_1
+  ota_pending: false
+  boot_changes: 16
+  boot_id: 443c8973b338f502
+  reset_reason: 3
+  rs485_ready: true
+  modbus_monitor_ready: true
+  modbus_requests_last_60s: 56
+  modbus_service_errors: 0
+  sensor_state: running
+
+sensor-node-2:
+  online: true
+  firmware: 0.4.0-stage1
+  ota_partition: ota_0
+  ota_pending: false
+  boot_changes: 2
+  boot_id: 6eaffdcd47514f84
+```
+
+Wzrost `boot_changes` dla `sensor-node-1` z 14 do 16 jest zgodny z dwoma restartami oczekiwanymi w teście: pierwszy boot nowego obrazu `ota_0`, następnie restart obrazu nadal `PENDING_VERIFY` i powrót bootloadera do poprzedniego `ota_1`.
+
+### 4.3 Postcheck produkcyjnego SENSOR BUS
+
+Po pełnym rollbacku CM5 raportował:
+
+```text
+port: /dev/ttyAMA0
+baudrate: 19200
+addresses: [1, 2]
+ready: true
+worker_alive: true
+worker_restarts: 0
+last_error: null
+```
+
+Slave 1 po rollbacku:
+
+```text
+online: true
+usable: true
+measurement_valid: true
+measurement_stale: false
+sensor_present: true
+sensor_errors: 0
+modbus_service_errors: 0
+firmware_version: 0.5
+consecutive_failures: 0
+last_error: null
+```
+
+Slave 2 pozostał zdrowy i nietknięty:
+
+```text
+online: true
+usable: true
+measurement_valid: true
+measurement_stale: false
+sensor_present: true
+modbus_service_errors: 0
+firmware_version: 0.4
+consecutive_failures: 0
+last_error: null
+```
+
+Historyczne liczniki `communication_errors`, `invalid_measurements` i `stale_measurements` zawierają zdarzenia z wcześniejszych testów sprzętowych i rozłączeń. Bieżący stan jest czysty: oba węzły mają `consecutive_failures=0`, świeże pomiary i brak aktywnego błędu workera.
+
+Wniosek:
+
+```text
+pełny transfer do nieaktywnej ota_0: PASS
+przełączenie boot partition: PASS
+uruchomienie obrazu PENDING_VERIFY: PASS
+brak przedwczesnego potwierdzenia obrazu: PASS
+automatyczny rollback bootloadera do ota_1: PASS
+rozpoznanie rollbacku przez CM5 coordinator: PASS
+powrót 0.5.1-stage1-fix1 jako VALID: PASS
+ciągłość SENSOR BUS po rollbacku: PASS
+sensor-node-2 bez zmian: PASS
+```
+
+## 5. Wynik końcowy ścieżek negatywnych Stage 1
+
+Wszystkie wymagane scenariusze negatywne dla `sensor-node-1` zostały zwalidowane sprzętowo:
+
+```text
+przerwany transfer: FULL PASS
+błędny HMAC: FULL PASS
+błędny SHA-256: FULL PASS
+niepotwierdzony obraz + automatyczny rollback: FULL PASS
+```
+
+Łączny wynik:
+
+```text
+KAMOD SERVICE OTA STAGE 1 — NEGATIVE PATH VALIDATION: FULL PASS
+```
+
+Kluczowe niezmienniki zostały zachowane:
+
+```text
+RS-485 Modbus RTU pozostaje jedynym kanałem produkcyjnym
+Wi-Fi pozostaje best-effort kanałem serwisowym
+OTA pozostaje operacją ręczną
+aktualizacja odbywa się jeden węzeł naraz
+ventilation-core nie jest restartowany przez OTA
+sensor-node-2 pozostaje nietknięty do jawnej decyzji o kolejnym kroku
+```
 
 PR #14 pozostaje Draft. Nie wykonywać merge ani Ready for Review bez wyraźnego polecenia użytkownika.
