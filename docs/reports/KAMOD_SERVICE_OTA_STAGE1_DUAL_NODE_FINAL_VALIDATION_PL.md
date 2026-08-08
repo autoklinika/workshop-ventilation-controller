@@ -14,6 +14,14 @@ sensor-node-2: FULL PASS
 DUAL-NODE SERVICE OTA STAGE 1: FULL PASS
 ```
 
+Autorytatywne podsumowanie zamknięcia etapu i handoff:
+
+`docs/reports/KAMOD_SERVICE_OTA_STAGE1_FINAL_REPORT_AND_HANDOFF_PL.md`
+
+Prompt do kolejnej rozmowy:
+
+`docs/reports/KAMOD_SERVICE_OTA_STAGE1_NEXT_CHAT_PROMPT_PL.md`
+
 ## Architektura zachowana podczas walidacji
 
 ```text
@@ -217,34 +225,3 @@ modbus_service_errors: 0
 consecutive_failures: 0
 last_error: null
 ```
-
-Historyczne liczniki `communication_errors`, `invalid_measurements` i `stale_measurements` obejmują wcześniejsze kontrolowane rozłączenia i testy. Nie wskazują aktywnej awarii: oba węzły mają świeże pomiary, `consecutive_failures=0`, a worker nie został zrestartowany.
-
-## Końcowy stan dwóch węzłów
-
-```text
-sensor-node-1:
-  firmware: 0.5.1-stage1-fix1
-  partition: ota_1
-  pending: false
-  Modbus address: 1
-
-sensor-node-2:
-  firmware: 0.5.1-stage1-fix1
-  partition: ota_1
-  pending: false
-  Modbus address: 2
-```
-
-## Decyzja walidacyjna
-
-Nie ma potrzeby powtarzania na `sensor-node-2` testów przerwanego transferu, błędnego HMAC, błędnego SHA-256 ani wymuszonego rollbacku. Mechanizm został wcześniej pełnie zwalidowany sprzętowo na `sensor-node-1`; node 2 potwierdził poprawność własnego provisioningu, fizycznego egzemplarza, endpointu OTA, aktualizacji A/B i powrotu do pracy produkcyjnej po aktualizacji.
-
-```text
-KAmod Service OTA Stage 1 — hardware validation complete
-sensor-node-1: FULL PASS
-sensor-node-2: FULL PASS
-SENSOR BUS continuity: FULL PASS
-```
-
-PR #14 pozostaje Draft. Nie wykonywać merge ani Ready for Review bez wyraźnego polecenia użytkownika.
