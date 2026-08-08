@@ -372,4 +372,31 @@ ventilation-core nie jest restartowany przez OTA
 sensor-node-2 pozostaje nietknięty do jawnej decyzji o kolejnym kroku
 ```
 
+## 6. Końcowy sanity-check normalnego środowiska buildowego — PASS
+
+Po zakończeniu walidacji rollback-test usunięto testowy overlay z aktywnego środowiska ESP-IDF i wygenerowano `sdkconfig` ponownie z normalnych `sdkconfig.defaults`.
+
+Kontrola wygenerowanej konfiguracji:
+
+```text
+# CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE is not set
+```
+
+Kontrola zawartości normalnie zbudowanego obrazu aplikacji:
+
+```text
+0.5.1-stage1-fix1:             obecny
+0.5.2-stage1-rollback-test:    nieobecny
+```
+
+Wynik:
+
+```text
+rollback-test hook wyłączony w normalnym buildzie: PASS
+normalny identyfikator firmware obecny: PASS
+testowy identyfikator firmware nieobecny: PASS
+```
+
+Obraz `0.5.2-stage1-rollback-test` pozostaje wyłącznie artefaktem walidacyjnym i nie może być używany jako firmware produkcyjny.
+
 PR #14 pozostaje Draft. Nie wykonywać merge ani Ready for Review bez wyraźnego polecenia użytkownika.
