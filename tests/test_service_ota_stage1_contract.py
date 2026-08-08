@@ -71,6 +71,31 @@ class ServiceOtaStage1ContractTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, application)
 
+    def test_rollback_test_image_is_disabled_by_default_and_pending_only(self) -> None:
+        kconfig = (
+            ROOT / "firmware/sensor-node/components/app/Kconfig.projbuild"
+        ).read_text(encoding="utf-8")
+        overlay = (
+            ROOT / "firmware/sensor-node/sdkconfig.rollback-test.defaults"
+        ).read_text(encoding="utf-8")
+        application = (
+            ROOT / "firmware/sensor-node/components/app/src/application.cpp"
+        ).read_text(encoding="utf-8")
+        firmware_config = (
+            ROOT
+            / "firmware/sensor-node/components/config/include/config/firmware_config.hpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("config WVC_OTA_ROLLBACK_TEST_IMAGE", kconfig)
+        self.assertIn("default n", kconfig)
+        self.assertIn("CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE=y", overlay)
+        self.assertIn("ota_health_guard_.confirmation_pending()", application)
+        self.assertIn("rollback_test_pending &&", application)
+        self.assertIn("esp_restart();", application)
+        self.assertIn("kOtaRollbackTestRestartDelayMs = 15'000", firmware_config)
+        self.assertIn("0.5.2-stage1-rollback-test", firmware_config)
+        self.assertIn("0.5.1-stage1-fix1", firmware_config)
+
     def test_start_report_keeps_wifi_non_production_and_ota_manual(self) -> None:
         report = (
             ROOT / "docs/reports/KAMOD_SERVICE_OTA_STAGE1_START_PL.md"
