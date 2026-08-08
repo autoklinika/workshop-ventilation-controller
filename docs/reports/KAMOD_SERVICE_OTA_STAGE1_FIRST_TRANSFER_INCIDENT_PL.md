@@ -1,6 +1,6 @@
-# KAmod Service OTA Stage 1 — incydent pierwszego transferu
+# KAmod Service OTA Stage 1 — incydent pierwszego transferu i odzyskanie ścieżki OTA
 
-Data: 2026-08-06
+Data: 2026-08-06 / aktualizacja: 2026-08-08
 
 ## 1. Zakres testu
 
@@ -15,14 +15,14 @@ wersja docelowa: 0.5.1-stage1
 oczekiwana partycja docelowa: ota_1
 ```
 
-Obraz:
+Pierwotny obraz:
 
 ```text
 rozmiar: 972848 B
 SHA-256: 91f6dd48a6a9c1755f4f7b4c98af9fe36399ea623102a56fd4e594f9391c911c
 ```
 
-Stan wejściowy obu prób był prawidłowy:
+Stan wejściowy obu pierwszych prób był prawidłowy:
 
 - endpoint `WVC-OTA1` dostępny,
 - obraz źródłowy `valid`, `pending=false`, `state=idle`,
@@ -134,7 +134,7 @@ W ESP-IDF kod `4` odpowiada `ESP_RST_PANIC`, czyli resetowi po wyjątku/panice. 
 
 Brak zachowanego stanu `error`, `bytes_written` i `expected_bytes` po powrocie endpointu wynika z restartu procesu firmware, a nie z normalnej ścieżki `esp_ota_abort`.
 
-## 6. Wniosek bezpieczeństwa
+## 6. Wniosek bezpieczeństwa z dwóch pierwszych prób
 
 Mechanizm fail-safe zachował działający firmware źródłowy podczas obu prób. Incydent nie spowodował:
 
@@ -161,7 +161,7 @@ Panika nastąpiła po przesłaniu pełnego obrazu, w rejonie najgłębszej ście
 
 ## 8. Poprawka firmware
 
-Nowy bootstrap diagnostyczny:
+Bootstrap diagnostyczny i naprawczy:
 
 ```text
 ESP app version: 0.5.0.1
@@ -223,14 +223,102 @@ Mapowanie adresów z ELF działającego `0.5.0-stage1`:
 
 Adresy `uart_write` i `uart_fstat` są fragmentami uszkodzonej ramki wywołań lub zakodowanymi adresami powrotu, a nie dowodem awarii sprzętowego UART. Wyjątek został zarejestrowany w schedulerze podczas operacji zapisu flash, gdy FreeRTOS używał już uszkodzonego TCB/stosu. Całość jest spójna z przepełnieniem stosu zadania HTTP podczas jednoczesnego odbioru, zapisu flash, SHA-256 i logowania.
 
-## 10. Dalsza procedura
+## 10. Walidacja bootstrapu `0.5.0-stage1-fix1`
 
-1. Nie wykonywać kolejnej próby OTA na `0.5.0-stage1`.
-2. Zachować pliki `ota_panic_sensor-node-1_coredump.raw` i `ota_panic_sensor-node-1_coredump.txt`.
-3. Zbudować i wykonać `app-flash` wyłącznie `sensor-node-1` obrazem `0.5.0-stage1-fix1`, bez kasowania NVS.
-4. Potwierdzić oba slave Modbus, SEN55, heartbeat i endpoint OTA.
-5. Zbudować osobny docelowy obraz z tą samą poprawką i wyższą wersją.
-6. Powtórzyć `ota_0 -> ota_1` wyłącznie na `sensor-node-1`.
-7. Nie aktualizować `sensor-node-2` przed pełnym PASS transferu, przerwania i rollbacku.
+Bootstrap został wgrany przez USB wyłącznie na `sensor-node-1` poleceniem `app-flash`, bez kasowania NVS i bez zmiany tablicy partycji.
+
+Stan po uruchomieniu:
+
+```text
+firmware: 0.5.0-stage1-fix1
+partition: ota_0
+pending: false
+image_state: valid
+state: idle
+reset_reason: 1
+SEN55: running
+RS-485: ready
+```
+
+Brak zapytań Modbus widoczny w pierwszym postchecku był wynikiem fizycznie odłączonego przewodu RS-485 podczas serwisu, a nie regresją firmware.
+
+## 11. Trzecia próba — pierwszy pełny sukces OTA
+
+Po ponownym zbudowaniu obrazu z tym samym utwardzeniem i wyższą wersją przygotowano:
+
+```text
+ESP app version: 0.5.1.1
+heartbeat/status: 0.5.1-stage1-fix1
+plik: kamod_sen55_sensor_node-0.5.1-stage1-fix1.bin
+rozmiar: 1005312 B
+SHA-256: 8103de1f81c286f43d69826c458b03af47150706742afe38c810a0052097d32b
+checksum obrazu: valid
+validation hash: valid
+```
+
+Operacja CM5:
+
+```text
+operation_id: 1786174325-ae4558c2
+source_partition: ota_0
+target_partition: ota_1
+```
+
+Zaobserwowany przebieg:
+
+```text
+queued
+uploading
+bytes_sent: 1005312 / 1005312
+rebooting
+validating
+succeeded
+```
+
+Końcowa odpowiedź firmware przed restartem potwierdziła pełny zapis obrazu:
+
+```text
+result: accepted
+bytes_written: 1005312
+image_sha256: 8103de1f81c286f43d69826c458b03af47150706742afe38c810a0052097d32b
+target_partition: ota_1
+rebooting: true
+```
+
+Po restarcie i pełnym oknie walidacji węzeł raportował:
+
+```text
+firmware: 0.5.1-stage1-fix1
+partition: ota_1
+pending: false
+image_state: valid
+state: idle
+last_error: ""
+```
+
+Wynik:
+
+```text
+OTA transfer + commit: PASS
+ota_0 -> ota_1 boot switch: PASS
+30 s health validation: PASS
+mark image valid / cancel rollback: PASS
+final Service Agent state: succeeded
+panic/reset during transfer: BRAK
+```
+
+Jest to pierwszy pełny sprzętowy PASS dodatniej ścieżki OTA Stage 1 na `sensor-node-1`.
+
+## 12. Pozostałe testy Stage 1
+
+Przed dopuszczeniem `sensor-node-2` do bootstrapu OTA należy wykonać nadal wyłącznie na `sensor-node-1`:
+
+1. postcheck produkcyjnego SENSOR BUS po udanym OTA,
+2. przerwany transfer — brak zmiany aktywnej partycji,
+3. błędny HMAC — odrzucenie bez zapisu,
+4. błędny SHA-256 — odrzucenie/abort bez zmiany boot partition,
+5. wymuszony niezdrowy obraz — automatyczny rollback.
+
+Dopiero po pełnym PASS powyższych scenariuszy można rozważyć bootstrap OTA dla `sensor-node-2`.
 
 PR #14 pozostaje Draft. Nie wykonywać merge ani Ready for Review bez wyraźnego polecenia użytkownika.
