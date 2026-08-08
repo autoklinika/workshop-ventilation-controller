@@ -309,15 +309,83 @@ panic/reset during transfer: BRAK
 
 Jest to pierwszy pełny sprzętowy PASS dodatniej ścieżki OTA Stage 1 na `sensor-node-1`.
 
-## 12. Pozostałe testy Stage 1
+## 12. Postcheck produkcyjnego SENSOR BUS po udanym OTA
+
+Pierwszy postcheck wykonany jeszcze przy fizycznie odłączonej magistrali RS-485 wykazał brak odpowiedzi obu slave i nie był traktowany jako regresja firmware.
+
+Po ponownym podłączeniu i zasileniu obu węzłów SENSOR BUS wrócił do prawidłowego działania bez restartu workera CM5:
+
+```text
+sensor_bus.ready: true
+worker_alive: true
+worker_restarts: 0
+last_error: null
+```
+
+`slave 1` (`sensor-node-1`):
+
+```text
+online: true
+usable: true
+measurement_valid: true
+measurement_stale: false
+sensor_present: true
+firmware_version: 0.5
+map_version: 1
+successful_polls: 15
+consecutive_failures: 0
+last_error: null
+```
+
+Heartbeat tego samego węzła potwierdził równolegle:
+
+```text
+firmware: 0.5.1-stage1-fix1
+ota_partition: ota_1
+ota_pending: false
+rs485_ready: true
+modbus_monitor_ready: true
+modbus_slave: 1
+modbus_requests_total: 7
+last_modbus_request_age_ms: 599
+sensor_state: running
+sensor_communication_failures: 0
+```
+
+`slave 2` (`sensor-node-2`) również wrócił do stanu zdrowego i pozostał na niezmienionym firmware:
+
+```text
+online: true
+usable: true
+measurement_valid: true
+measurement_stale: false
+firmware_version: 0.4
+consecutive_failures: 0
+heartbeat firmware: 0.4.0-stage1
+ota_partition: ota_0
+ota_pending: false
+```
+
+Wcześniej potwierdzono też, że podczas właściwej operacji OTA `ventilation-core.service` pozostał aktywny z `NRestarts=0`.
+
+Wynik postchecku:
+
+```text
+SENSOR BUS recovery after physical reconnect: PASS
+sensor-node-1 Modbus after OTA: PASS
+sensor-node-2 unchanged: PASS
+CM5 sensor worker continuity: PASS
+production-channel isolation: PASS
+```
+
+## 13. Pozostałe testy Stage 1
 
 Przed dopuszczeniem `sensor-node-2` do bootstrapu OTA należy wykonać nadal wyłącznie na `sensor-node-1`:
 
-1. postcheck produkcyjnego SENSOR BUS po udanym OTA,
-2. przerwany transfer — brak zmiany aktywnej partycji,
-3. błędny HMAC — odrzucenie bez zapisu,
-4. błędny SHA-256 — odrzucenie/abort bez zmiany boot partition,
-5. wymuszony niezdrowy obraz — automatyczny rollback.
+1. przerwany transfer — brak zmiany aktywnej partycji,
+2. błędny HMAC — odrzucenie bez zapisu,
+3. błędny SHA-256 — odrzucenie/abort bez zmiany boot partition,
+4. wymuszony niezdrowy obraz — automatyczny rollback.
 
 Dopiero po pełnym PASS powyższych scenariuszy można rozważyć bootstrap OTA dla `sensor-node-2`.
 
