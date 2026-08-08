@@ -49,6 +49,26 @@ Application::Application()
              "Stage 1 service OTA runtime started; SEN55 and read-only Modbus RTU slave=%u remain production services",
              static_cast<unsigned>(modbus_slave_.slave_address()));
 
+#ifdef CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE
+    const bool rollback_test_pending = ota_health_guard_.confirmation_pending();
+    const std::int64_t rollback_test_restart_at_us =
+        rollback_test_pending
+            ? esp_timer_get_time() +
+                  static_cast<std::int64_t>(
+                      config::firmware::kOtaRollbackTestRestartDelayMs) *
+                      1'000
+            : 0;
+    if (rollback_test_pending) {
+        LOG_WARN(kTag,
+                 "ROLLBACK TEST IMAGE active: pending OTA image will restart after %lu ms without confirmation",
+                 static_cast<unsigned long>(
+                     config::firmware::kOtaRollbackTestRestartDelayMs));
+    } else {
+        LOG_WARN(kTag,
+                 "ROLLBACK TEST IMAGE inactive at runtime because current image is not pending verification");
+    }
+#endif
+
     while (true) {
         sensor_service_.poll();
 
@@ -67,6 +87,16 @@ Application::Application()
         const diagnostics::Snapshot& snapshot = diagnostics_.snapshot();
         const modbus::Activity modbus_activity = modbus_slave_.activity();
         const std::int64_t now_us = esp_timer_get_time();
+
+#ifdef CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE
+        if (rollback_test_pending && now_us >= rollback_test_restart_at_us) {
+            LOG_ERROR(kTag,
+                      "ROLLBACK TEST IMAGE forcing restart while OTA confirmation is still pending");
+            vTaskDelay(pdMS_TO_TICKS(250));
+            esp_restart();
+        }
+#endif
+
         const bool measurement_fresh = snapshot.last_success_us > 0 &&
                                        now_us >= snapshot.last_success_us &&
                                        (now_us - snapshot.last_success_us) <=
