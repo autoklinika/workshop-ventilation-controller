@@ -59,6 +59,15 @@ class UncertainClient(FakeClient):
         raise ServiceOtaUncertainError("complete body sent; response lost")
 
 
+class JsonResponse:
+    def __init__(self, status: int, body: dict[str, object]) -> None:
+        self.status = status
+        self._body = json.dumps(body).encode("utf-8")
+
+    def read(self) -> bytes:
+        return self._body
+
+
 class ServiceOtaTests(unittest.TestCase):
     def test_canonical_authorization_and_hmac_are_stable(self) -> None:
         message = canonical_authorization_message(
@@ -125,6 +134,68 @@ class ServiceOtaTests(unittest.TestCase):
     def test_default_transfer_timeout_allows_slow_flash_commit(self) -> None:
         client = OtaHttpClient()
         self.assertEqual(client._transfer_timeout_seconds, 180.0)
+        self.assertEqual(client._request_attempts, 3)
+        self.assertEqual(client._retry_delay_seconds, 1.0)
+
+    def test_get_json_retries_transient_transport_failures(self) -> None:
+        attempts = 0
+
+        class Connection:
+            def request(self, method, path, headers=None):
+                nonlocal attempts
+                attempts += 1
+                if attempts < 3:
+                    raise TimeoutError("timed out")
+
+            def getresponse(self):
+                return JsonResponse(
+                    200,
+                    {
+                        "ok": True,
+                        "node_id": "sensor-node-1",
+                        "partition": "ota_1",
+                        "pending": False,
+                        "state": "idle",
+                    },
+                )
+
+            def close(self):
+                pass
+
+        client = OtaHttpClient(
+            connection_factory=lambda *args, **kwargs: Connection(),
+            retry_delay_seconds=0,
+            sleep=lambda _: None,
+        )
+        result = client.status("10.55.0.106")
+        self.assertTrue(result["ok"])
+        self.assertEqual(attempts, 3)
+
+    def test_get_json_does_not_retry_rejected_response(self) -> None:
+        attempts = 0
+
+        class Connection:
+            def request(self, method, path, headers=None):
+                nonlocal attempts
+                attempts += 1
+
+            def getresponse(self):
+                return JsonResponse(
+                    401,
+                    {"ok": False, "error": "rejected"},
+                )
+
+            def close(self):
+                pass
+
+        client = OtaHttpClient(
+            connection_factory=lambda *args, **kwargs: Connection(),
+            retry_delay_seconds=0,
+            sleep=lambda _: None,
+        )
+        with self.assertRaises(ServiceOtaError):
+            client.status("10.55.0.106")
+        self.assertEqual(attempts, 1)
 
     def test_coordinator_runs_one_node_and_persists_success(self) -> None:
         key = NodeKey(
