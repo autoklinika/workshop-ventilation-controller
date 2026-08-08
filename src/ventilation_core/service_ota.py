@@ -176,12 +176,22 @@ class OtaHttpClient:
         port: int = OTA_PORT,
         connect_timeout_seconds: float = 5.0,
         transfer_timeout_seconds: float = 180.0,
+        request_attempts: int = 3,
+        retry_delay_seconds: float = 1.0,
         connection_factory: Callable[..., http.client.HTTPConnection] = http.client.HTTPConnection,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if request_attempts < 1:
+            raise ValueError("request_attempts must be at least 1")
+        if retry_delay_seconds < 0:
+            raise ValueError("retry_delay_seconds must not be negative")
         self._port = port
         self._connect_timeout_seconds = connect_timeout_seconds
         self._transfer_timeout_seconds = transfer_timeout_seconds
+        self._request_attempts = request_attempts
+        self._retry_delay_seconds = retry_delay_seconds
         self._connection_factory = connection_factory
+        self._sleep = sleep
 
     @staticmethod
     def _decode_response(response: http.client.HTTPResponse) -> dict[str, Any]:
@@ -202,16 +212,37 @@ class OtaHttpClient:
         return decoded
 
     def _get_json(self, address: str, path: str) -> dict[str, Any]:
-        connection = self._connection_factory(
-            address, self._port, timeout=self._connect_timeout_seconds
-        )
-        try:
-            connection.request("GET", path, headers={"Connection": "close"})
-            return self._decode_response(connection.getresponse())
-        except (OSError, http.client.HTTPException) as exc:
-            raise ServiceOtaError(f"cannot reach OTA endpoint at {address}:{self._port}: {exc}") from exc
-        finally:
-            connection.close()
+        last_error: OSError | http.client.HTTPException | None = None
+        for attempt in range(1, self._request_attempts + 1):
+            connection: http.client.HTTPConnection | None = None
+            try:
+                connection = self._connection_factory(
+                    address, self._port, timeout=self._connect_timeout_seconds
+                )
+                connection.request("GET", path, headers={"Connection": "close"})
+                return self._decode_response(connection.getresponse())
+            except (OSError, http.client.HTTPException) as exc:
+                last_error = exc
+                if attempt >= self._request_attempts:
+                    break
+                LOGGER.warning(
+                    "transient OTA GET failure address=%s path=%s attempt=%d/%d: %s",
+                    address,
+                    path,
+                    attempt,
+                    self._request_attempts,
+                    exc,
+                )
+                self._sleep(self._retry_delay_seconds)
+            finally:
+                if connection is not None:
+                    connection.close()
+
+        assert last_error is not None
+        raise ServiceOtaError(
+            f"cannot reach OTA endpoint at {address}:{self._port} "
+            f"after {self._request_attempts} attempts: {last_error}"
+        ) from last_error
 
     def challenge(self, address: str, expected_node_id: str) -> OtaChallenge:
         response = self._get_json(address, OTA_CHALLENGE_PATH)
