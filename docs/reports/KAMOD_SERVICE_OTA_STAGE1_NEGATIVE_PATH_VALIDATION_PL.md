@@ -94,13 +94,83 @@ brak restartu node: PASS
 ciągłość kanału produkcyjnego: PASS
 ```
 
-## 3. Pozostałe testy
+## 3. Błędny SHA-256 przy prawidłowym HMAC — PASS
 
-Nadal wyłącznie na `sensor-node-1`:
+Wykonano pełny transfer poprawnego pliku binarnego o rozmiarze `1005312 B`, ale w metadanych zadeklarowano celowo błędny digest SHA-256 (`00` powtórzone 32 razy). HMAC został wyliczony prawidłowo dla właśnie tych metadanych, dzięki czemu test przeszedł uwierzytelnienie i dotarł do właściwej weryfikacji integralności po pełnym zapisie obrazu.
 
-1. błędny SHA-256 przy prawidłowym HMAC — pełny zapis do nieaktywnej partycji ma zakończyć się `esp_ota_abort` bez zmiany boot partition,
-2. wymuszony niezdrowy obraz — automatyczny rollback do poprzedniego obrazu.
+Przebieg klienta:
 
-Dopiero po pełnym PASS obu scenariuszy można rozważyć bootstrap OTA dla `sensor-node-2`.
+```text
+sent=262144/1005312
+sent=524288/1005312
+sent=786432/1005312
+sent=1005312/1005312
+HTTP_STATUS: 400
+BODY: {"ok":false,"error":"image SHA-256 mismatch"}
+BAD_SHA_REJECTED: PASS
+```
+
+Stan endpointu OTA po odrzuceniu:
+
+```text
+firmware: 0.5.1-stage1-fix1
+partition: ota_1
+pending: false
+image_state: valid
+state: error
+bytes_written: 1005312
+expected_bytes: 1005312
+image_sha256: 0000000000000000000000000000000000000000000000000000000000000000
+target_partition: ""
+last_error: image SHA-256 mismatch
+```
+
+`target_partition` pozostała pusta, czyli nie wykonano wyboru nowej partycji startowej po błędnej weryfikacji integralności.
+
+Postcheck kanału produkcyjnego potwierdził ciągłość pracy bez restartu:
+
+```text
+heartbeat boot_id: 5efe6eab36bd9383
+boot_changes: 14
+uptime_s: 4982
+firmware: 0.5.1-stage1-fix1
+ota_partition: ota_1
+ota_pending: false
+modbus_requests_total: 4645
+modbus_requests_last_60s: 56
+rs485_ready: true
+modbus_monitor_ready: true
+sensor_state: running
+```
+
+SENSOR BUS:
+
+```text
+ready: true
+worker_alive: true
+worker_restarts: 0
+last_error: null
+slave 1: online=true, usable=true, measurement_valid=true, consecutive_failures=0
+slave 2: online=true, usable=true, measurement_valid=true, consecutive_failures=0
+```
+
+Wniosek:
+
+```text
+pełny zapis obrazu do nieaktywnej partycji: PASS
+wykrycie błędnego SHA-256: PASS
+abort bez przełączenia boot partition: PASS
+aktywny obraz ota_1 pozostał valid: PASS
+brak restartu node: PASS
+ciągłość Modbus/SEN55 i workera CM5: PASS
+```
+
+## 4. Pozostały test Stage 1
+
+Nadal wyłącznie na `sensor-node-1` pozostaje:
+
+1. wymuszony niezdrowy obraz — automatyczny rollback do poprzedniego obrazu.
+
+Dopiero po pełnym PASS tego scenariusza można rozważyć bootstrap OTA dla `sensor-node-2`.
 
 PR #14 pozostaje Draft. Nie wykonywać merge ani Ready for Review bez wyraźnego polecenia użytkownika.
