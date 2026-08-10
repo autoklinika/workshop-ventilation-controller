@@ -1,0 +1,24 @@
+[Unit]
+Description=Workshop Ventilation CM5 AI Advisory Read-Only Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wentylacja
+Group=wentylacja
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/default/wvc-ai-advisory
+StateDirectory=workshop-ventilation
+StateDirectoryMode=0750
+ExecStart=/usr/bin/python3 -m ventilation_core.advisory.main --cache /var/lib/workshop-ventilation/ai-advisory.json --http-timeout 5 --log-level INFO
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGTERM
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
