@@ -1,0 +1,219 @@
+# CM5 AI Advisory Client – Stage 1
+
+**Data:** 10.08.2026  
+**Status:** IMPLEMENTED – oczekuje na walidację CM5  
+**Repozytorium:** `autoklinika/workshop-ventilation-controller`  
+**Gałąź:** `agent/ai-advisory-client-stage1`
+
+## 1. Cel
+
+Dodać po stronie CM5 osobny, read-only klient odbierający najnowszy zapisany raport AI z AI Servera.
+
+Ten klient nie jest częścią `ventilation-core` i nie może wpływać na sterowanie.
+
+```text
+AI Server / ventilation_analysis_runs
+        ↓
+GET /api/v1/ventilation/analysis/latest
+        ↓
+wvc-ai-advisory.service
+        ↓
+lokalny cache JSON
+        ↓
+przyszły GUI/status operatora
+```
+
+## 2. Granica bezpieczeństwa
+
+Niezmienna zasada:
+
+```text
+ventilation-core = sterowanie + safety
+wvc-ai-advisory = tylko odczyt raportu i cache
+```
+
+Klient advisory:
+
+- nie otwiera socketu `ventilation-core`,
+- nie wysyła żadnych komend lokalnych,
+- nie zapisuje do stanu sterownika,
+- nie modyfikuje setpointów,
+- nie jest wymagany do startu ani działania `ventilation-core`,
+- przy awarii AI Servera zachowuje ostatni cache i ponawia odczyt później.
+
+## 3. HTTP client
+
+Moduł:
+
+```text
+src/ventilation_core/advisory/client.py
+```
+
+Wykonuje wyłącznie:
+
+```text
+GET /api/v1/ventilation/analysis/latest?source_id=...
+```
+
+HTTP 404 oznacza normalny stan `brak analizy` i nie jest awarią.
+
+Klient waliduje transportowy kontrakt bezpieczeństwa:
+
+```text
+delivery_schema_version = 1
+advisory_only = true
+experimental = true
+control_actions_supported = false
+result.schema_version = 2
+```
+
+Jeżeli serwer kiedykolwiek zwróci `control_actions_supported=true`, payload zostaje odrzucony.
+
+Walidacja dotyczy wyłącznie kontraktu transportowego i struktury. CM5 nie ocenia semantycznie tekstu Qwena.
+
+## 4. Lokalny cache
+
+Plik:
+
+```text
+/var/lib/workshop-ventilation/ai-advisory.json
+```
+
+Cache ma lokalny envelope:
+
+```json
+{
+  "cache_schema_version": 1,
+  "fetched_at": "...",
+  "report": {
+    "delivery_schema_version": 1,
+    "analysis_id": "...",
+    "advisory_only": true,
+    "experimental": true,
+    "control_actions_supported": false,
+    "result": {}
+  }
+}
+```
+
+Zapis jest atomowy przez plik tymczasowy + `os.replace()`. Dzięki temu GUI nie powinno zobaczyć częściowo zapisanego JSON-a.
+
+Ten sam `analysis_id` nie powoduje ponownego zapisu cache.
+
+## 5. Agent
+
+Moduł:
+
+```text
+src/ventilation_core/advisory/agent.py
+```
+
+Domyślny polling:
+
+```text
+60 s
+```
+
+Awaria sieci, HTTP lub lokalnego cache jest logowana jako warning w pętli advisory. Nie propaguje się do `ventilation-core`.
+
+## 6. CLI
+
+Dodano entrypoint:
+
+```text
+ventilation-ai-advisory
+```
+
+oraz tryb walidacyjny:
+
+```text
+python3 -m ventilation_core.advisory.main --once
+```
+
+## 7. Systemd
+
+Jednostka:
+
+```text
+deploy/systemd/wvc-ai-advisory.service
+```
+
+Najważniejsze cechy:
+
+```text
+User=wentylacja
+Group=wentylacja
+After=network-online.target
+Wants=network-online.target
+StateDirectory=workshop-ventilation
+```
+
+Celowo brak:
+
+```text
+Requires=ventilation-core.service
+After=ventilation-core.service
+```
+
+Klient advisory jest niezależnym procesem sieciowym.
+
+## 8. Konfiguracja
+
+Wzorzec:
+
+```text
+deploy/cm5/advisory/wvc-ai-advisory.env.example
+```
+
+Zmienne:
+
+```text
+WVC_AI_BRIDGE_URL=http://192.168.1.55:8080
+WVC_AI_ADVISORY_SOURCE_ID=workshop-ventilation-cm5-01
+WVC_AI_ADVISORY_POLL_INTERVAL=60
+```
+
+Docelowy plik hosta:
+
+```text
+/etc/default/wvc-ai-advisory
+```
+
+## 9. Testy
+
+Dodane testy obejmują:
+
+- poprawny GET i query `source_id`,
+- 404 jako brak analizy,
+- odrzucenie `control_actions_supported=true`,
+- lokalny cache JSON,
+- brak przepisywania tego samego `analysis_id`,
+- brak cache przy braku zdalnej analizy,
+- brak zależności systemd od `ventilation-core`,
+- brak socketu core i telemetry SQLite w jednostce advisory.
+
+## 10. Walidacja na CM5
+
+Przed zakończeniem Stage 1 należy wykonać:
+
+```text
+compileall
+testy
+one-shot GET z prawdziwego AI Servera
+sprawdzenie /var/lib/workshop-ventilation/ai-advisory.json
+start wvc-ai-advisory.service
+symulację zatrzymania AI Bridge i potwierdzenie, że ventilation-core działa bez zmian
+restart klienta advisory
+```
+
+## 11. Następny krok
+
+Po walidacji cache może zostać użyty przez przyszły GUI/status operatora jako źródło informacji.
+
+Nie wolno tworzyć automatycznej ścieżki:
+
+```text
+AI report -> setpoint / START / STOP / safety
+```
+
+Stage pozostaje Draft. Nie oznaczać Ready i nie merge'ować bez wyraźnej decyzji użytkownika.
