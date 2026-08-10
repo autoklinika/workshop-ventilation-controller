@@ -35,7 +35,15 @@ class AdvisoryAgent:
             return False
 
         analysis_id = report["analysis_id"]
-        if self.cache.current_analysis_id() == analysis_id:
+        try:
+            current_analysis_id = self.cache.current_analysis_id()
+        except RuntimeError as exc:
+            # A bad advisory cache must not become a permanent failure state.
+            # A freshly validated remote report can safely replace it atomically.
+            LOGGER.warning("Existing AI advisory cache is invalid and will be replaced: %s", exc)
+            current_analysis_id = None
+
+        if current_analysis_id == analysis_id:
             LOGGER.debug("AI advisory unchanged analysis_id=%s", analysis_id)
             return False
 
