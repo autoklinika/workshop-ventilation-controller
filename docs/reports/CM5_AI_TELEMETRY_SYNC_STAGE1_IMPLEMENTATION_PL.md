@@ -1,7 +1,7 @@
 # CM5 → AI Bridge Telemetry Sync — Stage 1 implementation
 
 **Data:** 10.08.2026  
-**Status:** implementacja na gałęzi roboczej, przed walidacją na rzeczywistym CM5  
+**Status:** implementacja zakończona; one-shot end-to-end na rzeczywistym CM5: PASS  
 **Punkt startowy `main`:** `2ed28a8a5ba2e219493984732eca890ae0700cab`
 
 ## 1. Cel etapu
@@ -115,33 +115,27 @@ workshop-ventilation-cm5-01
 
 Może być nadpisany przez `WVC_TELEMETRY_SOURCE_ID`.
 
-## 7. Walidacja przed uruchomieniem usługi
+## 7. One-shot na rzeczywistym CM5
 
-Najpierw należy wykonać **one-shot** na rzeczywistym CM5. Nie włączamy jeszcze `wvc-telemetry-sync.service`.
+Walidację wykonano 10.08.2026 na rzeczywistym CM5 z działającym `ventilation-core` i dwoma rzeczywistymi węzłami SEN55.
 
-Przykład:
+Wynik:
 
-```bash
-cd /home/wentylacja/workshop-ventilation-controller
-export PYTHONPATH=$PWD/src
-python3 -m ventilation_core.telemetry.main \
-  --ai-bridge-url http://<IP_AI_SERVERA>:8080 \
-  --database /tmp/wvc-telemetry-stage1.sqlite3 \
-  --once \
-  --log-level INFO
+```text
+samples=1 stored=1 duplicates=0
 ```
 
-Tryb `--once`:
+Batch:
 
-1. odczytuje jeden rzeczywisty `CoreState` z działającego `ventilation-core`,
-2. zapisuje go lokalnie,
-3. tworzy batch,
-4. wysyła do AI Bridge,
-5. waliduje ACK,
-6. oznacza rekord jako zsynchronizowany,
-7. kończy proces.
+```text
+cd2cbb5f-3f16-4d1b-8e4b-fc48fa6d0613
+```
 
-Dopiero po potwierdzeniu rekordu w PostgreSQL AI Servera należy przejść do pracy ciągłej.
+PostgreSQL na AI Serverze potwierdził zapis obu węzłów i ich rzeczywistych pomiarów. Pełny raport:
+
+```text
+docs/reports/CM5_AI_TELEMETRY_SYNC_STAGE1_CM5_VALIDATION_2026-08-10_PL.md
+```
 
 ## 8. Przyszła usługa systemd
 
@@ -165,13 +159,14 @@ Jednostka:
 - przechowuje bazę pod `/var/lib/workshop-ventilation/telemetry.sqlite3`,
 - korzysta z `/etc/default/wvc-telemetry-sync` do adresu AI Bridge.
 
-## 9. Walidacja kodu przed publikacją
+## 9. Walidacja kodu
 
 W środowisku deweloperskim wykonano:
 
 ```text
 python -m compileall: PASS
 unittest:             13/13 PASS
+GitHub Actions:        PASS
 ```
 
 Testy obejmują:
@@ -186,7 +181,13 @@ Testy obejmują:
 - POST na dokładny endpoint AI Bridge,
 - brak `Requires=ventilation-core.service` w przyszłej usłudze systemd.
 
-## 10. Poza zakresem Stage 1
+## 10. Status po walidacji one-shot
+
+Stage 1 jest zwalidowany end-to-end w trybie one-shot na rzeczywistym CM5.
+
+Przed włączeniem stałej usługi zalecana jest jeszcze walidacja pracy ciągłej i scenariusza utraty AI Bridge/LAN z późniejszym automatycznym catch-up backlogu.
+
+## 11. Poza zakresem Stage 1
 
 - Qwen/Ollama i analiza 15-minutowa,
 - agregacja/statystyki po stronie CM5,
@@ -194,5 +195,4 @@ Testy obejmują:
 - AERO BUS,
 - tacho/RPM,
 - zmiana logiki DAC,
-- zmiana logiki SENSOR BUS,
-- stałe uruchomienie systemd przed realną walidacją one-shot.
+- zmiana logiki SENSOR BUS.
