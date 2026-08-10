@@ -1,14 +1,14 @@
 # CM5 → AI Bridge Telemetry Sync — Stage 1 CM5 validation
 
 **Data:** 10.08.2026  
-**Status:** PASS — one-shot end-to-end na rzeczywistym CM5  
+**Status:** PASS — one-shot i praca ciągła end-to-end na rzeczywistym CM5  
 **Gałąź:** `agent/cm5-telemetry-sync-stage1`
 
 ## 1. Cel walidacji
 
 Potwierdzić na rzeczywistym systemie, że CM5 może jednokierunkowo przekazać bieżący `CoreState` do AI Bridge, a AI Bridge zapisze go w PostgreSQL bez jakiegokolwiek udziału AI w sterowaniu wentylacją.
 
-Walidacja miała objąć cały tor:
+Walidacja objęła cały tor:
 
 ```text
 SEN55 node 1 + SEN55 node 2
@@ -19,9 +19,12 @@ ventilation-core na CM5
         |
         | Unix socket / read-only status
         v
-CM5 telemetry sync --once
+CM5 telemetry sync
         |
-        | HTTP POST /api/v1/ventilation/telemetry/batches
+        | local SQLite durable queue
+        v
+HTTP POST /api/v1/ventilation/telemetry/batches
+        |
         v
 AI Bridge 0.1.0
         |
@@ -158,32 +161,114 @@ Jednocześnie zachowana została granica bezpieczeństwa:
 - `VentilationService` nie został zmodyfikowany,
 - AI Bridge deklaruje `control_commands_supported = false`.
 
-## 7. Status Stage 1 po walidacji
+## 7. Walidacja pracy ciągłej
 
-**PASS w zakresie one-shot end-to-end na rzeczywistym CM5.**
+Proces telemetryczny uruchomiono ręcznie na CM5 z:
+
+- `capture-interval = 5 s`,
+- `sync-interval = 5 s`,
+- `batch-size = 100`,
+- bazą testową `/tmp/wvc-telemetry-continuous.sqlite3`.
+
+Przy dostępnym AI Bridge kolejne rzeczywiste snapshoty były zapisywane poprawnie co około 5 s. Każdy normalny batch miał:
+
+```text
+samples=1 stored=1 duplicates=0
+```
+
+Potwierdza to stabilną pracę ciągłą CM5 → AI Bridge → PostgreSQL.
+
+## 8. Walidacja awarii AI Bridge i trwałego pending
+
+AI Bridge został celowo zatrzymany, podczas gdy proces telemetryczny CM5 pozostał uruchomiony.
+
+CM5 zgłaszał oczekiwany błąd:
+
+```text
+RuntimeError: AI Bridge unavailable: [Errno 111] Connection refused
+Telemetry sync failed; pending samples remain local
+```
+
+W tym samym czasie sprawdzono `ventilation-core`. Wynik pozostał prawidłowy:
+
+- `mode = STOP`,
+- `hardware_ready = true`,
+- `output_state_known = true`,
+- brak aktywnych alarmów,
+- SENSOR BUS `ready = true`,
+- `worker_alive = true`,
+- oba SEN55 `online = true`,
+- oba SEN55 `usable = true`,
+- oba SEN55 `measurement_valid = true`,
+- brak błędów Modbus i błędów pomiarowych.
+
+Przy niedostępnym AI Bridge lokalna baza CM5 pokazała:
+
+```text
+total  : 42
+synced : 28
+pending: 14
+```
+
+Oznacza to, że awaria AI Servera nie wpłynęła na sterowanie ani SENSOR BUS, a niesynchronizowane próbki zostały zachowane lokalnie.
+
+## 9. Automatyczny catch-up po powrocie AI Bridge
+
+AI Bridge uruchomiono ponownie bez restartowania procesu telemetrycznego CM5.
+
+CM5 automatycznie wznowił synchronizację. Kluczowy log:
+
+```text
+2026-08-10 11:46:31,554 INFO ventilation_core.telemetry.agent: Telemetry batch synced batch_id=1316b629-5fce-4c2e-ae65-2ec736023007 samples=34 stored=34 duplicates=0
+```
+
+Następnie proces wrócił do normalnego rytmu pojedynczych snapshotów:
+
+```text
+samples=1 stored=1 duplicates=0
+```
+
+Kontrolny stan lokalnej bazy podczas dalszej pracy ciągłej:
+
+```text
+total  : 73
+synced : 72
+pending: 1
+```
+
+`pending = 1` jest prawidłowym stanem chwilowym przy aktywnym capture co 5 s — jedna świeża próbka może znajdować się pomiędzy lokalnym zapisem a następnym ACK. Nie jest to zaległy backlog z okresu awarii.
+
+Walidacja potwierdza:
+
+- trwałość lokalnej kolejki podczas niedostępności AI Bridge,
+- automatyczne retry,
+- brak konieczności restartowania telemetry sync,
+- automatyczny catch-up backlogu,
+- zapis 34 zaległych próbek w jednym batchu,
+- `duplicates = 0`,
+- powrót do normalnego rytmu po opróżnieniu backlogu.
+
+## 10. Status Stage 1 po pełnej walidacji
+
+**PASS — rzeczywisty one-shot, praca ciągła, awaria AI Bridge i automatyczny catch-up.**
 
 Potwierdzone:
 
 - rzeczywisty odczyt dwóch SEN55 przez SENSOR BUS,
 - serializacja aktualnego `CoreState`,
 - read-only odczyt przez Unix socket,
-- lokalny zapis próbki,
+- lokalny trwały zapis RAW/pending,
 - HTTP CM5 → AI Server,
 - poprawny ACK,
 - zapis RAW w PostgreSQL,
-- obecność obu węzłów i ich pomiarów w bazie.
+- obecność obu węzłów i ich pomiarów w bazie,
+- odporność na czasową niedostępność AI Bridge,
+- brak utraty danych podczas testu awarii,
+- automatyczne nadrobienie backlogu,
+- brak wpływu awarii AI Servera na `ventilation-core`, DAC i SENSOR BUS.
 
-## 8. Co pozostaje przed stałym uruchomieniem
+## 11. Następny krok
 
-Nie uruchomiono jeszcze `wvc-telemetry-sync.service` jako stałej usługi.
+Walidacja funkcjonalna i odpornościowa Stage 1 jest zakończona. Następnym etapem może być uruchomienie przygotowanej jednostki `wvc-telemetry-sync.service` z trwałą bazą `/var/lib/workshop-ventilation/telemetry.sqlite3` oraz analogiczne uporządkowanie AI Bridge jako usługi systemowej.
 
-Przed merge Stage 1 zalecana jest jeszcze krótka walidacja pracy ciągłej obejmująca:
-
-1. kilka kolejnych snapshotów w normalnym rytmie,
-2. czasowe wyłączenie AI Bridge lub odcięcie LAN,
-3. potwierdzenie pozostania próbek jako `pending`,
-4. ponowne uruchomienie AI Bridge,
-5. automatyczny catch-up backlogu,
-6. brak wpływu całego testu na `ventilation-core`, DAC i SENSOR BUS.
-
-Dopiero po tym można zdecydować o włączeniu jednostki systemd i późniejszym merge PR.
+PR pozostaje Draft i nie powinien być merge'owany ani oznaczany Ready for Review bez wyraźnej decyzji użytkownika.
