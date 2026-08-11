@@ -124,6 +124,10 @@ class TachoEstimator:
             period = timestamp - self._last_edge
             if period <= 0.0:
                 raise ValueError("edge timestamps must be strictly increasing")
+            if period > self._timeout_seconds:
+                self._periods.clear()
+                self._last_edge = timestamp
+                return TachoReading.stopped(age_seconds=0.0)
             if period >= self._minimum_period_seconds:
                 self._periods.append(period)
         self._last_edge = timestamp
