@@ -144,7 +144,7 @@ Dwa wolne wejścia z 40-pinowego złącza CM5 IO Board pozostają zarezerwowane 
 | Funkcja | GPIO | Pin fizyczny CM5 | Kierunek | Status |
 |---|---:|---:|---|---|
 | `TACHO_INPUT_1` | GPIO17 | 11 | wejście | wolny drugi kanał, niezwalidowany z osobnym wentylatorem |
-| `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście | aktywny kanał laboratoryjny po przepięciu TACHO |
+| `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście | dynamicznie zwalidowany z laboratoryjnym wentylatorem na CH1/VOUT1; test STOP na finalnym GPIO27 pozostaje do wykonania |
 
 Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15) ani AERO BUS UART4 (GPIO12/13).
 
@@ -158,6 +158,8 @@ pomiar TACHO:           GPIO27 / pin 13
 ```
 
 Wcześniejszy test tego samego wentylatora na GPIO17 potwierdził sam mechanizm pomiaru TACHO, ale nie jest już traktowany jako docelowe przypisanie kanału. Po fizycznym przepięciu przewodu TACHO do GPIO27 dalsze testy należy wykonywać na parze `EXTRACT + GPIO27`.
+
+Na GPIO27 przy `extract=5.0 V` uzyskano średnio około `70.575 Hz / 1411.5 RPM` z 14 stabilnych próbek, czyli około `-1.89%` względem wcześniejszego punktu oscyloskopowego `71.937 Hz / 1438.7 RPM`.
 
 GPIO17 pozostaje zarezerwowany dla drugiego wentylatora, którego nie ma obecnie na stanowisku. Jego ostateczne przypisanie `SUPPLY` zostanie potwierdzone dopiero po walidacji z drugim fizycznym wentylatorem.
 
