@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ventilation_core.domain.aero_control import AeroControlResult
+
 
 @dataclass(frozen=True)
 class AeroTelemetry:
@@ -38,6 +40,8 @@ class AeroBusState:
     online: bool = False
     usable: bool = False
     telemetry: AeroTelemetry = AeroTelemetry()
+    control_busy: bool = False
+    last_control_result: AeroControlResult | None = None
     last_success_at: str | None = None
     last_cycle_at: str | None = None
     last_error: str | None = None
@@ -61,6 +65,10 @@ class AeroBusState:
             "online": self.online,
             "usable": self.usable,
             "telemetry": self.telemetry.to_dict(),
+            "control_busy": self.control_busy,
+            "last_control_result": (
+                None if self.last_control_result is None else self.last_control_result.to_dict()
+            ),
             "last_success_at": self.last_success_at,
             "last_cycle_at": self.last_cycle_at,
             "last_error": self.last_error,
