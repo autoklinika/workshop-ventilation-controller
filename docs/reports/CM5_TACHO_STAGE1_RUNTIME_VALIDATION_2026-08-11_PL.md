@@ -69,7 +69,7 @@ tacho.extract.valid=true
 sample_count=6
 ```
 
-Potwierdzono więc pełną ścieżkę:
+Potwierdzono pełną ścieżkę:
 
 ```text
 ctl set -> DAC CH1/VOUT1 -> fizyczny wentylator -> TACHO -> GPIO27 -> libgpiod -> estimator -> CoreState.tacho.extract
@@ -130,8 +130,8 @@ Nie zaobserwowano wpływu TACHO na ścieżkę sterowania DAC ani SENSOR BUS.
 
 Przed trwałym włączeniem TACHO w jednostce systemd pozostaje:
 
-1. uruchomić EXTRACT = 5 V i zastosować dłuższą stabilizację,
-2. po STOP obserwować stan do faktycznego przejścia `valid=true -> false`,
+1. uruchomić EXTRACT = 5 V i zastosować dłuższą stabilizację około 12 s,
+2. po STOP obserwować `age_seconds` aż do faktycznego przejścia `valid=true -> false`,
 3. fizycznie odłączyć przewód TACHO przy pracującym wentylatorze,
 4. potwierdzić, że brak impulsów zmienia tylko stan TACHO, a wentylator nadal pracuje na zadanym napięciu i nie powstaje alarm DAC,
 5. dopiero po PASS włączyć `--enable-extract-tacho` w trwałej jednostce systemd.
