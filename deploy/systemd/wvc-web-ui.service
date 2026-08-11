@@ -1,0 +1,29 @@
+[Unit]
+Description=Workshop Ventilation Web UI
+After=network-online.target ventilation-core.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wentylacja
+Group=wentylacja
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+EnvironmentFile=-/etc/default/wvc-web-ui
+ExecStart=/usr/bin/python3 -m ventilation_core.web.main
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
