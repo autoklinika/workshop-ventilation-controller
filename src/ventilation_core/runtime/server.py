@@ -83,10 +83,19 @@ class CoreServer:
             response = await self._dispatch(request)
         except Exception as exc:
             response = {"ok": False, "error": str(exc)}
-        writer.write((json.dumps(response) + "\n").encode("utf-8"))
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+
+        payload = (json.dumps(response) + "\n").encode("utf-8")
+        try:
+            writer.write(payload)
+            await writer.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            LOGGER.debug("Unix socket client disconnected before response delivery completed")
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     async def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         command = request.get("command")
