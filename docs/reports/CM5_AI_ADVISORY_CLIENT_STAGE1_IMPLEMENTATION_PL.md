@@ -1,7 +1,7 @@
 # CM5 AI Advisory Client – Stage 1
 
 **Data:** 11.08.2026  
-**Status:** IMPLEMENTED – AI Server Stage 3 production PASS; oczekuje na walidację CM5  
+**Status:** CM5 TESTS + REAL ONE-SHOT PASS; systemd validation pending  
 **Repozytorium:** `autoklinika/workshop-ventilation-controller`  
 **Gałąź:** `agent/ai-advisory-client-stage1`
 
@@ -73,7 +73,7 @@ Walidacja dotyczy wyłącznie kontraktu transportowego i struktury. CM5 nie ocen
 
 ## 4. Lokalny cache
 
-Plik:
+Docelowy plik:
 
 ```text
 /var/lib/workshop-ventilation/ai-advisory.json
@@ -179,9 +179,21 @@ Docelowy plik hosta:
 /etc/default/wvc-ai-advisory
 ```
 
-## 9. Testy
+## 9. Testy na CM5 – PASS
 
-Dodane testy obejmują:
+Pierwsze uruchomienie `unittest discover` bez `PYTHONPATH=src` zwróciło `ModuleNotFoundError: ventilation_core`; był to błąd sposobu uruchomienia testów w repozytorium z layoutem `src/`, nie błąd implementacji.
+
+Poprawna walidacja:
+
+```text
+PYTHONPATH=src python3 -m unittest discover -s tests
+Ran 54 tests in 0.061s
+OK
+```
+
+**Test suite CM5: PASS.**
+
+Testy obejmują m.in.:
 
 - poprawny GET i query `source_id`,
 - 404 jako brak analizy,
@@ -219,25 +231,60 @@ control_actions_supported=false
 result.schema_version=2
 ```
 
-AI Server jest gotowy do rzeczywistej walidacji klienta CM5.
+## 11. Rzeczywisty CM5 one-shot – PASS
 
-## 11. Walidacja na CM5
-
-Przed zakończeniem Stage 1 należy wykonać:
+Na rzeczywistym CM5 wykonano klienta advisory w trybie jednorazowym do tymczasowego cache:
 
 ```text
-compileall
-testy
-one-shot GET z prawdziwego AI Servera
+WVC_AI_BRIDGE_URL=http://192.168.1.55:8080
+WVC_AI_ADVISORY_SOURCE_ID=workshop-ventilation-cm5-01
+PYTHONPATH=src
+python3 -m ventilation_core.advisory.main --once --cache /tmp/wvc-ai-advisory-test.json
+```
+
+Log potwierdził:
+
+```text
+AI advisory cached
+analysis_id=5cf9d21e-e2d2-4b0c-920e-c4a67aef135a
+source_id=workshop-ventilation-cm5-01
+window=2026-08-10T15:15:00Z..2026-08-10T15:30:00Z
+status=no_anomaly_detected
+cache_updated=True
+```
+
+Plik `/tmp/wvc-ai-advisory-test.json` zawierał:
+
+```text
+cache_schema_version=1
+report.delivery_schema_version=1
+report.analysis_id=5cf9d21e-e2d2-4b0c-920e-c4a67aef135a
+report.advisory_only=true
+report.experimental=true
+report.control_actions_supported=false
+report.result.schema_version=2
+report.result.status=no_anomaly_detected
+```
+
+**Rzeczywisty tor AI Server -> CM5 one-shot -> lokalny cache: PASS.**
+
+## 12. Pozostała walidacja systemd
+
+Do zakończenia Stage 1 pozostaje:
+
+```text
+instalacja /etc/default/wvc-ai-advisory
+instalacja wvc-ai-advisory.service
+start i enable usługi
 sprawdzenie /var/lib/workshop-ventilation/ai-advisory.json
-start wvc-ai-advisory.service
-symulację zatrzymania AI Bridge i potwierdzenie, że ventilation-core działa bez zmian
+potwierdzenie pollingu
+symulacja zatrzymania AI Bridge i potwierdzenie, że ventilation-core działa bez zmian
 restart klienta advisory
 ```
 
-## 12. Następny krok
+## 13. Następny krok
 
-Po walidacji cache może zostać użyty przez przyszły GUI/status operatora jako źródło informacji.
+Po walidacji systemd cache może zostać użyty przez przyszły GUI/status operatora jako źródło informacji.
 
 Nie wolno tworzyć automatycznej ścieżki:
 
