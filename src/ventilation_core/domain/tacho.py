@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from math import isfinite
+from typing import Any
 
 
 PULSES_PER_REVOLUTION = 3
@@ -26,6 +27,66 @@ class TachoReading:
             age_seconds=age_seconds,
             valid=False,
         )
+
+
+@dataclass(frozen=True)
+class FanTachoState:
+    line_name: str
+    line_offset: int | None
+    frequency_hz: float
+    rpm: float
+    sample_count: int
+    age_seconds: float | None
+    valid: bool
+
+    @classmethod
+    def from_reading(
+        cls,
+        *,
+        line_name: str,
+        line_offset: int | None,
+        reading: TachoReading,
+    ) -> "FanTachoState":
+        return cls(
+            line_name=line_name,
+            line_offset=line_offset,
+            frequency_hz=reading.frequency_hz,
+            rpm=reading.rpm,
+            sample_count=reading.sample_count,
+            age_seconds=reading.age_seconds,
+            valid=reading.valid,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "line_name": self.line_name,
+            "line_offset": self.line_offset,
+            "frequency_hz": self.frequency_hz,
+            "rpm": self.rpm,
+            "sample_count": self.sample_count,
+            "age_seconds": self.age_seconds,
+            "valid": self.valid,
+        }
+
+
+@dataclass(frozen=True)
+class TachoMonitorState:
+    chip_path: str
+    ready: bool
+    worker_alive: bool
+    last_error: str | None
+    supply: FanTachoState | None
+    extract: FanTachoState | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "chip_path": self.chip_path,
+            "ready": self.ready,
+            "worker_alive": self.worker_alive,
+            "last_error": self.last_error,
+            "supply": None if self.supply is None else self.supply.to_dict(),
+            "extract": None if self.extract is None else self.extract.to_dict(),
+        }
 
 
 class TachoEstimator:
