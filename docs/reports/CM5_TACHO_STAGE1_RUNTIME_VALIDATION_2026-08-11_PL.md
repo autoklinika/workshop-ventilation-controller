@@ -4,7 +4,7 @@
 **Data:** 2026-08-11  
 **Host:** `wentylacja` / Raspberry Pi Compute Module 5  
 **Gałąź:** `agent/cm5-tacho-stage1`  
-**Status:** Stage 1 kanału EXTRACT / GPIO27 — HARDWARE + RUNTIME PASS. Trwałe włączenie monitora jest gotowe do wdrożenia.
+**Status:** Stage 1 kanału EXTRACT / GPIO27 — HARDWARE + RUNTIME + PERMANENT DEPLOY PASS.
 
 ## 1. Konfiguracja stanowiska
 
@@ -15,7 +15,7 @@ TACHO:      GPIO27 / physical pin 13 / gpiochip0 offset 27
 
 W laboratorium dostępny był jeden fizyczny wentylator EC. GPIO17 / pin 11 pozostaje zarezerwowany dla przyszłego drugiego wentylatora i nie był częścią finalnej walidacji runtime.
 
-`ventilation-core` podczas testów był uruchomiony z tymczasowym drop-inem systemd w `/run/systemd/system/ventilation-core.service.d/90-tacho-validation.conf` i argumentem `--enable-extract-tacho`.
+`ventilation-core` podczas testów był początkowo uruchomiony z tymczasowym drop-inem systemd w `/run/systemd/system/ventilation-core.service.d/90-tacho-validation.conf` i argumentem `--enable-extract-tacho`. Po zakończeniu walidacji ta konfiguracja została zastąpiona trwałą jednostką z repo.
 
 ## 2. Runtime przy STOP — PASS
 
@@ -200,9 +200,82 @@ Zwalidowano na rzeczywistym CM5:
 - automatyczne odzyskanie sygnału po ponownym podłączeniu,
 - `159/159` testów jednostkowych na CM5.
 
-**Kanał EXTRACT / GPIO27 spełnia wymagania Stage 1 i jest gotowy do trwałego read-only uruchomienia w `ventilation-core.service`.**
+## 9. Trwałe wdrożenie systemd — PASS
 
-## 9. Granice Stage 1
+Na branchu `agent/cm5-tacho-stage1` zwalidowano commit:
+
+```text
+7186d2dd69509e6d2a104857bbb1260b32bc07f4
+```
+
+Przed wdrożeniem pełny zestaw testów ponownie zakończył się wynikiem:
+
+```text
+Ran 159 tests
+OK
+```
+
+Następnie:
+
+1. wykonano bezpieczny `ventilation_core.ctl stop`,
+2. wykonano backup dotychczasowej jednostki do `/tmp/ventilation-core.service.before-tacho`,
+3. zainstalowano `deploy/systemd/ventilation-core.service` do `/etc/systemd/system/ventilation-core.service`,
+4. usunięto tymczasowy drop-in `/run/systemd/system/ventilation-core.service.d/90-tacho-validation.conf`,
+5. wykonano `systemctl daemon-reload`,
+6. zrestartowano `ventilation-core.service`.
+
+Efektywna trwała jednostka zawiera:
+
+```text
+--enable-extract-tacho
+--tacho-chip /dev/gpiochip0
+--extract-tacho-line GPIO27
+--tacho-timeout 0.25
+--tacho-averaging-periods 6
+```
+
+Po trwałym restarcie przy STOP:
+
+```text
+service=active
+mode=STOP
+hardware_ready=true
+active_alarms=[]
+tacho_ready=true
+worker_alive=true
+last_error=null
+valid=false
+Hz=0.0
+RPM=0.0
+```
+
+`gpioinfo GPIO27` potwierdziło:
+
+```text
+input bias=disabled edges=rising consumer="ventilation-core-extract-tacho"
+```
+
+Końcowy smoke test po trwałym deployu, przy `extract=5.0 V`, dał:
+
+```text
+mode=MANUAL
+extract_voltage=5.0
+hardware_ready=true
+active_alarms=[]
+tacho_valid=true
+tacho_hz=65.121
+tacho_rpm=1302.4
+worker_alive=true
+last_error=null
+```
+
+Po końcowym STOP sterowanie wróciło do `0.0 V`, `hardware_ready=true`, `output_state_known=true`, brak aktywnych alarmów, SENSOR BUS pozostał gotowy. W bezpośredniej odpowiedzi po STOP TACHO nadal było chwilowo `valid=true` z małym `age_seconds`, co jest oczekiwanym skutkiem timeoutu `0.25 s` i zostało wcześniej zwalidowane osobnym testem zaniku.
+
+Log po restarcie nie wykazał błędów startu core; SENSOR BUS i AERO BUS workery zostały uruchomione, a socket runtime został poprawnie wystawiony.
+
+**Kanał EXTRACT / GPIO27 jest trwale uruchomiony jako read-only TACHO feedback w `ventilation-core.service`. Stage 1 jest zakończony wynikiem PASS.**
+
+## 10. Granice Stage 1
 
 W tym etapie TACHO pozostaje wyłącznie feedbackiem. Nie wdrażamy jeszcze:
 
