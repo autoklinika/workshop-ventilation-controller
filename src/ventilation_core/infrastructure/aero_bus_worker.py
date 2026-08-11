@@ -11,10 +11,15 @@ from threading import RLock
 from typing import Any
 
 from ventilation_core.domain.aero import AeroBusState, AeroTelemetry
+from ventilation_core.domain.aero_control import AeroControlCommand, AeroControlResult
 from ventilation_core.infrastructure.aero4a2 import (
     CONFIRMED_TELEMETRY_REGISTERS,
     AeroTelemetryError,
     decode_aero_telemetry,
+)
+from ventilation_core.infrastructure.aero_control_executor import (
+    AeroControlExecutorConfig,
+    execute_control_change,
 )
 from ventilation_core.infrastructure.modbus_rtu import (
     ModbusError,
@@ -155,9 +160,38 @@ def _poll_aero(
     )
 
 
+def _execute_queued_control(
+    port: Any,
+    config: AeroBusConfig,
+    state: AeroBusState,
+    command: AeroControlCommand,
+    state_queue: Queue,
+) -> tuple[AeroBusState, AeroControlResult]:
+    busy_state = replace(state, control_busy=True)
+    _publish_latest(state_queue, busy_state)
+    result = execute_control_change(
+        port,
+        AeroControlExecutorConfig(
+            slave_address=config.slave_address,
+            timeout_seconds=config.timeout_seconds,
+        ),
+        command,
+    )
+    completed = replace(
+        busy_state,
+        control_busy=False,
+        last_control_result=result,
+        last_cycle_at=_now_iso(),
+    )
+    _publish_latest(state_queue, completed)
+    return completed, result
+
+
 def run_aero_bus_worker(
     config: AeroBusConfig,
     state_queue: Queue,
+    control_queue: Queue,
+    control_result_queue: Queue,
     stop_event: Any,
 ) -> None:
     state = _initial_state(config)
@@ -185,6 +219,17 @@ def run_aero_bus_worker(
                 _publish_latest(state_queue, state)
 
                 while not stop_event.is_set():
+                    try:
+                        command = control_queue.get_nowait()
+                    except queue.Empty:
+                        command = None
+
+                    if command is not None:
+                        state, result = _execute_queued_control(
+                            port, config, state, command, state_queue
+                        )
+                        control_result_queue.put(result)
+
                     state = _poll_aero(port, config, state)
                     state = replace(
                         state,
@@ -202,6 +247,7 @@ def run_aero_bus_worker(
                 worker_alive=True,
                 online=False,
                 usable=False,
+                control_busy=False,
                 last_error=f"{type(exc).__name__}: {exc}",
             )
             _publish_latest(state_queue, state)
@@ -210,12 +256,14 @@ def run_aero_bus_worker(
 
 
 class ProcessAeroBus:
-    """Supervised read-only AERO BUS process and sole owner of its UART."""
+    """Supervised AERO BUS process and sole owner of its UART."""
 
     def __init__(self, config: AeroBusConfig) -> None:
         self._config = config
         self._context = mp.get_context("spawn")
         self._state_queue = self._context.Queue(maxsize=4)
+        self._control_queue = self._context.Queue(maxsize=1)
+        self._control_result_queue = self._context.Queue(maxsize=1)
         self._stop_event = self._context.Event()
         self._process: mp.Process | None = None
         self._state = _initial_state(config)
@@ -233,6 +281,34 @@ class ProcessAeroBus:
                 worker_restarts=self._worker_restarts,
             )
 
+    def execute_control(
+        self,
+        command: AeroControlCommand,
+        *,
+        timeout_seconds: float = 65.0,
+    ) -> AeroControlResult:
+        if timeout_seconds <= 0:
+            raise ValueError("AERO control wait timeout must be positive")
+        with self._lock:
+            self._drain_updates()
+            if self._process is None or not self._process.is_alive():
+                raise RuntimeError("AERO BUS worker is not running")
+            if not self._state.ready or not self._state.online or not self._state.usable:
+                raise RuntimeError("AERO BUS is not ready for control")
+            try:
+                self._control_queue.put_nowait(command)
+            except queue.Full as exc:
+                raise RuntimeError("AERO control command already pending") from exc
+
+        try:
+            result = self._control_result_queue.get(timeout=timeout_seconds)
+        except queue.Empty as exc:
+            raise TimeoutError("Timed out waiting for AERO control result") from exc
+
+        with self._lock:
+            self._drain_updates()
+        return result
+
     def health_check(self) -> None:
         with self._lock:
             self._drain_updates()
@@ -245,10 +321,12 @@ class ProcessAeroBus:
                 worker_alive=False,
                 online=False,
                 usable=False,
+                control_busy=False,
                 last_error=f"AERO BUS worker exited with code {exit_code}",
             )
             self._dispose_process()
             self._discard_queued_states()
+            self._discard_control_queues()
             self._worker_restarts += 1
             self._start_worker()
 
@@ -262,27 +340,40 @@ class ProcessAeroBus:
                     self._process.join(timeout=1.0)
             self._dispose_process()
             self._discard_queued_states()
-            self._state_queue.close()
-            self._state_queue.join_thread()
+            self._discard_control_queues()
+            for mp_queue in (
+                self._state_queue,
+                self._control_queue,
+                self._control_result_queue,
+            ):
+                mp_queue.close()
+                mp_queue.join_thread()
             self._state = replace(
                 self._state,
                 ready=False,
                 worker_alive=False,
                 online=False,
                 usable=False,
+                control_busy=False,
             )
 
     def _start_worker(self) -> None:
         self._stop_event.clear()
         self._process = self._context.Process(
             target=run_aero_bus_worker,
-            args=(self._config, self._state_queue, self._stop_event),
+            args=(
+                self._config,
+                self._state_queue,
+                self._control_queue,
+                self._control_result_queue,
+                self._stop_event,
+            ),
             name="aero-bus-worker",
             daemon=True,
         )
         self._process.start()
         LOGGER.info(
-            "Started read-only AERO BUS worker pid=%s port=%s slave=%s",
+            "Started AERO BUS worker pid=%s port=%s slave=%s",
             self._process.pid,
             self._config.port,
             self._config.slave_address,
@@ -303,6 +394,14 @@ class ProcessAeroBus:
                 self._state_queue.get_nowait()
             except queue.Empty:
                 return
+
+    def _discard_control_queues(self) -> None:
+        for mp_queue in (self._control_queue, self._control_result_queue):
+            while True:
+                try:
+                    mp_queue.get_nowait()
+                except queue.Empty:
+                    break
 
     def _drain_updates(self) -> None:
         while True:
