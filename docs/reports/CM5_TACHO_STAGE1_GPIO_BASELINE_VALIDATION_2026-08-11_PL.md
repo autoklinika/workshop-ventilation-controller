@@ -3,18 +3,23 @@
 **Projekt:** Workshop Ventilation Controller  
 **Data:** 2026-08-11  
 **Host:** `wentylacja` / Raspberry Pi Compute Module 5  
-**Status:** bazowa walidacja GPIO zaliczona; pomiar zboczy TACHO pozostaje do wykonania.
+**Status:** bazowa walidacja GPIO oraz test zatrzymanych wentylatorów zaliczone; pierwszy pomiar obracającego się wentylatora pozostaje do wykonania.
 
 ## 1. Zweryfikowana gałąź
 
-Na docelowym CM5 uruchomiono:
+Pierwsza walidacja bazowa została wykonana na:
 
 ```text
 branch: agent/cm5-tacho-stage1
 HEAD:   a985fc4af109e301aa34e203c338785a3246e1fb
 ```
 
-Repozytorium było aktualne względem `origin/agent/cm5-tacho-stage1` w momencie testu.
+Po poprawce autodetekcji gpiochip test zatrzymanych wentylatorów wykonano na:
+
+```text
+branch: agent/cm5-tacho-stage1
+HEAD:   04a8c28bca04b2e6b9e9b5c4e202cf6069b8fd1d
+```
 
 ## 2. Pakiety GPIO
 
@@ -42,7 +47,7 @@ Wniosek:
 - fizyczny pin 13 jest poprawnie mapowany jako GPIO27,
 - żaden z pinów nie ma aktywnej funkcji alternatywnej,
 - obie linie są dostępne jako wejścia GPIO,
-- wewnętrzny pull-down widoczny w stanie bazowym nie jest traktowany jako finalna konfiguracja pomiarowa; `tacho_cli.py` żąda linii z `bias=DISABLED`, ponieważ tor sprzętowy ma zewnętrzny pull-up 10 kOhm do 3,3 V.
+- `tacho_cli.py` żąda linii z `bias=DISABLED`, ponieważ tor sprzętowy ma zewnętrzny pull-up 10 kOhm do 3,3 V.
 
 ## 4. Kontrolery GPIO
 
@@ -77,24 +82,25 @@ To potwierdza przydział zapisany w `docs/PINOUT.md`.
 
 ## 6. Testy software
 
-Na zweryfikowanym HEAD uruchomiono pełny zestaw testów:
+Pierwsza walidacja:
 
 ```text
 Ran 150 tests in 0.107s
 OK
 ```
 
-Stan logiki domenowej TACHO i pozostałego `ventilation-core` był poprawny przed pierwszym odczytem GPIO.
+Po poprawce autodetekcji i dodaniu testu regresyjnego:
+
+```text
+Ran 151 tests in 0.107s
+OK
+```
+
+Pełny zestaw testów pozostaje zielony.
 
 ## 7. Pierwsze uruchomienie narzędzia TACHO
 
-Pierwszy read-only test:
-
-```bash
-PYTHONPATH=src python3 tools/hardware/tacho_cli.py --duration 10
-```
-
-zakończył się bez przejęcia GPIO komunikatem:
+Pierwszy read-only test bez jawnego gpiochip zakończył się bez przejęcia GPIO komunikatem:
 
 ```text
 ERROR: GPIO line names are ambiguous across chips (/dev/gpiochip0, /dev/gpiochip4); rerun with --chip PATH
@@ -102,13 +108,11 @@ ERROR: GPIO line names are ambiguous across chips (/dev/gpiochip0, /dev/gpiochip
 
 Jednocześnie `gpiodetect` i `gpioinfo` jednoznacznie potwierdziły, że rzeczywiste linie nagłówka są na `/dev/gpiochip0`.
 
-Problem został sklasyfikowany jako błąd autodetekcji ścieżek urządzeń/aliasów w narzędziu diagnostycznym, a nie problem sprzętowy ani konflikt GPIO.
+Problem sklasyfikowano jako błąd autodetekcji aliasów urządzenia w narzędziu diagnostycznym, a nie problem sprzętowy ani konflikt GPIO.
 
-## 8. Korekta software po walidacji
+## 8. Korekta software
 
-Po tym pomiarze poprawiono `tools/hardware/tacho_cli.py` tak, aby przy autodetekcji deduplikował ścieżki wskazujące na ten sam znakowy węzeł urządzenia (`st_rdev`).
-
-Dodano również test regresyjny dla przypadku aliasów `/dev/gpiochip0` i `/dev/gpiochip4` wskazujących na to samo urządzenie.
+Poprawiono `tools/hardware/tacho_cli.py`, aby przy autodetekcji deduplikował ścieżki wskazujące na ten sam znakowy węzeł urządzenia (`st_rdev`). Dodano test regresyjny.
 
 Commity korekty:
 
@@ -117,23 +121,74 @@ Commity korekty:
 3bede6faf557983a2da98ead90039d31db844370  Test gpiochip alias deduplication
 ```
 
-## 9. Następny krok
+## 9. Walidacja przy zatrzymanych wentylatorach
 
-Na docelowym CM5 należy pobrać aktualny HEAD gałęzi i ponowić najpierw test bez obracających się wentylatorów:
+Na HEAD:
+
+```text
+04a8c28bca04b2e6b9e9b5c4e202cf6069b8fd1d
+```
+
+uruchomiono:
 
 ```bash
-git pull --ff-only origin agent/cm5-tacho-stage1
-PYTHONPATH=src python3 -m unittest discover -s tests
 PYTHONPATH=src python3 tools/hardware/tacho_cli.py --chip /dev/gpiochip0 --duration 10
 ```
 
-Jawne `--chip /dev/gpiochip0` jest w tym checkpointcie celowe: sprzętowe mapowanie zostało już jednoznacznie potwierdzone i dzięki temu kolejny test weryfikuje sam mechanizm żądania linii, odbioru zdarzeń i timeoutu.
-
-Oczekiwany rezultat przy zatrzymanych wentylatorach:
+Narzędzie poprawnie zażądało obu linii:
 
 ```text
-SUPPLY   NO VALID TACHO
-EXTRACT  NO VALID TACHO
+chip:    /dev/gpiochip0
+SUPPLY:  GPIO17 -> offset 17
+EXTRACT: GPIO27 -> offset 27
+edge:    rising
+bias:    disabled (external 10 kOhm pull-up is required)
+formula: RPM = TACHO_HZ * 20 (3 pulses/revolution)
 ```
 
-Po zaliczeniu tego kroku można przejść do pierwszego rzeczywistego pomiaru jednego wentylatora.
+Przez cały 10-sekundowy test oraz w sekcji `FINAL` otrzymano:
+
+```text
+SUPPLY   NO VALID TACHO  age=n/a
+EXTRACT  NO VALID TACHO  age=n/a
+```
+
+### Wniosek
+
+Test zaliczony:
+
+- oba GPIO mogą być jednocześnie zażądane przez libgpiod,
+- brak fałszywych zboczy przy zatrzymanych wentylatorach,
+- oba kanały pozostają niezależne,
+- stan bez impulsów jest poprawnie raportowany jako `NO VALID TACHO`,
+- nie wystąpił błąd dostępu do GPIO ani konflikt właściciela linii.
+
+## 10. Mapowanie DAC potwierdzone w software
+
+Aktualny `DFR0971Actuator` mapuje:
+
+```text
+supply_voltage  -> DAC channel 0 / VOUT0
+extract_voltage -> DAC channel 1 / VOUT1
+```
+
+Dzięki temu pierwszy test dynamiczny może bezpiecznie uruchomić wyłącznie wentylator nawiewny przez `supply=5.0`, pozostawiając `extract=0.0`.
+
+## 11. Następny krok
+
+Pierwszy pomiar dynamiczny:
+
+1. potwierdzić stan `ventilation-core`,
+2. ustawić `supply=5.0 V`, `extract=0.0 V`,
+3. odczekać kilka sekund na stabilizację,
+4. zmierzyć `GPIO17` przez `tacho_cli.py`,
+5. zawsze zakończyć test komendą `stop`, także po błędzie lub przerwaniu.
+
+Punkt referencyjny z oscyloskopu dla 5 V:
+
+```text
+TACHO ≈ 71.937 Hz
+RPM   ≈ 1439
+```
+
+Wartość nie jest jeszcze progiem produkcyjnym; służy do pierwszego porównania poprawności pomiaru CM5.
