@@ -15,6 +15,10 @@ ventilationctl = "ventilation_core.ctl:main"
 wvc-service-heartbeat = "ventilation_core.service_heartbeat:main"
 ventilation-telemetry-sync = "ventilation_core.telemetry.main:main"
 ventilation-ai-advisory = "ventilation_core.advisory.main:main"
+ventilation-web-ui = "ventilation_core.web.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"ventilation_core.web" = ["static/*.html", "static/*.css", "static/*.js"]
