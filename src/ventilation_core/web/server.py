@@ -54,7 +54,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
                 {"ok": False, "error": "Content-Length required"},
             )
             return
-n        try:
+        try:
             length = int(length_header)
         except ValueError:
             self._send_json(
