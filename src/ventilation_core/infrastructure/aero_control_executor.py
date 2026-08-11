@@ -9,6 +9,7 @@ from ventilation_core.domain.aero_control import (
     AERO_EXECUTION_TIMEOUT_SECONDS,
     AeroControlCommand,
     AeroControlExecutionState,
+    AeroControlKind,
     AeroControlResult,
     AeroFanPower,
 )
@@ -48,6 +49,14 @@ def _read_fan_power(port: Any, config: AeroControlExecutorConfig) -> AeroFanPowe
     )
 
 
+def _allowed_previous_values(command: AeroControlCommand) -> tuple[int, ...]:
+    if command.kind is AeroControlKind.SPEED:
+        return (0, 1, 2, 3)
+    if command.kind is AeroControlKind.AIRING:
+        return (0, 1)
+    raise ValueError(f"Unsupported AERO control kind: {command.kind}")
+
+
 def _restore_previous(
     port: Any,
     config: AeroControlExecutorConfig,
@@ -82,6 +91,20 @@ def execute_control_change(
     """
 
     previous = _read_one(port, config, command.register_address)
+    allowed_previous = _allowed_previous_values(command)
+    if previous not in allowed_previous:
+        return AeroControlResult(
+            command=command,
+            state=AeroControlExecutionState.FAILED,
+            previous_value=previous,
+            recovered=False,
+            physical_confirmation=False,
+            error=(
+                f"AERO control refused: current register value {previous} is outside "
+                f"expected range {allowed_previous}"
+            ),
+        )
+
     baseline = _read_fan_power(port, config)
 
     if previous == command.value:
