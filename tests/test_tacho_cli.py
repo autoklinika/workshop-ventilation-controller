@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from tools.hardware.tacho_cli import (
@@ -10,6 +9,7 @@ from tools.hardware.tacho_cli import (
     format_reading,
     gpiochip_paths,
     resolve_chip_and_offsets,
+    selected_channels,
     validate_args,
 )
 from ventilation_core.domain.tacho import TachoReading
@@ -44,19 +44,6 @@ class FakeGpiod:
 
 
 class TachoCliTest(unittest.TestCase):
-    def test_gpiochip_paths_collapses_aliases_of_same_device(self) -> None:
-        with (
-            patch(
-                "tools.hardware.tacho_cli.glob.glob",
-                return_value=["/dev/gpiochip0", "/dev/gpiochip4"],
-            ),
-            patch(
-                "tools.hardware.tacho_cli.os.stat",
-                side_effect=lambda path, follow_symlinks=True: SimpleNamespace(st_rdev=1234),
-            ),
-        ):
-            self.assertEqual(gpiochip_paths(), ("/dev/gpiochip0",))
-
     def test_resolves_both_named_lines_on_requested_chip(self) -> None:
         gpiod = FakeGpiod({"/dev/gpiochip0": {"GPIO17": 17, "GPIO27": 27}})
 
@@ -69,6 +56,18 @@ class TachoCliTest(unittest.TestCase):
         self.assertEqual(path, "/dev/gpiochip0")
         self.assertEqual(offsets, (17, 27))
 
+    def test_resolves_single_extract_line_on_requested_chip(self) -> None:
+        gpiod = FakeGpiod({"/dev/gpiochip0": {"GPIO27": 27}})
+
+        path, offsets = resolve_chip_and_offsets(
+            gpiod,
+            ("GPIO27",),
+            requested_chip="/dev/gpiochip0",
+        )
+
+        self.assertEqual(path, "/dev/gpiochip0")
+        self.assertEqual(offsets, (27,))
+
     def test_rejects_chip_missing_one_required_line(self) -> None:
         gpiod = FakeGpiod({"/dev/gpiochip0": {"GPIO17": 17}})
 
@@ -77,6 +76,24 @@ class TachoCliTest(unittest.TestCase):
                 gpiod,
                 ("GPIO17", "GPIO27"),
                 requested_chip="/dev/gpiochip0",
+            )
+
+    def test_gpiochip_paths_deduplicates_aliases_by_device_id(self) -> None:
+        fake_stats = {
+            "/dev/gpiochip0": type("Stat", (), {"st_rdev": 100})(),
+            "/dev/gpiochip4": type("Stat", (), {"st_rdev": 100})(),
+            "/dev/gpiochip10": type("Stat", (), {"st_rdev": 200})(),
+        }
+        with patch(
+            "tools.hardware.tacho_cli.glob.glob",
+            return_value=list(fake_stats),
+        ), patch(
+            "tools.hardware.tacho_cli.os.stat",
+            side_effect=lambda path: fake_stats[path],
+        ):
+            self.assertEqual(
+                gpiochip_paths(),
+                ("/dev/gpiochip0", "/dev/gpiochip10"),
             )
 
     def test_formats_valid_reading(self) -> None:
@@ -101,6 +118,25 @@ class TachoCliTest(unittest.TestCase):
         self.assertIn("NO VALID TACHO", text)
         self.assertIn("age=0.300s", text)
 
+    def test_selected_channels_defaults_to_both(self) -> None:
+        args = argparse.Namespace(
+            only=None,
+            supply_line="GPIO17",
+            extract_line="GPIO27",
+        )
+        self.assertEqual(
+            selected_channels(args),
+            (("SUPPLY", "GPIO17"), ("EXTRACT", "GPIO27")),
+        )
+
+    def test_selected_channels_extract_only_uses_gpio27(self) -> None:
+        args = argparse.Namespace(
+            only="extract",
+            supply_line="GPIO17",
+            extract_line="GPIO27",
+        )
+        self.assertEqual(selected_channels(args), (("EXTRACT", "GPIO27"),))
+
     def test_validate_args_rejects_same_line(self) -> None:
         args = argparse.Namespace(
             duration=5.0,
@@ -108,6 +144,7 @@ class TachoCliTest(unittest.TestCase):
             supply_line="GPIO17",
             extract_line="GPIO17",
             chip=None,
+            only=None,
         )
 
         with self.assertRaises(TachoDiagnosticError):
@@ -120,6 +157,7 @@ class TachoCliTest(unittest.TestCase):
             supply_line="GPIO17",
             extract_line="GPIO27",
             chip=None,
+            only=None,
         )
 
         with self.assertRaises(TachoDiagnosticError):
