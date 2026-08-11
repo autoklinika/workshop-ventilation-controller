@@ -289,4 +289,50 @@ Nadal nie wdrożono:
 - automatycznego STOP po utracie TACHO,
 - drugiego kanału TACHO SUPPLY.
 
+## 11. Końcowy safe-stop i zamknięcie testu — PASS
+
+Po zakończeniu testu odzyskania TACHO wykonano jawne polecenie:
+
+```text
+ventilation_core.ctl stop
+```
+
+Końcowy stan produkcyjnego `ventilation-core` na CM5:
+
+```text
+mode: STOP
+supply_voltage: 0.0
+extract_voltage: 0.0
+hardware_ready: True
+output_state_known: True
+active_alarms: []
+tacho_ready: True
+worker_alive: True
+last_error: None
+tacho_valid: False
+tacho_rpm: 0.0
+```
+
+Po STOP EXTRACT został fizycznie zatrzymany przez autorytatywną ścieżkę core, a TACHO przeszedł do oczekiwanego `valid=false`.
+
+Testowa instancja Web GUI działająca z osobnego worktree została następnie zatrzymana:
+
+```text
+Web GUI test PID 63356 zatrzymany
+```
+
+Po zatrzymaniu testowego GUI:
+
+```text
+ventilation-core.service: active
+```
+
+Nie wykonano restartu `ventilation-core` w ramach zamknięcia testu.
+
+Stan końcowy etapu:
+
+```text
+SAFE STOP / CORE ACTIVE / GUI TEST STOPPED / NO ACTIVE ALARMS
+```
+
 PR #20 i PR #21 pozostają Draft. Ten raport nie wykonuje merge ani Ready for Review.
