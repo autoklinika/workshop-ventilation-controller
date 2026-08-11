@@ -106,15 +106,21 @@ class CoreServer:
                 "aero_bus": None if aero_bus is None else aero_bus.to_dict(),
             }
         if command == "aero-speed":
+            speed = request["speed"]
+            if isinstance(speed, bool) or not isinstance(speed, int):
+                raise ValueError("AERO speed must be an integer 0..3")
             result = await asyncio.to_thread(
                 self._service.control_aero,
-                AeroControlCommand.set_speed(int(request["speed"])),
+                AeroControlCommand.set_speed(speed),
             )
             return {"ok": result.succeeded, "aero_control": result.to_dict()}
         if command == "aero-airing":
+            enabled = request["enabled"]
+            if not isinstance(enabled, bool):
+                raise ValueError("AERO airing state must be boolean")
             result = await asyncio.to_thread(
                 self._service.control_aero,
-                AeroControlCommand.set_airing(bool(request["enabled"])),
+                AeroControlCommand.set_airing(enabled),
             )
             return {"ok": result.succeeded, "aero_control": result.to_dict()}
         if command == "set":
