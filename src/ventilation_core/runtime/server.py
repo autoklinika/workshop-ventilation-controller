@@ -98,6 +98,12 @@ class CoreServer:
                 "ok": True,
                 "sensor_bus": None if sensor_bus is None else sensor_bus.to_dict(),
             }
+        if command == "aero":
+            aero_bus = self._service.state().aero_bus
+            return {
+                "ok": True,
+                "aero_bus": None if aero_bus is None else aero_bus.to_dict(),
+            }
         if command == "set":
             state = await asyncio.to_thread(
                 self._service.set_manual,

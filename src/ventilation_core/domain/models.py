@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
 
+from ventilation_core.domain.aero import AeroBusState
 from ventilation_core.domain.sensors import SensorBusState
 
 
@@ -60,6 +61,7 @@ class CoreState:
     consecutive_hardware_failures: int = 0
     active_alarms: tuple[AlarmState, ...] = ()
     sensor_bus: SensorBusState | None = None
+    aero_bus: AeroBusState | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,4 +72,5 @@ class CoreState:
             "consecutive_hardware_failures": self.consecutive_hardware_failures,
             "active_alarms": [alarm.to_dict() for alarm in self.active_alarms],
             "sensor_bus": None if self.sensor_bus is None else self.sensor_bus.to_dict(),
+            "aero_bus": None if self.aero_bus is None else self.aero_bus.to_dict(),
         }

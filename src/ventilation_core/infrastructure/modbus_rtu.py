@@ -5,6 +5,7 @@ import time
 from typing import Protocol
 
 
+FUNCTION_READ_HOLDING_REGISTERS = 0x03
 FUNCTION_READ_INPUT_REGISTERS = 0x04
 
 
@@ -56,17 +57,28 @@ def _read_exact(port: SerialPort, size: int, timeout_seconds: float) -> bytes:
     return bytes(result)
 
 
-def read_input_registers(
+def _read_registers(
     port: SerialPort,
+    *,
+    function_code: int,
     slave_address: int,
     start_address: int,
     quantity: int,
     timeout_seconds: float,
 ) -> list[int]:
+    if function_code not in (
+        FUNCTION_READ_HOLDING_REGISTERS,
+        FUNCTION_READ_INPUT_REGISTERS,
+    ):
+        raise ValueError(f"Unsupported Modbus read function 0x{function_code:02X}")
     if not 1 <= slave_address <= 247:
         raise ValueError("Modbus slave address must be in range 1..247")
+    if not 0 <= start_address <= 0xFFFF:
+        raise ValueError("Modbus start address must be in range 0..65535")
     if not 1 <= quantity <= 125:
         raise ValueError("Modbus register quantity must be in range 1..125")
+    if start_address + quantity > 0x10000:
+        raise ValueError("Modbus register range exceeds address space")
     if timeout_seconds <= 0:
         raise ValueError("Modbus timeout must be positive")
 
@@ -74,7 +86,7 @@ def read_input_registers(
         struct.pack(
             ">BBHH",
             slave_address,
-            FUNCTION_READ_INPUT_REGISTERS,
+            function_code,
             start_address,
             quantity,
         )
@@ -95,7 +107,7 @@ def read_input_registers(
             f"Unexpected slave address {response_address}; expected {slave_address}"
         )
 
-    if function == (FUNCTION_READ_INPUT_REGISTERS | 0x80):
+    if function == (function_code | 0x80):
         tail = _read_exact(port, 2, timeout_seconds)
         frame = header + tail
         if len(frame) != 5:
@@ -103,7 +115,7 @@ def read_input_registers(
         verify_crc(frame)
         raise ModbusError(f"Modbus exception 0x{third:02X}")
 
-    if function != FUNCTION_READ_INPUT_REGISTERS:
+    if function != function_code:
         raise ModbusError(f"Unexpected Modbus function 0x{function:02X}")
 
     expected_byte_count = quantity * 2
@@ -118,3 +130,37 @@ def read_input_registers(
         raise ModbusError("Incomplete Modbus response")
     verify_crc(frame)
     return list(struct.unpack(f">{quantity}H", frame[3:-2]))
+
+
+def read_holding_registers(
+    port: SerialPort,
+    slave_address: int,
+    start_address: int,
+    quantity: int,
+    timeout_seconds: float,
+) -> list[int]:
+    return _read_registers(
+        port,
+        function_code=FUNCTION_READ_HOLDING_REGISTERS,
+        slave_address=slave_address,
+        start_address=start_address,
+        quantity=quantity,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def read_input_registers(
+    port: SerialPort,
+    slave_address: int,
+    start_address: int,
+    quantity: int,
+    timeout_seconds: float,
+) -> list[int]:
+    return _read_registers(
+        port,
+        function_code=FUNCTION_READ_INPUT_REGISTERS,
+        slave_address=slave_address,
+        start_address=start_address,
+        quantity=quantity,
+        timeout_seconds=timeout_seconds,
+    )
