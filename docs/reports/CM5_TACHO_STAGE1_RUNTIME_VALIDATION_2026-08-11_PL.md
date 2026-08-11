@@ -4,7 +4,7 @@
 **Data:** 2026-08-11  
 **Host:** `wentylacja` / Raspberry Pi Compute Module 5  
 **Gałąź:** `agent/cm5-tacho-stage1`  
-**Status:** runtime STOP, RUN, timeout i odłączenie TACHO — PASS; pozostaje test odzyskania sygnału po ponownym podłączeniu oraz trwałe włączenie monitora.
+**Status:** Stage 1 kanału EXTRACT / GPIO27 — HARDWARE + RUNTIME PASS. Trwałe włączenie monitora jest gotowe do wdrożenia.
 
 ## 1. Konfiguracja stanowiska
 
@@ -13,11 +13,13 @@ sterowanie: EXTRACT / DAC CH1 / VOUT1 / DB9 pin 5
 TACHO:      GPIO27 / physical pin 13 / gpiochip0 offset 27
 ```
 
-`ventilation-core` uruchomiono z tymczasowym drop-inem systemd w `/run/systemd/system/ventilation-core.service.d/90-tacho-validation.conf` i argumentem `--enable-extract-tacho`. Trwały plik jednostki w `/etc/systemd/system` nie został jeszcze zmieniony.
+W laboratorium dostępny był jeden fizyczny wentylator EC. GPIO17 / pin 11 pozostaje zarezerwowany dla przyszłego drugiego wentylatora i nie był częścią finalnej walidacji runtime.
+
+`ventilation-core` podczas testów był uruchomiony z tymczasowym drop-inem systemd w `/run/systemd/system/ventilation-core.service.d/90-tacho-validation.conf` i argumentem `--enable-extract-tacho`.
 
 ## 2. Runtime przy STOP — PASS
 
-Po restarcie potwierdzono:
+Po restarcie z monitorem TACHO potwierdzono:
 
 ```text
 mode=STOP
@@ -38,11 +40,11 @@ tacho.extract.rpm=0.0
 input bias=disabled edges=rising consumer="ventilation-core-extract-tacho"
 ```
 
-Stały runtime poprawnie przejął zwalidowane wejście GPIO27 i publikuje prawidłowy stan STOP bez wpływu na DAC ani alarmy.
+Stały runtime poprawnie przejął GPIO27 i publikował stan STOP bez wpływu na DAC ani alarmy.
 
 ## 3. Runtime przy 5 V — PASS end-to-end
 
-Po normalnej komendzie przez `ventilation_core.ctl`:
+Po normalnej komendzie:
 
 ```text
 supply=0.0 V
@@ -55,7 +57,17 @@ potwierdzono pełną ścieżkę:
 ctl set -> DAC CH1/VOUT1 -> fizyczny wentylator -> TACHO -> GPIO27 -> libgpiod -> estimator -> CoreState.tacho.extract
 ```
 
-Pierwszy przebieg po nominalnych 5 s stabilizacji pokazał poprawne `valid=true`, lecz wentylator nadal dochodził do prędkości ustalonej. Tuż po późniejszym STOP estimator zarejestrował `71.716 Hz / 1434.3 RPM`, bardzo blisko wcześniejszej referencji oscyloskopowej `71.937 Hz / 1438.7 RPM`.
+Pierwszy przebieg po nominalnych 5 s stabilizacji dał poprawne `valid=true`, przy czym wentylator nadal dochodził do prędkości ustalonej. Tuż po późniejszym STOP estimator zarejestrował:
+
+```text
+71.716 Hz / 1434.3 RPM
+```
+
+co jest bardzo bliskie wcześniejszej referencji oscyloskopowej:
+
+```text
+71.937 Hz / 1438.7 RPM
+```
 
 ## 4. Dłuższy przebieg 12 s
 
@@ -76,11 +88,11 @@ Po 12 s stabilizacji i kolejnych pięciu odczytach 1 s otrzymano:
 1357.7 RPM
 ```
 
-Wszystkie odczyty były `valid=true`, `sample_count=6` i miały małe `age_seconds`. Bieżący przebieg był wolniejszy od wcześniejszej referencji oscyloskopowej o około 5,6%, ale nie wskazuje to na błąd zliczania impulsów: częstotliwość była stabilna, przelicznik RPM pozostaje zgodny z 3 impulsami/obrót, a rzeczywista prędkość wentylatora może różnić się pomiędzy przebiegami. Kalibracja `command voltage -> expected RPM` nie jest częścią Stage 1 i wymaga osobnej charakterystyki produkcyjnej.
+Wszystkie odczyty były `valid=true`, `sample_count=6` i miały małe `age_seconds`. Różnice pomiędzy przebiegami nie wskazują na błąd zliczania impulsów. Kalibracja `command voltage -> expected RPM` nie jest częścią Stage 1.
 
 ## 5. Runtime timeout po STOP — PASS
 
-Po komendzie STOP odczyty były:
+Po komendzie STOP:
 
 ```text
 mode=STOP cmd=0.0V valid=True  Hz=68.145 RPM=1362.9 age=0.006s
@@ -88,19 +100,19 @@ mode=STOP cmd=0.0V valid=True  Hz=69.395 RPM=1387.9 age=0.058s
 mode=STOP cmd=0.0V valid=False Hz=0.000  RPM=0.0    age=0.314s
 ```
 
-Następnie `valid=false`, `0 Hz / 0 RPM` utrzymywało się do końca obserwacji, a `age_seconds` wzrosło monotonicznie do około `5.966 s`.
+Następnie `valid=false`, `0 Hz / 0 RPM` utrzymywało się do końca obserwacji, a `age_seconds` wzrosło do około `5.966 s`.
 
-To jednoznacznie potwierdza działanie timeoutu `0.25 s`:
+Timeout `0.25 s` działa zgodnie z projektem:
 
-- poniżej progu (`age=0.058 s`) odczyt pozostaje ważny,
-- po przekroczeniu progu (`age=0.314 s`) odczyt staje się nieważny,
+- przy `age=0.058 s` odczyt pozostaje ważny,
+- przy `age=0.314 s` jest już nieważny,
 - brak fałszywego powrotu do `valid=true` po zaniku impulsów.
 
 ## 6. Odłączenie sygnału TACHO przy zachowaniu sterowania — PASS
 
-W celu sprawdzenia separacji failure-domain odłączono fizycznie wyłącznie przewód sygnałowy TACHO. Zasilanie wentylatora, wspólna masa i sterowanie 0–10 V pozostały bez zmian.
+Odłączono fizycznie wyłącznie przewód sygnałowy TACHO. Zasilanie wentylatora, wspólna masa i sterowanie 0–10 V pozostały bez zmian.
 
-Przed startem, przy odłączonym TACHO:
+Przed startem:
 
 ```text
 mode=STOP
@@ -111,14 +123,7 @@ hardware_ready=true
 active_alarms=[]
 ```
 
-Następnie wydano:
-
-```text
-supply=0.0 V
-extract=5.0 V
-```
-
-Użytkownik potwierdził fizycznie, że wentylator normalnie pracował.
+Następnie wydano `extract=5.0 V`. Użytkownik potwierdził fizycznie, że wentylator normalnie pracował.
 
 Po około 8 s runtime raportował:
 
@@ -135,50 +140,77 @@ tacho_last_error=null
 tacho_valid=false
 tacho_hz=0.0
 tacho_rpm=0.0
-tacho_age=585.274 s
 ```
 
-Długi `tacho_age` jest poprawny: pole oznacza wiek ostatniego rzeczywistego zbocza, a nie czas od momentu fizycznego odłączenia przewodu. Po odłączeniu monitor nie generuje sztucznych impulsów i pozostaje żywy.
+Długi `tacho_age` był oczekiwany — pole oznacza wiek ostatniego rzeczywistego zbocza.
 
-### Wniosek
+Wniosek: utrata TACHO jest poprawnie odseparowana od sterowania. Brak sygnału nie zatrzymuje wentylatora, nie generuje `FAULT` i nie wpływa na SENSOR BUS.
 
-Utrata sygnału TACHO jest poprawnie odseparowana od sterowania:
+## 7. Odzyskanie sygnału bez restartu core — PASS
 
-- wentylator nadal pracuje na zadanym 5 V,
-- DAC pozostaje gotowy,
-- `output_state_known=true`,
-- nie powstaje alarm,
-- tryb pozostaje `MANUAL`,
-- SENSOR BUS pozostaje gotowy,
-- worker TACHO pozostaje `ready/worker_alive`,
-- jedynym skutkiem jest brak ważnego feedbacku: `valid=false`, `0 Hz`, `0 RPM`.
+Po zatrzymaniu wentylatora przewód TACHO został ponownie podłączony do GPIO27. `ventilation-core` nie był restartowany.
 
-To potwierdza wymaganą dla Stage 1 zasadę: TACHO jest read-only feedbackiem i jego brak nie może samodzielnie zatrzymywać wentylatora ani wymuszać `FAULT`.
+Stan przed ponownym uruchomieniem:
 
-## 7. Zbiorczy wynik Stage 1 dla kanału EXTRACT
+```text
+worker_alive: True
+last_error: None
+valid: False
+Hz: 0.0
+RPM: 0.0
+age: 817.683 s
+```
 
-Zwalidowano:
+Po `extract=5.0 V` ten sam worker automatycznie odzyskał sygnał i raportował kolejno:
 
-- sprzętowy tor wejściowy GPIO27,
-- odbiór realnych zboczy TACHO,
-- 3 impulsy/obrót i `RPM = Hz * 20`,
+```text
+53.650 Hz -> 1073.0 RPM
+62.562 Hz -> 1251.2 RPM
+64.387 Hz -> 1287.7 RPM
+64.873 Hz -> 1297.5 RPM
+65.246 Hz -> 1304.9 RPM
+```
+
+W każdej próbce:
+
+```text
+valid=true
+sample_count=6
+worker_alive=true
+last_error=null
+```
+
+Potwierdza to automatyczne przejście `valid=false -> valid=true` po przywróceniu fizycznego sygnału, bez restartu procesu i bez ręcznej rekonfiguracji GPIO.
+
+## 8. Zbiorczy wynik Stage 1 dla EXTRACT
+
+Zwalidowano na rzeczywistym CM5:
+
+- tor wejściowy `10 kΩ pull-up do 3,3 V + 1 kΩ + 1 nF`,
+- GPIO27 / pin 13 / gpiochip0 offset 27,
+- wejście z `bias=disabled`, zbocza narastające,
+- 3 impulsy/obrót,
+- `RPM = Hz * 20`,
 - brak fałszywych zboczy przy STOP,
-- poprawny timeout `0.25 s`,
-- poprawną publikację `CoreState.tacho.extract`,
-- pełną ścieżkę end-to-end DAC -> wentylator -> TACHO -> CoreState,
-- niezależność TACHO od DAC, SENSOR BUS i trybu sterowania,
-- bezpieczne zachowanie po fizycznej utracie sygnału TACHO.
+- realny pomiar Hz/RPM,
+- timeout `0.25 s`,
+- publikację `CoreState.tacho.extract`,
+- pełną ścieżkę end-to-end od komendy DAC do feedbacku RPM,
+- brak wpływu utraty TACHO na DAC, tryb sterowania, SENSOR BUS i alarmy,
+- automatyczne odzyskanie sygnału po ponownym podłączeniu,
+- `159/159` testów jednostkowych na CM5.
 
-Kanał EXTRACT / GPIO27 spełnia wymagania Stage 1 dla read-only feedbacku.
+**Kanał EXTRACT / GPIO27 spełnia wymagania Stage 1 i jest gotowy do trwałego read-only uruchomienia w `ventilation-core.service`.**
 
-## 8. Ostatni krok przed trwałym włączeniem
+## 9. Granice Stage 1
 
-Przed zmianą trwałej jednostki systemd należy jeszcze wykonać krótki test odzyskania sygnału:
+W tym etapie TACHO pozostaje wyłącznie feedbackiem. Nie wdrażamy jeszcze:
 
-1. przy zatrzymanym wentylatorze ponownie podłączyć przewód TACHO do GPIO27,
-2. uruchomić EXTRACT = 5 V,
-3. potwierdzić, że ten sam istniejący worker bez restartu przechodzi z `valid=false` do `valid=true` i ponownie raportuje Hz/RPM,
-4. wykonać STOP,
-5. po PASS włączyć `--enable-extract-tacho` w trwałej jednostce systemd i usunąć tymczasowy drop-in z `/run`.
+- alarmu braku obrotów przy aktywnej komendzie,
+- diagnostyki under-speed / over-speed,
+- charakterystyki `0–10 V -> expected RPM`,
+- diagnostyki trendu łożysk / tarcia,
+- sterowania zamkniętego po RPM,
+- drugiego kanału TACHO.
 
-Drugi kanał TACHO pozostaje poza bieżącą walidacją do czasu dostępności drugiego fizycznego wentylatora.
+Drugi kanał będzie zwalidowany po dostępności drugiego fizycznego wentylatora.
