@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ventilation_core.application.service import VentilationService
+from ventilation_core.domain.aero_control import AeroControlCommand
 
 
 LOGGER = logging.getLogger(__name__)
@@ -82,10 +83,19 @@ class CoreServer:
             response = await self._dispatch(request)
         except Exception as exc:
             response = {"ok": False, "error": str(exc)}
-        writer.write((json.dumps(response) + "\n").encode("utf-8"))
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+
+        payload = (json.dumps(response) + "\n").encode("utf-8")
+        try:
+            writer.write(payload)
+            await writer.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            LOGGER.debug("Unix socket client disconnected before response delivery completed")
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     async def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         command = request.get("command")
@@ -104,6 +114,24 @@ class CoreServer:
                 "ok": True,
                 "aero_bus": None if aero_bus is None else aero_bus.to_dict(),
             }
+        if command == "aero-speed":
+            speed = request["speed"]
+            if isinstance(speed, bool) or not isinstance(speed, int):
+                raise ValueError("AERO speed must be an integer 0..3")
+            result = await asyncio.to_thread(
+                self._service.control_aero,
+                AeroControlCommand.set_speed(speed),
+            )
+            return {"ok": result.succeeded, "aero_control": result.to_dict()}
+        if command == "aero-airing":
+            enabled = request["enabled"]
+            if not isinstance(enabled, bool):
+                raise ValueError("AERO airing state must be boolean")
+            result = await asyncio.to_thread(
+                self._service.control_aero,
+                AeroControlCommand.set_airing(enabled),
+            )
+            return {"ok": result.succeeded, "aero_control": result.to_dict()}
         if command == "set":
             state = await asyncio.to_thread(
                 self._service.set_manual,

@@ -18,6 +18,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status")
     subparsers.add_parser("sensors")
     subparsers.add_parser("aero")
+
+    aero_speed = subparsers.add_parser("aero-speed")
+    aero_speed.add_argument("speed", type=int, choices=(0, 1, 2, 3))
+
+    aero_airing = subparsers.add_parser("aero-airing")
+    aero_airing.add_argument("state", choices=("on", "off"))
+
     set_command = subparsers.add_parser("set")
     set_command.add_argument("--supply", type=float, required=True)
     set_command.add_argument("--extract", type=float, required=True)
@@ -33,6 +40,10 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
             "supply_voltage": args.supply,
             "extract_voltage": args.extract,
         }
+    if args.command == "aero-speed":
+        return {"command": "aero-speed", "speed": args.speed}
+    if args.command == "aero-airing":
+        return {"command": "aero-airing", "enabled": args.state == "on"}
     return {"command": args.command}
 
 

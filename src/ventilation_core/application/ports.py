@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from ventilation_core.domain.aero import AeroBusState
+from ventilation_core.domain.aero_control import AeroControlCommand, AeroControlResult
 from ventilation_core.domain.models import FanSetpoints
 from ventilation_core.domain.sensors import SensorBusState
 
@@ -35,6 +36,8 @@ class SensorBusMonitor(Protocol):
 
 class AeroBusMonitor(Protocol):
     def state(self) -> AeroBusState: ...
+
+    def execute_control(self, command: AeroControlCommand) -> AeroControlResult: ...
 
     def health_check(self) -> None: ...
 
