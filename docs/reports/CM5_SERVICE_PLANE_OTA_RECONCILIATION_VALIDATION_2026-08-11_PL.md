@@ -123,7 +123,7 @@ Heartbeat obu węzłów jest poprawnie uwierzytelniany i odbierany przez Service
 
 ## 5. OTA read-only postcheck
 
-`wvc-servicectl ota-status sensor-node-1` zwrócił poprawnie aktualny zdalny stan:
+Node 1:
 
 ```text
 firmware: 0.5.1-stage1-fix1
@@ -133,7 +133,7 @@ image_state: valid
 state: idle
 ```
 
-Historia operacji node 1 zawiera oczekiwany wcześniejszy test rollback:
+Historia node 1 zawiera oczekiwany wcześniejszy test rollback:
 
 ```text
 state: rolled_back
@@ -141,7 +141,7 @@ image: 0.5.2-stage1-rollback-test
 final firmware: 0.5.1-stage1-fix1
 ```
 
-`wvc-servicectl ota-status sensor-node-2` zwrócił:
+Node 2:
 
 ```text
 state history: succeeded
@@ -155,8 +155,6 @@ state: idle
 Nie uruchamiano nowej aktualizacji OTA i nie flashowano żadnego węzła podczas reconciliation.
 
 ## 6. SENSOR BUS postcheck
-
-Po reconciliation oba urządzenia produkcyjnego SENSOR BUS pozostają zdrowe:
 
 ```text
 /dev/ttyAMA0
@@ -183,7 +181,7 @@ stale_measurements: 0
 map_version_errors: 0
 ```
 
-W momencie końcowego postchecku każdy węzeł miał ponad 11 000 poprawnych odpytań bez błędów komunikacji.
+W końcowym postchecku każdy węzeł miał ponad 11 000 poprawnych odpytań bez błędów komunikacji.
 
 ## 7. Izolacja pozostałych domen
 
@@ -197,8 +195,6 @@ wvc-sensor-dhcp.service
 wvc-sensor-firewall.service
 ```
 
-Reconciliation nie spowodowało restartu ani degradacji `ventilation-core`, SENSOR BUS, telemetryki ani advisory.
-
 ## 8. Wniosek
 
 **CM5 Service Plane / OTA Reconciliation: PASS.**
@@ -209,4 +205,4 @@ Aktualna gałąź reconciliation zawiera spójny zestaw funkcji odpowiadający r
 core + DAC + SENSOR BUS + Wi-Fi service-plane + OTA + AI telemetry + AI advisory
 ```
 
-Stare stacked PR-y #11–#14 mogą zostać zamknięte jako zastąpione przez PR #17. PR #17 powinien pozostać Draft do osobnej decyzji o merge do `main`.
+Stare stacked PR-y #11–#14 zostały zamknięte jako zastąpione przez PR #17. PR #17 pozostaje Draft do osobnej decyzji o merge do `main`.
