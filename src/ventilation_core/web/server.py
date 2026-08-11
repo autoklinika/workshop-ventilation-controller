@@ -54,7 +54,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
                 {"ok": False, "error": "Content-Length required"},
             )
             return
-        try:
+n        try:
             length = int(length_header)
         except ValueError:
             self._send_json(
@@ -116,7 +116,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, request_path: str) -> None:
         relative = "index.html" if request_path in ("", "/") else request_path.lstrip("/")
-        if relative not in {"index.html", "styles.css", "app.js"}:
+        if relative not in {"index.html", "styles.css", "app.js", "tacho.js"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
 
