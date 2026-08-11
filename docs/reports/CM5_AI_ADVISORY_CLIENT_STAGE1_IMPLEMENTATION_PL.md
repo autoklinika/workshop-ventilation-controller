@@ -193,6 +193,8 @@ OK
 
 **Test suite CM5: PASS.**
 
+Po walidacji dodano `.gitignore` dla artefaktów Pythona (`__pycache__`, `*.py[cod]`, `.pytest_cache`, `.venv`, `*.egg-info`), aby kolejne `compileall`/testy nie brudziły repozytorium.
+
 Testy obejmują m.in.:
 
 - poprawny GET i query `source_id`,
