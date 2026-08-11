@@ -4,7 +4,7 @@
 **Data:** 2026-08-11  
 **Host:** `wentylacja` / Raspberry Pi Compute Module 5  
 **Gałąź:** `agent/cm5-tacho-stage1`  
-**Status:** dynamiczny pomiar kanału EXTRACT na GPIO27 — PASS; test STOP/timeout na finalnym GPIO27 pozostaje do wykonania.
+**Status:** kanał EXTRACT `CH1/VOUT1 + GPIO27` zwalidowany dynamicznie i testem STOP/timeout — **HARDWARE PASS**.
 
 ## 1. Konfiguracja stanowiska
 
@@ -15,7 +15,7 @@ sterowanie: EXTRACT / DAC CH1 / VOUT1 / DB9 pin 5
 TACHO:      GPIO27 / physical pin 13 / gpiochip0 offset 27
 ```
 
-Przewód TACHO tego samego wentylatora został fizycznie przepięty z GPIO17 na GPIO27. GPIO17 pozostaje zarezerwowany dla przyszłego drugiego wentylatora i nie jest częścią tego testu.
+Przewód TACHO tego samego wentylatora został fizycznie przepięty z GPIO17 na GPIO27. GPIO17 pozostaje zarezerwowany dla przyszłego drugiego wentylatora i nie jest częścią finalnej walidacji bieżącego kanału.
 
 Narzędzie uruchomiono w trybie jednego kanału:
 
@@ -101,26 +101,106 @@ Odchyłka częstotliwości względem punktu referencyjnego:
 
 Różnica tej wielkości nie wskazuje na błąd liczenia impulsów ani problem z GPIO. Wentylator był mierzony w innym przebiegu czasowym niż pomiar oscyloskopowy i rzeczywista prędkość dla tej samej komendy 5 V może się nieznacznie różnić.
 
-## 4. Wnioski
+## 4. Test STOP / timeout na finalnym GPIO27
 
-Dynamiczny test kanału EXTRACT na docelowym wejściu GPIO27 jest zaliczony:
+Wentylator ponownie uruchomiono przez:
 
-- `GPIO27` poprawnie odbiera zbocza TACHO,
-- `libgpiod` poprawnie raportuje timestampy zdarzeń,
+```text
+supply=0.0 V
+extract=5.0 V
+```
+
+Po 5 s stabilizacji rozpoczęto 12-sekundowy capture wyłącznie GPIO27 z wydrukiem co 0,5 s. Po 4 s capture wykonano `ventilation_core.ctl stop`.
+
+Przed STOP odczyt ustabilizował się kolejno do około:
+
+```text
+70.086 Hz -> 1401.7 RPM
+70.081 Hz -> 1401.6 RPM
+70.148 Hz -> 1403.0 RPM
+70.296 Hz -> 1405.9 RPM
+```
+
+Pierwszy wydruk po zaniku impulsów:
+
+```text
+EXTRACT  NO VALID TACHO  age=0.295s
+```
+
+Następnie `NO VALID TACHO` utrzymywało się bez żadnego fałszywego powrotu do stanu valid aż do końca capture:
+
+```text
+age=0.795s
+...
+age=7.795s
+FINAL: NO VALID TACHO
+```
+
+### Interpretacja timeoutu
+
+Estimator używa timeoutu:
+
+```text
+0.25 s
+```
+
+Pierwszy zaobserwowany nieważny odczyt przy `age=0.295 s` jest zgodny z tym progiem oraz z rozdzielczością wydruku 0,5 s.
+
+Test potwierdza:
+
+- po STOP elektryczny sygnał TACHO przestaje generować zbocza,
+- po przekroczeniu 0,25 s od ostatniego zbocza estimator przechodzi do invalid/0 RPM,
+- po przejściu do invalid nie pojawiają się fałszywe zbocza ani chwilowe ponowne valid,
+- GPIO27 pozostaje stabilnym wejściem także podczas przejścia RUN -> STOP.
+
+Nie należy utożsamiać `age=0.295 s` z mechanicznym czasem zatrzymania wirnika. Jest to czas od ostatniego zarejestrowanego zbocza TACHO do chwili wydruku stanu nieważnego.
+
+## 5. Wynik sprzętowy kanału EXTRACT
+
+Para:
+
+```text
+sterowanie: EXTRACT / CH1 / VOUT1 / DB9 pin 5
+feedback:   EXTRACT TACHO / GPIO27 / pin 13
+```
+
+otrzymuje status:
+
+**HARDWARE PASS**.
+
+Potwierdzono:
+
+- GPIO27 poprawnie odbiera rzeczywiste zbocza TACHO,
+- `libgpiod` poprawnie raportuje monotoniczne timestampy zdarzeń,
 - estimator stabilnie wyznacza częstotliwość,
 - przelicznik `RPM = Hz * 20` działa zgodnie z 3 impulsami na obrót,
-- wynik jest zgodny co do rzędu i charakterystyki z wcześniejszym pomiarem oscyloskopowym,
-- tryb `--only extract` prawidłowo izoluje pojedynczy kanał laboratoryjny,
-- para `EXTRACT / CH1 / VOUT1 + GPIO27` jest potwierdzona dynamicznie na rzeczywistym CM5.
+- dynamiczny wynik 5 V jest zgodny z wcześniejszą charakterystyką oscyloskopową,
+- tryb `--only extract` prawidłowo izoluje pojedynczy kanał,
+- STOP powoduje prawidłowe przejście do `NO VALID TACHO`,
+- brak fałszywych impulsów po zatrzymaniu.
 
-## 5. Następny krok
+## 6. Integracja runtime po Hardware PASS
 
-Przed uznaniem kanału EXTRACT za całkowicie zamknięty sprzętowo należy powtórzyć na GPIO27 test zaniku TACHO po `STOP`:
+Po zakończeniu sprzętowej walidacji rozpoczęto integrację read-only kanału EXTRACT z `ventilation-core`.
 
-1. uruchomić EXTRACT na 5 V,
-2. rozpocząć capture GPIO27,
-3. wykonać `ventilationctl stop` podczas capture,
-4. potwierdzić przejście z prawidłowego Hz/RPM do `NO VALID TACHO`,
-5. potwierdzić brak błędu dostępu do GPIO i poprawne działanie timeoutu estimatora.
+Założenia bezpieczeństwa integracji:
 
-Po tym teście można przejść do integracji zwalidowanego kanału EXTRACT z `CoreState` jako read-only feedback. Kanał drugiego wentylatora pozostanie nieaktywny/niezwalidowany do czasu dostępności drugiego fizycznego wentylatora.
+- tylko `EXTRACT / GPIO27` jest obecnie integrowany,
+- GPIO17 pozostaje nieaktywny w runtime do czasu drugiego wentylatora,
+- TACHO nie zmienia setpointów,
+- TACHO nie może wymuszać `FAULT`,
+- TACHO nie zeruje DAC,
+- błąd monitora TACHO jest niezależny od DAC/SENSOR/AERO,
+- feedback będzie widoczny w `CoreState.tacho`.
+
+Runtime TACHO pozostaje opt-in przez `--enable-extract-tacho` do czasu przejścia testów software i kontrolowanej walidacji usługi systemd na rzeczywistym CM5.
+
+## 7. Następny krok
+
+1. uruchomić pełny zestaw testów repo na aktualnym HEAD gałęzi,
+2. potwierdzić nowe testy TACHO runtime,
+3. dopiero po PASS włączyć `--enable-extract-tacho` w produkcyjnej jednostce `ventilation-core.service`,
+4. po kontrolowanym restarcie potwierdzić `CoreState.tacho.extract` przy STOP i przy 5 V,
+5. potwierdzić, że awaria/odłączenie TACHO nie wpływa na DAC, SENSOR BUS ani AERO BUS.
+
+Drugi kanał TACHO zostanie zwalidowany dopiero po dostępności drugiego fizycznego wentylatora.
