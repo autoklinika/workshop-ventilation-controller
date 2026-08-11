@@ -56,6 +56,23 @@ class TachoEstimatorTests(unittest.TestCase):
         self.assertAlmostEqual(reading.frequency_hz, 100.0, places=6)
         self.assertAlmostEqual(reading.rpm, 2000.0, places=5)
 
+    def test_restart_after_timeout_does_not_average_the_stopped_gap(self) -> None:
+        estimator = TachoEstimator(averaging_periods=6, timeout_seconds=0.25)
+        estimator.add_edge(1.000)
+        estimator.add_edge(1.010)
+        self.assertTrue(estimator.read(1.010).valid)
+        self.assertFalse(estimator.read(1.500).valid)
+
+        first_after_stop = estimator.add_edge(2.000)
+        self.assertFalse(first_after_stop.valid)
+        self.assertEqual(first_after_stop.sample_count, 0)
+
+        reading = estimator.add_edge(2.010)
+        self.assertTrue(reading.valid)
+        self.assertAlmostEqual(reading.frequency_hz, 100.0, places=6)
+        self.assertAlmostEqual(reading.rpm, 2000.0, places=5)
+        self.assertEqual(reading.sample_count, 1)
+
     def test_rejects_non_monotonic_timestamps(self) -> None:
         estimator = TachoEstimator()
         estimator.add_edge(2.0)
