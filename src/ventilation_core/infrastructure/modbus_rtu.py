@@ -7,6 +7,7 @@ from typing import Protocol
 
 FUNCTION_READ_HOLDING_REGISTERS = 0x03
 FUNCTION_READ_INPUT_REGISTERS = 0x04
+FUNCTION_WRITE_SINGLE_REGISTER = 0x06
 
 
 class SerialPort(Protocol):
@@ -57,6 +58,20 @@ def _read_exact(port: SerialPort, size: int, timeout_seconds: float) -> bytes:
     return bytes(result)
 
 
+def _validate_common_request(
+    *,
+    slave_address: int,
+    register_address: int,
+    timeout_seconds: float,
+) -> None:
+    if not 1 <= slave_address <= 247:
+        raise ValueError("Modbus slave address must be in range 1..247")
+    if not 0 <= register_address <= 0xFFFF:
+        raise ValueError("Modbus register address must be in range 0..65535")
+    if timeout_seconds <= 0:
+        raise ValueError("Modbus timeout must be positive")
+
+
 def _read_registers(
     port: SerialPort,
     *,
@@ -71,16 +86,15 @@ def _read_registers(
         FUNCTION_READ_INPUT_REGISTERS,
     ):
         raise ValueError(f"Unsupported Modbus read function 0x{function_code:02X}")
-    if not 1 <= slave_address <= 247:
-        raise ValueError("Modbus slave address must be in range 1..247")
-    if not 0 <= start_address <= 0xFFFF:
-        raise ValueError("Modbus start address must be in range 0..65535")
+    _validate_common_request(
+        slave_address=slave_address,
+        register_address=start_address,
+        timeout_seconds=timeout_seconds,
+    )
     if not 1 <= quantity <= 125:
         raise ValueError("Modbus register quantity must be in range 1..125")
     if start_address + quantity > 0x10000:
         raise ValueError("Modbus register range exceeds address space")
-    if timeout_seconds <= 0:
-        raise ValueError("Modbus timeout must be positive")
 
     request = append_crc(
         struct.pack(
@@ -164,3 +178,72 @@ def read_input_registers(
         quantity=quantity,
         timeout_seconds=timeout_seconds,
     )
+
+
+def write_single_register(
+    port: SerialPort,
+    *,
+    slave_address: int,
+    register_address: int,
+    value: int,
+    timeout_seconds: float,
+) -> None:
+    """Write one holding register with FC06 and require an exact protocol echo."""
+
+    _validate_common_request(
+        slave_address=slave_address,
+        register_address=register_address,
+        timeout_seconds=timeout_seconds,
+    )
+    if not 0 <= value <= 0xFFFF:
+        raise ValueError("Modbus register value must be in range 0..65535")
+
+    request_without_crc = struct.pack(
+        ">BBHH",
+        slave_address,
+        FUNCTION_WRITE_SINGLE_REGISTER,
+        register_address,
+        value,
+    )
+    request = append_crc(request_without_crc)
+
+    port.reset_input_buffer()
+    written = port.write(request)
+    if written != len(request):
+        raise ModbusError(f"Incomplete Modbus request write: {written}/{len(request)} bytes")
+    port.flush()
+
+    header = _read_exact(port, 2, timeout_seconds)
+    if len(header) != 2:
+        raise ModbusError("No response or incomplete Modbus write header")
+
+    response_address, function = header
+    if response_address != slave_address:
+        raise ModbusError(
+            f"Unexpected slave address {response_address}; expected {slave_address}"
+        )
+
+    if function == (FUNCTION_WRITE_SINGLE_REGISTER | 0x80):
+        tail = _read_exact(port, 3, timeout_seconds)
+        frame = header + tail
+        if len(frame) != 5:
+            raise ModbusError("Incomplete Modbus exception response")
+        verify_crc(frame)
+        raise ModbusError(f"Modbus exception 0x{frame[2]:02X}")
+
+    if function != FUNCTION_WRITE_SINGLE_REGISTER:
+        raise ModbusError(f"Unexpected Modbus function 0x{function:02X}")
+
+    tail = _read_exact(port, 6, timeout_seconds)
+    frame = header + tail
+    if len(frame) != 8:
+        raise ModbusError("Incomplete Modbus FC06 echo response")
+    verify_crc(frame)
+
+    if frame != request:
+        echoed_register, echoed_value = struct.unpack(">HH", frame[2:6])
+        raise ModbusError(
+            "FC06 echo mismatch: "
+            f"register={echoed_register} value={echoed_value}; "
+            f"expected register={register_address} value={value}"
+        )
