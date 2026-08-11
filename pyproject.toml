@@ -13,6 +13,7 @@ dependencies = ["pyserial>=3.5"]
 ventilation-core = "ventilation_core.main:main"
 ventilationctl = "ventilation_core.ctl:main"
 ventilation-telemetry-sync = "ventilation_core.telemetry.main:main"
+ventilation-ai-advisory = "ventilation_core.advisory.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
