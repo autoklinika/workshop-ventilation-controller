@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only CM5 EC-fan TACHO diagnostic using libgpiod 2.x.
 
-The tool intentionally stays outside ventilation-core runtime integration.  It is
+The tool intentionally stays outside ventilation-core runtime integration. It is
 for the first hardware validation of the two TACHO inputs only.
 
 Expected project wiring:
@@ -10,7 +10,7 @@ Expected project wiring:
     EXTRACT TACHO -> GPIO27 / physical pin 13
 
 Each line is externally conditioned with 10 kOhm pull-up to 3.3 V, 1 kOhm
-series resistance and 1 nF to GND.  Therefore the GPIO request explicitly
+series resistance and 1 nF to GND. Therefore the GPIO request explicitly
 disables the SoC internal bias and listens only for rising edges.
 """
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import os
 import sys
 import time
 from pathlib import Path
@@ -47,8 +48,20 @@ def load_gpiod() -> ModuleType:
     return gpiod
 
 
+def _device_identity(path: str) -> tuple[str, int | str]:
+    """Return an identity that collapses symlinks/aliases to one device node."""
+    try:
+        return ("rdev", int(os.stat(path, follow_symlinks=True).st_rdev))
+    except OSError:
+        return ("path", os.path.realpath(path))
+
+
 def gpiochip_paths() -> tuple[str, ...]:
-    return tuple(sorted(glob.glob("/dev/gpiochip*")))
+    """List unique GPIO character devices, ignoring aliases of the same device."""
+    unique: dict[tuple[str, int | str], str] = {}
+    for path in sorted(glob.glob("/dev/gpiochip*")):
+        unique.setdefault(_device_identity(path), path)
+    return tuple(unique.values())
 
 
 def resolve_chip_and_offsets(
@@ -82,7 +95,8 @@ def resolve_chip_and_offsets(
     if len(matches) > 1 and requested_chip is None:
         paths_text = ", ".join(match[0] for match in matches)
         raise TachoDiagnosticError(
-            f"GPIO line names are ambiguous across chips ({paths_text}); rerun with --chip PATH"
+            f"GPIO line names are ambiguous across distinct chips ({paths_text}); "
+            "rerun with --chip PATH"
         )
     return matches[0]
 
@@ -107,8 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--chip",
         help=(
-            "GPIO chip path, e.g. /dev/gpiochip0. Default: auto-detect one chip "
-            "containing both named lines."
+            "GPIO chip path, e.g. /dev/gpiochip0. Default: auto-detect one unique "
+            "device containing both named lines."
         ),
     )
     parser.add_argument("--supply-line", default=DEFAULT_SUPPLY_LINE)
@@ -170,10 +184,6 @@ def run(args: argparse.Namespace) -> int:
         supply_offset: TachoEstimator(),
         extract_offset: TachoEstimator(),
     }
-    names = {
-        supply_offset: "SUPPLY",
-        extract_offset: "EXTRACT",
-    }
 
     start = time.monotonic()
     deadline = start + args.duration
@@ -226,6 +236,8 @@ def main() -> int:
     except (TachoDiagnosticError, ValueError, KeyboardInterrupt) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+
+    return 0
 
 
 if __name__ == "__main__":
