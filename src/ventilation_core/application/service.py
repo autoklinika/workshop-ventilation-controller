@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from threading import RLock
 
+from ventilation_core.domain.aero_control import AeroControlCommand, AeroControlResult
 from ventilation_core.domain.models import (
     AlarmCode,
     AlarmSeverity,
@@ -22,6 +23,10 @@ LOGGER = logging.getLogger(__name__)
 
 class HardwareFaultActiveError(RuntimeError):
     """Raised when a fan command is rejected because DAC state is not trustworthy."""
+
+
+class AeroControlUnavailableError(RuntimeError):
+    """Raised when AERO BUS cannot safely accept a control command."""
 
 
 class VentilationService:
@@ -76,6 +81,17 @@ class VentilationService:
             )
             self._output_state_known = True
             return self.state()
+
+    def control_aero(self, command: AeroControlCommand) -> AeroControlResult:
+        with self._lock:
+            if self._aero_bus is None:
+                raise AeroControlUnavailableError("AERO BUS is not configured")
+            state = self._aero_bus.state()
+            if not state.worker_alive or not state.ready or not state.online or not state.usable:
+                raise AeroControlUnavailableError("AERO BUS is not ready for control")
+            if state.control_busy:
+                raise AeroControlUnavailableError("AERO control command already in progress")
+            return self._aero_bus.execute_control(command)
 
     def stop(self) -> CoreState:
         with self._lock:
