@@ -83,6 +83,10 @@ class WebTachoContractTest(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertNotIn("tacho", match.group(1).lower())
 
+    def test_http_static_whitelist_includes_tacho_script(self):
+        server = (ROOT / "src/ventilation_core/web/server.py").read_text(encoding="utf-8")
+        self.assertIn('"tacho.js"', server)
+
 
 if __name__ == "__main__":
     unittest.main()
