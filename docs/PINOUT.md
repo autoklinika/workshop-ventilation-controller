@@ -137,6 +137,67 @@ Nie wolno łączyć wyjścia 3,3 V DFR0570 z pinami 3,3 V CM5.
 
 > `-` po stronie UART DFR0845 jest masą logiczną. `GND` przy zaciskach `A/B` znajduje się po izolowanej stronie RS-485. Nie należy zwierać tych dwóch mas lokalnie przy module DFR0845.
 
+## Wejścia TACHO wentylatorów EC
+
+Dwa wolne wejścia z 40-pinowego złącza CM5 IO Board pozostają zarezerwowane dla dwóch torów TACHO:
+
+| Funkcja | GPIO | Pin fizyczny CM5 | Kierunek | Status |
+|---|---:|---:|---|---|
+| `TACHO_INPUT_1` | GPIO17 | 11 | wejście | wolny drugi kanał, niezwalidowany z osobnym wentylatorem |
+| `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście | dynamicznie zwalidowany z laboratoryjnym wentylatorem na CH1/VOUT1; test STOP na finalnym GPIO27 pozostaje do wykonania |
+
+Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15) ani AERO BUS UART4 (GPIO12/13).
+
+### Aktualne stanowisko jednego wentylatora
+
+W laboratorium dostępny jest obecnie jeden fizyczny wentylator. Dla dalszej walidacji Stage 1 przyjmujemy jednoznacznie:
+
+```text
+sterowanie wentylatora: EXTRACT / DAC CH1 / VOUT1 / DB9 pin 5
+pomiar TACHO:           GPIO27 / pin 13
+```
+
+Wcześniejszy test tego samego wentylatora na GPIO17 potwierdził sam mechanizm pomiaru TACHO, ale nie jest już traktowany jako docelowe przypisanie kanału. Po fizycznym przepięciu przewodu TACHO do GPIO27 dalsze testy należy wykonywać na parze `EXTRACT + GPIO27`.
+
+Na GPIO27 przy `extract=5.0 V` uzyskano średnio około `70.575 Hz / 1411.5 RPM` z 14 stabilnych próbek, czyli około `-1.89%` względem wcześniejszego punktu oscyloskopowego `71.937 Hz / 1438.7 RPM`.
+
+GPIO17 pozostaje zarezerwowany dla drugiego wentylatora, którego nie ma obecnie na stanowisku. Jego ostateczne przypisanie `SUPPLY` zostanie potwierdzone dopiero po walidacji z drugim fizycznym wentylatorem.
+
+Tor wejściowy każdego TACHO:
+
+```text
+                      +3.3 V
+                         |
+                       10 kΩ
+                         |
+TACHO FAN --------------+
+                         |
+                        1 kΩ
+                         |
+                         +---------- GPIO CM5
+                         |
+                        1 nF
+                         |
+                        GND
+```
+
+Założenia potwierdzone pomiarami z 2026-08-11:
+
+- wyjście TACHO typu open-collector,
+- pull-up 10 kΩ do 3,3 V,
+- 1 kΩ szeregowo przed GPIO,
+- 1 nF ceramiczny do GND,
+- 3 impulsy na obrót,
+- `RPM = TACHO_HZ * 20`.
+
+Do testu jednego wentylatora po przepięciu TACHO na GPIO27 używać:
+
+```bash
+PYTHONPATH=src python3 tools/hardware/tacho_cli.py \
+  --chip /dev/gpiochip0 \
+  --only extract
+```
+
 ## Złącza RJ45 dla magistral
 
 Złącza RJ45 w projekcie wykorzystują przewód i mechanikę RJ45, ale **nie są interfejsami Ethernet/LAN**.

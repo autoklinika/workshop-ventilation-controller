@@ -17,6 +17,7 @@ from ventilation_core.infrastructure.sensor_bus_worker import (
     ProcessSensorBus,
     SensorBusConfig,
 )
+from ventilation_core.infrastructure.tacho_monitor import ExtractTachoConfig, ExtractTachoMonitor
 from ventilation_core.runtime.server import CoreServer
 
 
@@ -69,6 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--aero-reconnect-delay", type=float, default=1.0)
     parser.add_argument("--disable-aero-bus", action="store_true")
 
+    parser.add_argument(
+        "--enable-extract-tacho",
+        action="store_true",
+        help="Enable read-only EXTRACT TACHO feedback on the validated GPIO input",
+    )
+    parser.add_argument("--tacho-chip", default="/dev/gpiochip0")
+    parser.add_argument("--extract-tacho-line", default="GPIO27")
+    parser.add_argument("--tacho-timeout", type=float, default=0.25)
+    parser.add_argument("--tacho-averaging-periods", type=int, default=6)
+
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -81,6 +92,7 @@ async def run_core(args: argparse.Namespace) -> None:
     )
     sensor_bus = None
     aero_bus = None
+    tacho = None
     try:
         if not args.disable_sensor_bus:
             sensor_bus = ProcessSensorBus(
@@ -106,6 +118,15 @@ async def run_core(args: argparse.Namespace) -> None:
                     reconnect_delay_seconds=args.aero_reconnect_delay,
                 )
             )
+        if args.enable_extract_tacho:
+            tacho = ExtractTachoMonitor(
+                ExtractTachoConfig(
+                    chip_path=args.tacho_chip,
+                    line_name=args.extract_tacho_line,
+                    timeout_seconds=args.tacho_timeout,
+                    averaging_periods=args.tacho_averaging_periods,
+                )
+            )
         service = VentilationService(
             actuator=actuator,
             policy=FanSetpointPolicy(
@@ -115,6 +136,7 @@ async def run_core(args: argparse.Namespace) -> None:
             hardware_failure_threshold=args.hardware_failure_threshold,
             sensor_bus=sensor_bus,
             aero_bus=aero_bus,
+            tacho=tacho,
         )
         server = CoreServer(
             service=service,
@@ -123,14 +145,18 @@ async def run_core(args: argparse.Namespace) -> None:
         )
     except BaseException:
         try:
-            if aero_bus is not None:
-                aero_bus.close()
+            if tacho is not None:
+                tacho.close()
         finally:
             try:
-                if sensor_bus is not None:
-                    sensor_bus.close()
+                if aero_bus is not None:
+                    aero_bus.close()
             finally:
-                actuator.close()
+                try:
+                    if sensor_bus is not None:
+                        sensor_bus.close()
+                finally:
+                    actuator.close()
         raise
 
     loop = asyncio.get_running_loop()
