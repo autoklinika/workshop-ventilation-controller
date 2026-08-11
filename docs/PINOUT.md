@@ -137,6 +137,46 @@ Nie wolno łączyć wyjścia 3,3 V DFR0570 z pinami 3,3 V CM5.
 
 > `-` po stronie UART DFR0845 jest masą logiczną. `GND` przy zaciskach `A/B` znajduje się po izolowanej stronie RS-485. Nie należy zwierać tych dwóch mas lokalnie przy module DFR0845.
 
+## Wejścia TACHO wentylatorów EC
+
+Po sprawdzeniu aktualnego przydziału GPIO w repozytorium dla pierwszej walidacji CM5 rezerwujemy dwa wolne wejścia z 40-pinowego złącza CM5 IO Board:
+
+| Funkcja | GPIO | Pin fizyczny CM5 | Kierunek |
+|---|---:|---:|---|
+| `FAN_SUPPLY_TACHO` | GPIO17 | 11 | wejście |
+| `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście |
+
+Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15) ani AERO BUS UART4 (GPIO12/13).
+
+Tor wejściowy każdego TACHO:
+
+```text
+                      +3.3 V
+                         |
+                       10 kΩ
+                         |
+TACHO FAN --------------+
+                         |
+                        1 kΩ
+                         |
+                         +---------- GPIO CM5
+                         |
+                        1 nF
+                         |
+                        GND
+```
+
+Założenia potwierdzone pomiarami z 2026-08-11:
+
+- wyjście TACHO typu open-collector,
+- pull-up 10 kΩ do 3,3 V,
+- 1 kΩ szeregowo przed GPIO,
+- 1 nF ceramiczny do GND,
+- 3 impulsy na obrót,
+- `RPM = TACHO_HZ * 20`.
+
+Przed uznaniem tego pinoutu za zwalidowany produkcyjnie należy wykonać test obu wejść na rzeczywistym CM5 i potwierdzić nazwy linii widziane przez `libgpiod`.
+
 ## Złącza RJ45 dla magistral
 
 Złącza RJ45 w projekcie wykorzystują przewód i mechanikę RJ45, ale **nie są interfejsami Ethernet/LAN**.
