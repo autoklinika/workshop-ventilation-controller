@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tools.hardware.tacho_cli import (
     TachoDiagnosticError,
     format_reading,
+    gpiochip_paths,
     resolve_chip_and_offsets,
     validate_args,
 )
@@ -41,6 +44,19 @@ class FakeGpiod:
 
 
 class TachoCliTest(unittest.TestCase):
+    def test_gpiochip_paths_collapses_aliases_of_same_device(self) -> None:
+        with (
+            patch(
+                "tools.hardware.tacho_cli.glob.glob",
+                return_value=["/dev/gpiochip0", "/dev/gpiochip4"],
+            ),
+            patch(
+                "tools.hardware.tacho_cli.os.stat",
+                side_effect=lambda path, follow_symlinks=True: SimpleNamespace(st_rdev=1234),
+            ),
+        ):
+            self.assertEqual(gpiochip_paths(), ("/dev/gpiochip0",))
+
     def test_resolves_both_named_lines_on_requested_chip(self) -> None:
         gpiod = FakeGpiod({"/dev/gpiochip0": {"GPIO17": 17, "GPIO27": 27}})
 
