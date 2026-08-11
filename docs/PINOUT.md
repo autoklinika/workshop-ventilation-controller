@@ -139,12 +139,12 @@ Nie wolno łączyć wyjścia 3,3 V DFR0570 z pinami 3,3 V CM5.
 
 ## Wejścia TACHO wentylatorów EC
 
-Po sprawdzeniu aktualnego przydziału GPIO w repozytorium dla pierwszej walidacji CM5 rezerwujemy dwa wolne wejścia z 40-pinowego złącza CM5 IO Board:
+Po sprawdzeniu aktualnego przydziału GPIO w repozytorium zarezerwowano dwa wolne wejścia z 40-pinowego złącza CM5 IO Board. Do czasu zakończenia fizycznej identyfikacji obu wentylatorów używamy neutralnych nazw wejść:
 
-| Funkcja | GPIO | Pin fizyczny CM5 | Kierunek |
+| Funkcja robocza | GPIO | Pin fizyczny CM5 | Kierunek |
 |---|---:|---:|---|
-| `FAN_SUPPLY_TACHO` | GPIO17 | 11 | wejście |
-| `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście |
+| `TACHO_INPUT_1` | GPIO17 | 11 | wejście |
+| `TACHO_INPUT_2` | GPIO27 | 13 | wejście |
 
 Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15) ani AERO BUS UART4 (GPIO12/13).
 
@@ -175,7 +175,7 @@ Założenia potwierdzone pomiarami z 2026-08-11:
 - 3 impulsy na obrót,
 - `RPM = TACHO_HZ * 20`.
 
-Przed uznaniem tego pinoutu za zwalidowany produkcyjnie należy wykonać test obu wejść na rzeczywistym CM5 i potwierdzić nazwy linii widziane przez `libgpiod`.
+Walidacja na docelowym CM5 potwierdziła obie linie jako wejścia `gpiochip0` oraz poprawny dynamiczny pomiar na GPIO17. Jednocześnie pierwszy test fizyczny wykazał, że wentylator sterowany aktualnie przez `EXTRACT / CH1 / VOUT1` publikuje TACHO na GPIO17. Dlatego przypisania funkcjonalne `SUPPLY`/`EXTRACT` do GPIO17/GPIO27 pozostają **nieustalone** do czasu identyfikacji obu fizycznych wentylatorów i przewodów. Nie należy traktować neutralnych nazw `TACHO_INPUT_1/2` jako finalnej semantyki instalacji.
 
 ## Złącza RJ45 dla magistral
 
