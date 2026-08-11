@@ -22,6 +22,19 @@ class WebSystemdTest(unittest.TestCase):
         self.assertIn("WVC_WEB_HOST=0.0.0.0", env)
         self.assertIn("WVC_WEB_PORT=8088", env)
 
+    def test_disabled_manual_sliders_start_at_minimum_operating_voltage(self):
+        html = (ROOT / "src/ventilation_core/web/static/index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'id="supplySlider" class="voltage-slider" type="range" min="1" max="10" step="0.5" value="1" disabled',
+            html,
+        )
+        self.assertIn(
+            'id="extractSlider" class="voltage-slider" type="range" min="1" max="10" step="0.5" value="1" disabled',
+            html,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
