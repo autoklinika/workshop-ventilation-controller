@@ -1,7 +1,7 @@
 # CM5 AI Advisory Client – Stage 1
 
-**Data:** 10.08.2026  
-**Status:** IMPLEMENTED – oczekuje na walidację CM5  
+**Data:** 11.08.2026  
+**Status:** IMPLEMENTED – AI Server Stage 3 production PASS; oczekuje na walidację CM5  
 **Repozytorium:** `autoklinika/workshop-ventilation-controller`  
 **Gałąź:** `agent/ai-advisory-client-stage1`
 
@@ -192,7 +192,36 @@ Dodane testy obejmują:
 - brak zależności systemd od `ventilation-core`,
 - brak socketu core i telemetry SQLite w jednostce advisory.
 
-## 10. Walidacja na CM5
+## 10. Stan AI Servera – PASS
+
+AI Bridge Stage 3 został zwalidowany produkcyjnie jako:
+
+```text
+version=0.3.0
+status=ok
+database=ok
+control_commands_supported=false
+```
+
+Rzeczywisty endpoint:
+
+```text
+GET /api/v1/ventilation/analysis/latest?source_id=workshop-ventilation-cm5-01
+```
+
+zwrócił poprawny delivery schema v1 dla:
+
+```text
+analysis_id=5cf9d21e-e2d2-4b0c-920e-c4a67aef135a
+advisory_only=true
+experimental=true
+control_actions_supported=false
+result.schema_version=2
+```
+
+AI Server jest gotowy do rzeczywistej walidacji klienta CM5.
+
+## 11. Walidacja na CM5
 
 Przed zakończeniem Stage 1 należy wykonać:
 
@@ -206,7 +235,7 @@ symulację zatrzymania AI Bridge i potwierdzenie, że ventilation-core działa b
 restart klienta advisory
 ```
 
-## 11. Następny krok
+## 12. Następny krok
 
 Po walidacji cache może zostać użyty przez przyszły GUI/status operatora jako źródło informacji.
 
