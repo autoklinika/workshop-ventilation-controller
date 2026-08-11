@@ -28,9 +28,15 @@ h1, h2, h3 { margin: 0; line-height: 1.08; } h1 { font-size: clamp(1.75rem, 3vw,
 .primary-metric { border-color: rgba(67,185,255,.36); background: rgba(67,185,255,.055); } .metric-label { grid-column: 1 / -1; align-self: start; color: var(--muted); font-size: .78rem; font-weight: 700; }
 .metric-value { font-size: clamp(1.45rem, 2.6vw, 2rem); font-variant-numeric: tabular-nums; } .metric-unit { color: var(--muted); font-size: .72rem; padding-bottom: 4px; }
 .channel-card { padding: 14px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 15px; background: rgba(3,8,12,.28); }
-.channel-name { display: block; color: var(--muted); font-size: .8rem; font-weight: 700; } .channel-actual { display: block; margin-top: 3px; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.channel-name { display: block; color: var(--muted); font-size: .8rem; font-weight: 700; }
 .toggle-button { min-width: 128px; min-height: var(--touch); padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px; background: #0b1117; color: var(--muted); font-weight: 850; }
 .toggle-button[aria-pressed="true"] { background: rgba(67,185,255,.14); border-color: var(--accent); color: #d7f2ff; }
+.fan-state-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.fan-state-grid div { padding: 9px 10px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.018); }
+.fan-state-grid span { display: block; color: var(--muted); font-size: .68rem; }
+.fan-state-grid strong { display: block; margin-top: 3px; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.tacho-status-row { min-height: 36px; display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.tacho-detail { min-width: 0; color: var(--muted); font-size: .72rem; line-height: 1.3; overflow-wrap: anywhere; }
 .slider-row { display: grid; grid-template-columns: 1fr 74px; gap: 14px; align-items: center; margin-top: 12px; } .voltage-slider { width: 100%; min-height: 42px; accent-color: var(--accent); }
 .voltage-slider:disabled { opacity: .35; } .planned-value { text-align: right; color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums; }
 .button-row { display: grid; gap: 10px; } .two-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -43,10 +49,10 @@ h1, h2, h3 { margin: 0; line-height: 1.08; } h1 { font-size: clamp(1.75rem, 3vw,
 .speed-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; } .speed-button { min-height: 60px; background: #202d39; font-size: 1.25rem; }
 .command-state { min-height: 48px; display: flex; align-items: center; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); background: rgba(3,8,12,.28); line-height: 1.35; }
 .command-state.pending { color: #d7f2ff; border-color: rgba(67,185,255,.4); } .command-state.success { color: #bff6db; border-color: rgba(72,213,151,.4); } .command-state.failure { color: #ffc1c1; border-color: rgba(255,107,107,.4); }
-.system-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.system-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
 .system-item { padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); } .system-item span { display: block; color: var(--muted); font-size: .7rem; } .system-item strong { display: block; margin-top: 4px; font-size: .9rem; }
 footer { padding: 18px 4px 4px; color: #657688; text-align: center; font-size: .72rem; }
 @media (max-width: 980px) { .dashboard { grid-template-columns: 1fr; } .system-strip { grid-template-columns: repeat(2, 1fr); } .metric-value { font-size: 1.8rem; } }
-@media (max-width: 620px) { .app-shell { padding: 12px; } .topbar { align-items: flex-start; } .topbar-status { flex-direction: column-reverse; align-items: flex-end; gap: 6px; } .clock { font-size: 1rem; } .zone-heading { align-items: flex-start; } .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .aero-telemetry { grid-template-columns: repeat(2, 1fr); } .two-buttons { grid-template-columns: 1fr; } .system-strip { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .app-shell { padding: 12px; } .topbar { align-items: flex-start; } .topbar-status { flex-direction: column-reverse; align-items: flex-end; gap: 6px; } .clock { font-size: 1rem; } .zone-heading { align-items: flex-start; } .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .aero-telemetry { grid-template-columns: repeat(2, 1fr); } .fan-state-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .tacho-status-row { align-items: flex-start; flex-direction: column; gap: 5px; } .two-buttons { grid-template-columns: 1fr; } .system-strip { grid-template-columns: 1fr 1fr; } }
 @media (pointer: coarse) { :root { --touch: 58px; } .speed-button { min-height: 68px; } .voltage-slider { min-height: 52px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
