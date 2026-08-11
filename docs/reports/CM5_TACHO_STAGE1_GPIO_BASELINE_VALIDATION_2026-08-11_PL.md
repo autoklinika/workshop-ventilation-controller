@@ -3,7 +3,7 @@
 **Projekt:** Workshop Ventilation Controller  
 **Data:** 2026-08-11  
 **Host:** `wentylacja` / Raspberry Pi Compute Module 5  
-**Status:** bazowa walidacja GPIO oraz test zatrzymanych wentylatorów zaliczone; pierwszy pomiar obracającego się wentylatora pozostaje do wykonania.
+**Status:** bazowa walidacja GPIO oraz test zatrzymanych wentylatorów zaliczone; fizycznie aktywny wentylator potwierdzony na kanale EXTRACT/CH1; pierwszy pomiar obracającego się wentylatora pozostaje do wykonania.
 
 ## 1. Zweryfikowana gałąź
 
@@ -163,7 +163,7 @@ Test zaliczony:
 - stan bez impulsów jest poprawnie raportowany jako `NO VALID TACHO`,
 - nie wystąpił błąd dostępu do GPIO ani konflikt właściciela linii.
 
-## 10. Mapowanie DAC potwierdzone w software
+## 10. Mapowanie DAC w software i fizyczna identyfikacja aktywnego kanału
 
 Aktualny `DFR0971Actuator` mapuje:
 
@@ -172,17 +172,43 @@ supply_voltage  -> DAC channel 0 / VOUT0
 extract_voltage -> DAC channel 1 / VOUT1
 ```
 
-Dzięki temu pierwszy test dynamiczny może bezpiecznie uruchomić wyłącznie wentylator nawiewny przez `supply=5.0`, pozostawiając `extract=0.0`.
+Podczas pierwszej próby dynamicznej zadano:
+
+```text
+supply=5.0 V
+extract=0.0 V
+```
+
+`CoreState` poprawnie przyjął tę nastawę, ale fizyczny wentylator nie uruchomił się i oba kanały TACHO pozostały bez impulsów.
+
+Następnie wykonano ręczny test kanałów 0–10 V. Użytkownik potwierdził, że wariant:
+
+```text
+supply=0.0 V
+extract=5.0 V
+```
+
+fizycznie uruchamia podłączony wentylator.
+
+### Wniosek
+
+Na aktualnym stanowisku fizycznie podłączony wentylator jest sterowany przez:
+
+```text
+EXTRACT / DAC CH1 / VOUT1 / DB9 pin 5
+```
+
+Nie należy jeszcze zmieniać semantycznego mapowania `supply/extract` w kodzie, dopóki nie zostanie jednoznacznie potwierdzone, czy ten konkretny wentylator jest docelowo wentylatorem wyciągowym, czy przewody 0–10 V są zamienione względem docelowej instalacji.
 
 ## 11. Następny krok
 
-Pierwszy pomiar dynamiczny:
+Pierwszy pomiar dynamiczny należy wykonać na fizycznie działającym kanale:
 
-1. potwierdzić stan `ventilation-core`,
-2. ustawić `supply=5.0 V`, `extract=0.0 V`,
-3. odczekać kilka sekund na stabilizację,
-4. zmierzyć `GPIO17` przez `tacho_cli.py`,
-5. zawsze zakończyć test komendą `stop`, także po błędzie lub przerwaniu.
+1. ustawić `supply=0.0 V`, `extract=5.0 V`,
+2. odczekać około 5 s na stabilizację,
+3. jednocześnie mierzyć oba wejścia TACHO,
+4. sprawdzić, czy aktywność pojawia się na GPIO27 (`EXTRACT`) zgodnie z aktualnym pinoutem,
+5. zawsze zakończyć test komendą `stop`.
 
 Punkt referencyjny z oscyloskopu dla 5 V:
 
@@ -191,4 +217,4 @@ TACHO ≈ 71.937 Hz
 RPM   ≈ 1439
 ```
 
-Wartość nie jest jeszcze progiem produkcyjnym; służy do pierwszego porównania poprawności pomiaru CM5.
+Jeżeli impulsy pojawią się na GPIO17 zamiast GPIO27, będzie to oznaczało zamianę przewodów/nazw TACHO względem przyjętego mapowania. W tym etapie nie należy automatycznie poprawiać kodu — najpierw trzeba ustalić rzeczywistą tożsamość obu fizycznych wentylatorów i przewodów.
