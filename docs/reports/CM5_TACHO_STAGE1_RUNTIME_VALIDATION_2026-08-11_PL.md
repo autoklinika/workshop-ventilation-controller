@@ -271,7 +271,7 @@ last_error=null
 
 Po końcowym STOP sterowanie wróciło do `0.0 V`, `hardware_ready=true`, `output_state_known=true`, brak aktywnych alarmów, SENSOR BUS pozostał gotowy. W bezpośredniej odpowiedzi po STOP TACHO nadal było chwilowo `valid=true` z małym `age_seconds`, co jest oczekiwanym skutkiem timeoutu `0.25 s` i zostało wcześniej zwalidowane osobnym testem zaniku.
 
-Log po restarcie nie wykazał błędów startu core; SENSOR BUS i AERO BUS workery zostały uruchomione, a socket runtime został poprawnie wystawiony.
+Log po restarcie nie wykazał błędów startu core; SENSOR BUS i AERO BUS workery zostały uruchomione, a socket runtime został poprawnie wystawiony. AERO BUS nadal pozostawał `online=false / usable=false` z `No response or incomplete Modbus header`; jest to niezależny, wcześniej istniejący stan AERO i nie jest skutkiem integracji TACHO.
 
 **Kanał EXTRACT / GPIO27 jest trwale uruchomiony jako read-only TACHO feedback w `ventilation-core.service`. Stage 1 jest zakończony wynikiem PASS.**
 
