@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ventilation_core.application.service import VentilationService
+from ventilation_core.domain.aero_control import AeroControlCommand
 
 
 LOGGER = logging.getLogger(__name__)
@@ -104,6 +105,18 @@ class CoreServer:
                 "ok": True,
                 "aero_bus": None if aero_bus is None else aero_bus.to_dict(),
             }
+        if command == "aero-speed":
+            result = await asyncio.to_thread(
+                self._service.control_aero,
+                AeroControlCommand.set_speed(int(request["speed"])),
+            )
+            return {"ok": result.succeeded, "aero_control": result.to_dict()}
+        if command == "aero-airing":
+            result = await asyncio.to_thread(
+                self._service.control_aero,
+                AeroControlCommand.set_airing(bool(request["enabled"])),
+            )
+            return {"ok": result.succeeded, "aero_control": result.to_dict()}
         if command == "set":
             state = await asyncio.to_thread(
                 self._service.set_manual,
