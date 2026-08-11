@@ -77,6 +77,42 @@ class AeroControlExecutorTests(unittest.TestCase):
         self.assertTrue(result.physical_confirmation)
         write.assert_not_called()
 
+    def test_rejects_unexpected_current_speed_without_write(self) -> None:
+        command = AeroControlCommand.set_speed(1)
+        config = AeroControlExecutorConfig()
+
+        with patch(
+            "ventilation_core.infrastructure.aero_control_executor.read_holding_registers",
+            return_value=[9],
+        ), patch(
+            "ventilation_core.infrastructure.aero_control_executor.write_single_register"
+        ) as write:
+            result = execute_control_change(object(), config, command)
+
+        self.assertEqual(result.state, AeroControlExecutionState.FAILED)
+        self.assertEqual(result.previous_value, 9)
+        self.assertFalse(result.recovered)
+        self.assertFalse(result.physical_confirmation)
+        self.assertIn("outside expected range", result.error or "")
+        write.assert_not_called()
+
+    def test_rejects_unexpected_current_airing_without_write(self) -> None:
+        command = AeroControlCommand.set_airing(True)
+        config = AeroControlExecutorConfig()
+
+        with patch(
+            "ventilation_core.infrastructure.aero_control_executor.read_holding_registers",
+            return_value=[2],
+        ), patch(
+            "ventilation_core.infrastructure.aero_control_executor.write_single_register"
+        ) as write:
+            result = execute_control_change(object(), config, command)
+
+        self.assertEqual(result.state, AeroControlExecutionState.FAILED)
+        self.assertEqual(result.previous_value, 2)
+        self.assertIn("outside expected range", result.error or "")
+        write.assert_not_called()
+
     def test_readback_failure_restores_previous_value(self) -> None:
         command = AeroControlCommand.set_speed(3)
         config = AeroControlExecutorConfig()
