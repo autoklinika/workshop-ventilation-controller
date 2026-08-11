@@ -139,14 +139,27 @@ Nie wolno łączyć wyjścia 3,3 V DFR0570 z pinami 3,3 V CM5.
 
 ## Wejścia TACHO wentylatorów EC
 
-Po sprawdzeniu aktualnego przydziału GPIO w repozytorium zarezerwowano dwa wolne wejścia z 40-pinowego złącza CM5 IO Board. Do czasu zakończenia fizycznej identyfikacji obu wentylatorów używamy neutralnych nazw wejść:
+Dwa wolne wejścia z 40-pinowego złącza CM5 IO Board pozostają zarezerwowane dla dwóch torów TACHO:
 
-| Funkcja robocza | GPIO | Pin fizyczny CM5 | Kierunek |
-|---|---:|---:|---|
-| `TACHO_INPUT_1` | GPIO17 | 11 | wejście |
-| `TACHO_INPUT_2` | GPIO27 | 13 | wejście |
+| Funkcja | GPIO | Pin fizyczny CM5 | Kierunek | Status |
+|---|---:|---:|---|---|
+| `TACHO_INPUT_1` | GPIO17 | 11 | wejście | wolny drugi kanał, niezwalidowany z osobnym wentylatorem |
+| `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście | aktywny kanał laboratoryjny po przepięciu TACHO |
 
 Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15) ani AERO BUS UART4 (GPIO12/13).
+
+### Aktualne stanowisko jednego wentylatora
+
+W laboratorium dostępny jest obecnie jeden fizyczny wentylator. Dla dalszej walidacji Stage 1 przyjmujemy jednoznacznie:
+
+```text
+sterowanie wentylatora: EXTRACT / DAC CH1 / VOUT1 / DB9 pin 5
+pomiar TACHO:           GPIO27 / pin 13
+```
+
+Wcześniejszy test tego samego wentylatora na GPIO17 potwierdził sam mechanizm pomiaru TACHO, ale nie jest już traktowany jako docelowe przypisanie kanału. Po fizycznym przepięciu przewodu TACHO do GPIO27 dalsze testy należy wykonywać na parze `EXTRACT + GPIO27`.
+
+GPIO17 pozostaje zarezerwowany dla drugiego wentylatora, którego nie ma obecnie na stanowisku. Jego ostateczne przypisanie `SUPPLY` zostanie potwierdzone dopiero po walidacji z drugim fizycznym wentylatorem.
 
 Tor wejściowy każdego TACHO:
 
@@ -175,7 +188,13 @@ Założenia potwierdzone pomiarami z 2026-08-11:
 - 3 impulsy na obrót,
 - `RPM = TACHO_HZ * 20`.
 
-Walidacja na docelowym CM5 potwierdziła obie linie jako wejścia `gpiochip0` oraz poprawny dynamiczny pomiar na GPIO17. Jednocześnie pierwszy test fizyczny wykazał, że wentylator sterowany aktualnie przez `EXTRACT / CH1 / VOUT1` publikuje TACHO na GPIO17. Dlatego przypisania funkcjonalne `SUPPLY`/`EXTRACT` do GPIO17/GPIO27 pozostają **nieustalone** do czasu identyfikacji obu fizycznych wentylatorów i przewodów. Nie należy traktować neutralnych nazw `TACHO_INPUT_1/2` jako finalnej semantyki instalacji.
+Do testu jednego wentylatora po przepięciu TACHO na GPIO27 używać:
+
+```bash
+PYTHONPATH=src python3 tools/hardware/tacho_cli.py \
+  --chip /dev/gpiochip0 \
+  --only extract
+```
 
 ## Złącza RJ45 dla magistral
 
