@@ -1,0 +1,9 @@
+{
+  "nodes": {
+    "sensor-zone-1": {
+      "key_id": "sensor-zone-1-v1",
+      "hmac_key_hex": "REPLACE_WITH_64_HEX_CHARACTERS_GENERATED_LOCALLY",
+      "mac": "AA:BB:CC:DD:EE:01"
+    }
+  }
+}

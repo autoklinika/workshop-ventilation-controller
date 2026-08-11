@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "src/modbus_address.cpp"
+        "src/service_credentials.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_driver_gpio

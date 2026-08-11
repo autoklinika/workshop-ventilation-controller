@@ -15,7 +15,7 @@ public:
 
 private:
     bool pending_{false};
-    std::int64_t started_us_{0};
+    std::int64_t healthy_since_us_{0};
 };
 
 }  // namespace platform

@@ -3,3 +3,13 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.egg-info/
+
+# Local service-channel secrets and generated NVS images.
+*heartbeat-keys.json
+*service-keys.json
+*service-nvs.bin
+sensor_node_service_nvs.bin
+
+# Local hardware diagnostics captured from sensor nodes.
+firmware/sensor-node/ota_panic_*.raw
+firmware/sensor-node/ota_panic_*.txt

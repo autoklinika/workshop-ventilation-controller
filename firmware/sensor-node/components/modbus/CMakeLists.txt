@@ -6,6 +6,7 @@ idf_component_register(
     REQUIRES
         config
         diagnostics
+        freertos
         logging
         sen55
         esp_driver_uart

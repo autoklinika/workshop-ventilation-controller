@@ -6,19 +6,20 @@ IFACE="wlan0"
 SSID="WVC-SERVICE"
 ADDRESS="10.55.0.1/24"
 CHANNEL="6"
-MIN_PSK_LENGTH=16
 ACTIVATE=0
 
 usage() {
     cat <<'USAGE'
 Usage: sudo bash tools/install_cm5_wifi_service.sh [--activate]
 
-Installs the CM5 private service Wi-Fi configuration for KAmod/SEN55 nodes.
-Without --activate it prepares the NetworkManager profile and system files but
-leaves the currently active Wi-Fi connection untouched. With --activate it
-switches wlan0 to WVC-SERVICE, enables and starts the firewall and DHCP units.
+Installs the isolated CM5 service Wi-Fi configuration for KAmod/SEN55 nodes.
+The WVC-SERVICE AP is intentionally open at layer 2. Application heartbeats
+remain authenticated per node with HMAC-SHA256, and nftables blocks all local
+services except the explicitly allowed service protocol.
 
-The WPA2 key is requested interactively and is never stored in the repository.
+Without --activate the script prepares the NetworkManager profile and system
+files but leaves the currently active Wi-Fi connection untouched. With
+--activate it switches wlan0 to WVC-SERVICE and starts firewall and DHCP units.
 USAGE
 }
 
@@ -77,11 +78,6 @@ nmcli connection modify "$PROFILE" \
     802-11-wireless.channel "$CHANNEL" \
     802-11-wireless.ap-isolation yes \
     802-11-wireless.powersave 2 \
-    802-11-wireless-security.key-mgmt wpa-psk \
-    802-11-wireless-security.proto rsn \
-    802-11-wireless-security.pairwise ccmp \
-    802-11-wireless-security.group ccmp \
-    802-11-wireless-security.pmf optional \
     ipv4.method manual \
     ipv4.addresses "$ADDRESS" \
     ipv4.never-default yes \
@@ -91,22 +87,11 @@ nmcli connection modify "$PROFILE" \
     connection.autoconnect yes \
     connection.autoconnect-priority 200
 
-CURRENT_PSK="$(nmcli --show-secrets -g 802-11-wireless-security.psk connection show "$PROFILE" 2>/dev/null || true)"
-if [[ ${#CURRENT_PSK} -lt $MIN_PSK_LENGTH ]]; then
-    while true; do
-        IFS= read -r -s -p "WPA2 key for $SSID (minimum $MIN_PSK_LENGTH characters): " WVC_PSK
-        echo
-        if [[ ${#WVC_PSK} -ge $MIN_PSK_LENGTH && ${#WVC_PSK} -le 63 ]]; then
-            break
-        fi
-        echo "The key must contain between $MIN_PSK_LENGTH and 63 characters." >&2
-    done
-    nmcli connection modify "$PROFILE" \
-        802-11-wireless-security.psk "$WVC_PSK" \
-        802-11-wireless-security.psk-flags 0
-    unset WVC_PSK
+KEY_MGMT="$(nmcli -g 802-11-wireless-security.key-mgmt connection show "$PROFILE" 2>/dev/null || true)"
+if [[ -n "$KEY_MGMT" && "$KEY_MGMT" != "--" ]]; then
+    nmcli connection modify "$PROFILE" remove 802-11-wireless-security
 fi
-unset CURRENT_PSK
+unset KEY_MGMT
 
 systemctl daemon-reload
 systemctl enable wvc-sensor-firewall.service wvc-sensor-dhcp.service

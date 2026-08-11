@@ -36,14 +36,26 @@ BAND="$(nmcli -g 802-11-wireless.band connection show "$PROFILE" 2>/dev/null || 
 CHANNEL="$(nmcli -g 802-11-wireless.channel connection show "$PROFILE" 2>/dev/null || true)"
 AP_ISOLATION="$(nmcli -g 802-11-wireless.ap-isolation connection show "$PROFILE" 2>/dev/null || true)"
 POWERSAVE="$(nmcli -g 802-11-wireless.powersave connection show "$PROFILE" 2>/dev/null || true)"
+KEY_MGMT="$(nmcli -g 802-11-wireless-security.key-mgmt connection show "$PROFILE" 2>/dev/null || true)"
 
 expect_equal "active NetworkManager profile" "$ACTIVE_PROFILE" "$PROFILE"
 expect_equal "Wi-Fi mode" "$MODE" "ap"
 expect_equal "SSID" "$SSID" "$EXPECTED_SSID"
 expect_equal "band" "$BAND" "bg"
 expect_equal "channel" "$CHANNEL" "6"
-expect_equal "AP isolation" "$AP_ISOLATION" "1"
-expect_equal "Wi-Fi power saving" "$POWERSAVE" "2"
+case "$AP_ISOLATION" in
+    1|yes) pass "AP isolation enabled" ;;
+    *) fail "AP isolation: expected '1' or 'yes', got '$AP_ISOLATION'" ;;
+esac
+case "$POWERSAVE" in
+    2|disable) pass "Wi-Fi power saving disabled" ;;
+    *) fail "Wi-Fi power saving: expected '2' or 'disable', got '$POWERSAVE'" ;;
+esac
+if [[ -z "$KEY_MGMT" || "$KEY_MGMT" == "--" ]]; then
+    pass "service AP has no layer-2 authentication"
+else
+    fail "service AP must be open, got key management '$KEY_MGMT'"
+fi
 
 if ip -4 -o addr show dev "$IFACE" | awk '{print $4}' | grep -Fxq "$EXPECTED_ADDRESS"; then
     pass "$IFACE has $EXPECTED_ADDRESS"

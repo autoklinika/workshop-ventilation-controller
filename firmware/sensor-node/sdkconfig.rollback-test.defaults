@@ -1,0 +1,4 @@
+# Test-only overlay for deterministic ESP-IDF rollback validation.
+# Use together with the normal sdkconfig.defaults on sensor-node-1 only.
+# Never use this overlay for production firmware or sensor-node-2.
+CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE=y
