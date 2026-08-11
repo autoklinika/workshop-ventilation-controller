@@ -6,6 +6,7 @@ from ventilation_core.domain.aero import AeroBusState
 from ventilation_core.domain.aero_control import AeroControlCommand, AeroControlResult
 from ventilation_core.domain.models import FanSetpoints
 from ventilation_core.domain.sensors import SensorBusState
+from ventilation_core.domain.tacho import TachoMonitorState
 
 
 class VentilationActuator(Protocol):
@@ -38,6 +39,14 @@ class AeroBusMonitor(Protocol):
     def state(self) -> AeroBusState: ...
 
     def execute_control(self, command: AeroControlCommand) -> AeroControlResult: ...
+
+    def health_check(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class TachoMonitor(Protocol):
+    def state(self) -> TachoMonitorState: ...
 
     def health_check(self) -> None: ...
 
