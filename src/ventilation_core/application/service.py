@@ -15,7 +15,7 @@ from ventilation_core.domain.models import (
 )
 from ventilation_core.domain.policy import FanSetpointPolicy
 
-from .ports import AeroBusMonitor, SensorBusMonitor, VentilationActuator
+from .ports import AeroBusMonitor, SensorBusMonitor, TachoMonitor, VentilationActuator
 
 
 LOGGER = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ class VentilationService:
         hardware_failure_threshold: int = 3,
         sensor_bus: SensorBusMonitor | None = None,
         aero_bus: AeroBusMonitor | None = None,
+        tacho: TachoMonitor | None = None,
     ) -> None:
         if hardware_failure_threshold < 1:
             raise ValueError("Hardware failure threshold must be at least 1")
@@ -49,6 +50,7 @@ class VentilationService:
         self._hardware_failure_threshold = hardware_failure_threshold
         self._sensor_bus = sensor_bus
         self._aero_bus = aero_bus
+        self._tacho = tacho
         self._lock = RLock()
         self._setpoints = FanSetpoints.stopped()
         self._mode = VentilationMode.STOP
@@ -110,6 +112,7 @@ class VentilationService:
         with self._lock:
             sensor_bus_state = None if self._sensor_bus is None else self._sensor_bus.state()
             aero_bus_state = None if self._aero_bus is None else self._aero_bus.state()
+            tacho_state = None if self._tacho is None else self._tacho.state()
             return CoreState(
                 mode=self._mode,
                 setpoints=self._setpoints,
@@ -119,10 +122,11 @@ class VentilationService:
                 active_alarms=tuple(self._active_alarms.values()),
                 sensor_bus=sensor_bus_state,
                 aero_bus=aero_bus_state,
+                tacho=tacho_state,
             )
 
     def health_check(self) -> CoreState:
-        """Supervise DAC and both RS-485 buses without coupling failure domains."""
+        """Supervise DAC and independent read-only/RS-485 monitors."""
         with self._lock:
             try:
                 if self._recovery_required or not self._actuator.ready:
@@ -146,6 +150,12 @@ class VentilationService:
                     self._aero_bus.health_check()
                 except Exception:
                     LOGGER.exception("AERO BUS worker health check failed")
+
+            if self._tacho is not None:
+                try:
+                    self._tacho.health_check()
+                except Exception:
+                    LOGGER.exception("TACHO monitor health check failed")
             return self.state()
 
     def close(self) -> None:
@@ -162,8 +172,12 @@ class VentilationService:
                         if self._sensor_bus is not None:
                             self._sensor_bus.close()
                     finally:
-                        if self._aero_bus is not None:
-                            self._aero_bus.close()
+                        try:
+                            if self._aero_bus is not None:
+                                self._aero_bus.close()
+                        finally:
+                            if self._tacho is not None:
+                                self._tacho.close()
 
     def _require_operational_hardware(self) -> None:
         if self._recovery_required or not self._actuator.ready or self._active_alarms:
