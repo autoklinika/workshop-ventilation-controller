@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR="${WVC_ROOT:-/home/wentylacja/workshop-ventilation-controller}"
+exec env PYTHONPATH="${ROOT_DIR}/src" \
+    /usr/bin/python3 -m ventilation_core.service_ctl "$@"

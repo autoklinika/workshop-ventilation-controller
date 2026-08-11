@@ -1,0 +1,15 @@
+menu "WVC sensor-node test hooks"
+
+    config WVC_OTA_ROLLBACK_TEST_IMAGE
+        bool "Build deterministic OTA rollback test image"
+        default n
+        help
+            Test-only hook for hardware validation of ESP-IDF A/B rollback.
+            When enabled, a freshly installed OTA image which is running in
+            ESP_OTA_IMG_PENDING_VERIFY state performs a controlled restart
+            before the normal health-confirmation window can complete.
+            The bootloader must then roll back to the previous valid image.
+
+            Keep this disabled for every normal/production firmware build.
+
+endmenu

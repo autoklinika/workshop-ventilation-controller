@@ -9,6 +9,7 @@
 #include "config/modbus_address.hpp"
 #include "driver/uart.h"
 #include "esp_timer.h"
+#include "freertos/task.h"
 #include "logging/log.hpp"
 #include "mbcontroller.h"
 
@@ -17,6 +18,8 @@ namespace {
 constexpr char kTag[] = "modbus_rtu";
 constexpr std::uint16_t kInputRegisterStart = 0;
 constexpr std::uint8_t kAllMeasurementFieldsAvailable = 0xFFU;
+constexpr std::uint32_t kMonitorStackBytes = 4'096;
+constexpr UBaseType_t kMonitorPriority = 3;
 
 std::uint32_t saturate_u32(const std::uint64_t value)
 {
@@ -120,15 +123,34 @@ esp_err_t ModbusRtuSlave::initialize(const std::uint8_t slave_address)
         return result;
     }
 
+    TaskHandle_t monitor_task{};
+    const BaseType_t created = xTaskCreate(
+        &ModbusRtuSlave::monitor_task_entry,
+        "modbus_activity",
+        kMonitorStackBytes,
+        this,
+        kMonitorPriority,
+        &monitor_task);
+    if (created == pdPASS) {
+        monitor_task_ = monitor_task;
+        portENTER_CRITICAL(&activity_lock_);
+        activity_.monitor_ready = true;
+        portEXIT_CRITICAL(&activity_lock_);
+    } else {
+        LOG_WARN(kTag,
+                 "Modbus activity monitor could not start; slave remains operational");
+    }
+
     LOG_INFO(kTag,
-             "started: mode=RTU address=%u baud=%lu format=8N1 uart=%d tx=%d rx=%d de_re=%d input_registers=%u",
+             "started: mode=RTU address=%u baud=%lu format=8N1 uart=%d tx=%d rx=%d de_re=%d input_registers=%u monitor=%s",
              static_cast<unsigned>(slave_address_),
              static_cast<unsigned long>(config::firmware::kModbusBaudRate),
              static_cast<int>(config::board::kRs485Uart),
              static_cast<int>(config::board::kRs485Tx),
              static_cast<int>(config::board::kRs485Rx),
              static_cast<int>(config::board::kRs485Direction),
-             static_cast<unsigned>(kInputRegisterCount));
+             static_cast<unsigned>(kInputRegisterCount),
+             created == pdPASS ? "ready" : "unavailable");
     return ESP_OK;
 }
 
@@ -178,7 +200,15 @@ std::uint8_t ModbusRtuSlave::slave_address() const
 
 std::uint32_t ModbusRtuSlave::service_error_count() const
 {
-    return service_error_count_;
+    return activity().service_error_count;
+}
+
+Activity ModbusRtuSlave::activity() const
+{
+    portENTER_CRITICAL(&activity_lock_);
+    const Activity copy = activity_;
+    portEXIT_CRITICAL(&activity_lock_);
+    return copy;
 }
 
 const InputRegisterBank& ModbusRtuSlave::register_bank() const
@@ -241,7 +271,7 @@ RegisterSource ModbusRtuSlave::build_source(
         static_cast<std::uint64_t>(snapshot.detection_failures) +
         snapshot.communication_failures + snapshot.crc_failures;
     source.sensor_error_count = saturate_u32(sensor_errors);
-    source.modbus_service_error_count = service_error_count_;
+    source.modbus_service_error_count = service_error_count();
     source.uptime_seconds = static_cast<std::uint32_t>(
         static_cast<std::uint64_t>(now_us) / 1'000'000U);
     source.firmware_version = config::firmware::kFirmwareVersionPacked;
@@ -249,19 +279,61 @@ RegisterSource ModbusRtuSlave::build_source(
     return source;
 }
 
+void ModbusRtuSlave::monitor_task_entry(void* context)
+{
+    static_cast<ModbusRtuSlave*>(context)->monitor_requests();
+}
+
+void ModbusRtuSlave::monitor_requests()
+{
+    while (handle_ != nullptr) {
+        const mb_event_group_t event = mbc_slave_check_event(
+            handle_,
+            MB_EVENT_INPUT_REG_RD);
+        if ((event & MB_EVENT_INPUT_REG_RD) == 0) {
+            continue;
+        }
+
+        mb_param_info_t information{};
+        const esp_err_t result = mbc_slave_get_param_info(handle_,
+                                                          &information,
+                                                          100);
+        if (result != ESP_OK) {
+            record_service_error(result, "mbc_slave_get_param_info");
+            continue;
+        }
+
+        portENTER_CRITICAL(&activity_lock_);
+        ++activity_.request_count;
+        activity_.last_request_us = esp_timer_get_time();
+        portEXIT_CRITICAL(&activity_lock_);
+    }
+    vTaskDelete(nullptr);
+}
+
 void ModbusRtuSlave::record_service_error(const esp_err_t error,
                                           const char* operation)
 {
-    ++service_error_count_;
+    portENTER_CRITICAL(&activity_lock_);
+    ++activity_.service_error_count;
+    const std::uint32_t count = activity_.service_error_count;
+    portEXIT_CRITICAL(&activity_lock_);
     LOG_ERROR(kTag,
               "%s failed: %s service_errors=%lu",
               operation,
               esp_err_to_name(error),
-              static_cast<unsigned long>(service_error_count_));
+              static_cast<unsigned long>(count));
 }
 
 void ModbusRtuSlave::destroy()
 {
+    if (monitor_task_ != nullptr) {
+        vTaskDelete(static_cast<TaskHandle_t>(monitor_task_));
+        monitor_task_ = nullptr;
+        portENTER_CRITICAL(&activity_lock_);
+        activity_.monitor_ready = false;
+        portEXIT_CRITICAL(&activity_lock_);
+    }
     if (handle_ == nullptr) {
         return;
     }
