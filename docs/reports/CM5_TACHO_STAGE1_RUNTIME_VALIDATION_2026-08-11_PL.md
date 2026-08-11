@@ -4,7 +4,7 @@
 **Data:** 2026-08-11  
 **Host:** `wentylacja` / Raspberry Pi Compute Module 5  
 **Gałąź:** `agent/cm5-tacho-stage1`  
-**Status:** runtime STOP, RUN i timeout — PASS; pozostaje test fizycznego odłączenia przewodu TACHO.
+**Status:** runtime STOP, RUN, timeout i odłączenie TACHO — PASS; pozostaje test odzyskania sygnału po ponownym podłączeniu oraz trwałe włączenie monitora.
 
 ## 1. Konfiguracja stanowiska
 
@@ -96,11 +96,35 @@ To jednoznacznie potwierdza działanie timeoutu `0.25 s`:
 - po przekroczeniu progu (`age=0.314 s`) odczyt staje się nieważny,
 - brak fałszywego powrotu do `valid=true` po zaniku impulsów.
 
-## 6. Granice bezpieczeństwa potwierdzone dotychczas
+## 6. Odłączenie sygnału TACHO przy zachowaniu sterowania — PASS
 
-Podczas testów runtime:
+W celu sprawdzenia separacji failure-domain odłączono fizycznie wyłącznie przewód sygnałowy TACHO. Zasilanie wentylatora, wspólna masa i sterowanie 0–10 V pozostały bez zmian.
+
+Przed startem, przy odłączonym TACHO:
 
 ```text
+mode=STOP
+extract_voltage=0.0
+tacho_valid=false
+tacho_rpm=0.0
+hardware_ready=true
+active_alarms=[]
+```
+
+Następnie wydano:
+
+```text
+supply=0.0 V
+extract=5.0 V
+```
+
+Użytkownik potwierdził fizycznie, że wentylator normalnie pracował.
+
+Po około 8 s runtime raportował:
+
+```text
+mode=MANUAL
+extract_voltage=5.0
 hardware_ready=true
 output_state_known=true
 active_alarms=[]
@@ -108,20 +132,53 @@ sensor_bus_ready=true
 tacho_ready=true
 tacho_worker_alive=true
 tacho_last_error=null
+tacho_valid=false
+tacho_hz=0.0
+tacho_rpm=0.0
+tacho_age=585.274 s
 ```
 
-TACHO pozostaje read-only i nie ma ścieżki do zmiany setpointów, alarmu DAC ani trybu FAULT.
+Długi `tacho_age` jest poprawny: pole oznacza wiek ostatniego rzeczywistego zbocza, a nie czas od momentu fizycznego odłączenia przewodu. Po odłączeniu monitor nie generuje sztucznych impulsów i pozostaje żywy.
 
-## 7. Ostatni checkpoint Stage 1
+### Wniosek
 
-Przed trwałym włączeniem TACHO w jednostce systemd pozostaje test fizycznego odłączenia sygnału TACHO przy pracującym wentylatorze:
+Utrata sygnału TACHO jest poprawnie odseparowana od sterowania:
 
-1. EXTRACT = 5 V,
-2. potwierdzić `tacho.extract.valid=true`,
-3. odłączyć wyłącznie przewód sygnałowy TACHO pomiędzy wentylatorem a wejściowym torem 10 kΩ / 1 kΩ / 1 nF,
-4. pozostawić sterowanie 0–10 V i wspólną masę bez zmian,
-5. potwierdzić, że wentylator nadal fizycznie pracuje,
-6. potwierdzić `tacho.extract.valid=false`, `0 Hz / 0 RPM`,
-7. potwierdzić `hardware_ready=true`, `active_alarms=[]` i brak wpływu na SENSOR/AERO.
+- wentylator nadal pracuje na zadanym 5 V,
+- DAC pozostaje gotowy,
+- `output_state_known=true`,
+- nie powstaje alarm,
+- tryb pozostaje `MANUAL`,
+- SENSOR BUS pozostaje gotowy,
+- worker TACHO pozostaje `ready/worker_alive`,
+- jedynym skutkiem jest brak ważnego feedbacku: `valid=false`, `0 Hz`, `0 RPM`.
 
-Po tym PASS można uznać zwalidowany kanał EXTRACT za gotowy do trwałego read-only uruchomienia w `ventilation-core`. Drugi kanał TACHO pozostaje poza bieżącą walidacją do czasu dostępności drugiego fizycznego wentylatora.
+To potwierdza wymaganą dla Stage 1 zasadę: TACHO jest read-only feedbackiem i jego brak nie może samodzielnie zatrzymywać wentylatora ani wymuszać `FAULT`.
+
+## 7. Zbiorczy wynik Stage 1 dla kanału EXTRACT
+
+Zwalidowano:
+
+- sprzętowy tor wejściowy GPIO27,
+- odbiór realnych zboczy TACHO,
+- 3 impulsy/obrót i `RPM = Hz * 20`,
+- brak fałszywych zboczy przy STOP,
+- poprawny timeout `0.25 s`,
+- poprawną publikację `CoreState.tacho.extract`,
+- pełną ścieżkę end-to-end DAC -> wentylator -> TACHO -> CoreState,
+- niezależność TACHO od DAC, SENSOR BUS i trybu sterowania,
+- bezpieczne zachowanie po fizycznej utracie sygnału TACHO.
+
+Kanał EXTRACT / GPIO27 spełnia wymagania Stage 1 dla read-only feedbacku.
+
+## 8. Ostatni krok przed trwałym włączeniem
+
+Przed zmianą trwałej jednostki systemd należy jeszcze wykonać krótki test odzyskania sygnału:
+
+1. przy zatrzymanym wentylatorze ponownie podłączyć przewód TACHO do GPIO27,
+2. uruchomić EXTRACT = 5 V,
+3. potwierdzić, że ten sam istniejący worker bez restartu przechodzi z `valid=false` do `valid=true` i ponownie raportuje Hz/RPM,
+4. wykonać STOP,
+5. po PASS włączyć `--enable-extract-tacho` w trwałej jednostce systemd i usunąć tymczasowy drop-in z `/run`.
+
+Drugi kanał TACHO pozostaje poza bieżącą walidacją do czasu dostępności drugiego fizycznego wentylatora.
