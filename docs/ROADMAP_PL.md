@@ -23,9 +23,10 @@ Pozostaje:
 - dobór docelowego zasilacza DIN,
 - sprawdzenie Tacho,
 - potwierdzenie pinoutu złączy RJ45 Keystone używanych jako złącza nie-Ethernetowe,
-- zamknięcie zasilania dwóch modułów DFR0845,
-- potwierdzenie budżetu prądowego szyn 12 V, 5 V i 3,3 V,
-- końcowy schemat dwóch oddzielnych magistral RS-485.
+- końcowy schemat dwóch oddzielnych magistral RS-485,
+- końcowe uporządkowanie dokumentacji zasilania i oznaczeń przewodów.
+
+Zasilanie i bring-up dwóch DFR0845 zostały praktycznie zamknięte podczas uruchamiania produkcyjnych SENSOR BUS i AERO BUS.
 
 ## Etap 2 — Węzły pomiarowe SEN55
 
@@ -90,9 +91,9 @@ Dokument końcowy:
 docs/reports/SEN55_MODBUS_STAGE2B_FINAL_REPORT_AND_CM5_SENSOR_BUS_HANDOFF_PL.md
 ```
 
-## Etap 3 — Sterowanie wentylatorami
+## Etap 3 — Sterowanie wentylatorami EC przez DAC
 
-Status: **częściowo zakończony**.
+Status: **produkcyjna ścieżka ręczna zakończona; strojenie charakterystyki pozostaje**.
 
 Zrealizowano:
 
@@ -107,82 +108,117 @@ Zrealizowano:
 Pozostaje:
 
 - pomiar rzeczywistej charakterystyki obu wentylatorów,
-- ustalenie minimalnego napięcia startu,
+- ewentualna korekta minimalnego napięcia użytkowego,
 - odczyt Tacho,
 - finalny bilans nawiew–wyciąg.
 
 ## Etap 4 — Integracja magistral RS-485 z `ventilation-core`
 
-Status: **następny główny etap**.
+Status: **zakończony i zwalidowany sprzętowo 2026-08-11**.
 
-### Stage 1 — zasilanie i bring-up DFR0845
+### Stage 4A — CM5 SENSOR BUS
 
-Pierwszy problem do zamknięcia:
+Status: **PASS**.
 
-- dwa moduły DFR0845 dla dwóch oddzielnych magistral,
-- braki magazynowe wcześniej rozważanych konwerterów 3,3 V,
-- wybór bezpiecznego sposobu zasilania strony UART,
-- sprawdzenie poboru prądu i poziomów TX/RX,
-- zachowanie izolacji galwanicznej,
-- gotowy schemat oraz lista elementów.
+- `/dev/ttyAMA0`, Modbus RTU 19200 8N1,
+- slave `1` i `2`,
+- `sensor_bus_worker` jako jedyny właściciel UART,
+- mapa SEN55 v1,
+- niezależne błędy i recovery per węzeł,
+- normalizowany stan w `CoreState`,
+- izolacja awarii SENSOR BUS od DAC i AERO.
 
-Prompt startowy:
+### Stage 4B — CM5 AERO BUS telemetria
+
+Status: **PASS**.
+
+- `/dev/ttyAMA4`, Modbus RTU 9600 8N1, slave `44`,
+- `aero_bus_worker` jako jedyny właściciel UART,
+- sześć osobnych odczytów FC03,
+- telemetria NANO/AERO porównana z panelem,
+- niezależna domena błędów i automatyczny recovery.
+
+### Stage 4C — produkcyjne sterowanie AERO
+
+Status: **PASS / PR #19 / main `e689a991f9e71bf77f1771ca2cec31cd9b5716f6`**.
+
+- FC06 tylko dla ADR `1080` i `1081`,
+- exact echo,
+- FC03 readback,
+- osobne potwierdzenie fizyczne przez `2033/2034`,
+- timeout 60 s i polling 2 s,
+- rollback poprzedniej wartości przy błędzie,
+- pojedyncza kolejka komend,
+- brak wpływu awarii AERO na SENSOR BUS i DAC.
+
+Dokument końcowy:
 
 ```text
-docs/reports/CM5_DFR0845_POWER_AND_SENSOR_BUS_STAGE1_START_PROMPT_PL.md
+docs/reports/CM5_AERO_BUS_STAGE3B_FINAL_REPORT_AND_HANDOFF_PL.md
 ```
 
-### Stage 2 — CM5 SENSOR BUS worker
+## Etap 5 — Web GUI + ręczne sterowanie
 
-- osobny `sensor_bus_worker`,
-- wyłączna własność portu UART/RS-485,
-- trwała nazwa portu,
-- odczyt slave `1` i `2`,
-- 10 ms przerwy pomiędzy węzłami,
-- walidacja mapy, statusów, wieku i maski dostępności,
-- niezależne błędy i odzyskiwanie per węzeł,
-- normalizowany model danych,
-- integracja z autorytatywnym stanem rdzenia,
-- diagnostyka przez `ventilationctl`,
-- testy na rzeczywistym CM5 i pod `systemd`.
+Status: **w realizacji od 2026-08-11**.
 
-### Stage 3 — CM5 AERO BUS worker
+Cel etapu:
 
-- osobny drugi DFR0845,
-- osobna magistrala,
-- `9600 bit/s`, `8N1`, slave `44`,
-- FC03 i kontrolowane FC06,
-- asynchroniczne potwierdzanie fizycznego wykonania,
-- `execution_timeout = 45 s`,
-- bez wpływu bezwładności AERO na SENSOR BUS.
+- jedno responsywne GUI webowe dla komputera, telefonu/tabletu i przyszłego panelu dotykowego w trybie kiosk,
+- brak osobnej logiki sterowania w GUI,
+- GUI jako klient autorytatywnego `ventilation-core`,
+- duże elementy dotykowe i brak funkcji zależnych wyłącznie od myszy,
+- normalny ekran operatorski oddzielony od przyszłego trybu serwisowego.
 
-## Etap 5 — Pierwsza automatyka jakości powietrza
+### Stage 5A — Web GUI Manual Control Stage 1
 
-- przypisanie czujników do stref,
-- warstwa oceny jakości powietrza,
-- podstawowe stany ECO, AUTO, PRZEWIETRZANIE i BOOST,
-- histerezy i opóźnienia,
-- reakcja na utratę czujnika,
-- lokalny dziennik decyzji,
-- brak zależności od GUI i MQTT.
+Zakres:
 
-## Etap 6 — Instalacja próbna
+- bieżący stan dwóch węzłów SEN55,
+- PM2.5, PM10, VOC, NOx, temperatura i wilgotność,
+- ręczne ustawienie obu kanałów DAC 0–10 V i jawny STOP,
+- AERO speed `0/1/2/3`,
+- AERO airing `on/off`,
+- pokazywanie rzeczywiście potwierdzonego stanu zamiast optymistycznego stanu przycisku,
+- obsługa `control_busy` oraz wyniku fizycznego potwierdzenia AERO,
+- status Core/DAC, SENSOR BUS i AERO BUS,
+- konfiguracja mapowania adresów SENSOR BUS na nazwy stref bez zmiany firmware,
+- osobna usługa `wvc-web-ui.service`, która nie otwiera UART ani I²C i komunikuje się tylko z Unix socketem core.
 
-- montaż w rozdzielni,
-- montaż czujników w pomieszczeniach,
+Świadomie poza zakresem Stage 5A:
+
+- AUTO,
+- progi jakości powietrza,
+- BOOST zależny od czujników,
+- harmonogramy,
+- automatyczne decyzje AI,
+- MQTT control,
+- bezpośredni dostęp GUI do Modbus/DAC.
+
+## Etap 6 — Instalacja próbna i eksploatacja ręczna
+
+- montaż w rozdzielni i docelowych pomieszczeniach,
 - test komunikacji na docelowych przewodach,
-- obserwacja VOC, PM, temperatury i wilgotności,
+- codzienna obserwacja VOC, PM, temperatury i wilgotności przez GUI,
+- ręczne sprawdzanie różnych ustawień DAC i AERO,
 - sprawdzenie bilansu nawiew–wyciąg,
-- weryfikacja hałasu i wydajności.
+- weryfikacja hałasu, bezwładności i realnej skuteczności przewietrzania,
+- zebranie danych potrzebnych do późniejszej automatyki.
 
-## Etap 7 — Strojenie logiki
+## Etap 7 — Automatyka jakości powietrza — później
 
-- harmonogram przewietrzania,
-- czas przewietrzania po pracy,
+Automatyka jest świadomie odłożona do czasu zebrania doświadczeń z ręcznej eksploatacji.
+
+Dopiero w tym etapie zostaną ustalone i wdrożone:
+
+- warstwa oceny jakości powietrza,
 - progi i histerezy,
-- reakcja na brak Tacho,
-- opcjonalne wejścia „myjka pracuje” i „piec pracuje”,
-- walidacja zachowania w rzeczywistych warunkach.
+- tryby AUTO / BOOST / przewietrzanie,
+- harmonogramy,
+- reakcje na utratę czujnika,
+- priorytety manual / auto / safety,
+- lokalny dziennik wyjaśnialnych decyzji.
+
+AI pozostaje advisory-only również po uruchomieniu automatyki deterministycznej.
 
 ## Etap 8 — Wersja docelowa
 
@@ -195,9 +231,10 @@ docs/reports/CM5_DFR0845_POWER_AND_SENSOR_BUS_STAGE1_START_PROMPT_PL.md
 
 ## Najbliższe punkty kontrolne
 
-1. rozstrzygnięcie zasilania dwóch DFR0845,
-2. schemat i pomiary stanowiskowe jednego DFR0845,
-3. potwierdzenie bezpiecznych poziomów UART CM5,
-4. przygotowanie gałęzi `agent/cm5-sensor-bus-worker-stage1`,
-5. implementacja i walidacja `sensor_bus_worker`,
-6. dopiero potem osobny worker AERO BUS.
+1. implementacja Web GUI Manual Control Stage 1,
+2. lokalne testy regresyjne bez restartu produkcyjnego core,
+3. instalacja `wvc-web-ui.service` na CM5,
+4. walidacja odczytu dashboardu na rzeczywistych danych,
+5. kontrolowane testy ręcznych poleceń DAC i AERO z GUI,
+6. test na desktopie i urządzeniu dotykowym / trybie kiosk,
+7. dopiero po okresie ręcznej eksploatacji planowanie automatyki.
