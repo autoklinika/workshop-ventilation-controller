@@ -263,9 +263,9 @@ Piny 4 i 5 są przeznaczone do równoległego prowadzenia zasilania +12 V. Piny 
 | Pin DB9 | Funkcja |
 |---:|---|
 | 1 | Vout0 |
-| 2 | wolny |
+| 2 | Tacho dla Vout0 |
 | 3 | GND |
-| 4 | wolny |
+| 4 | Tacho dla Vout1 |
 | 5 | Vout1 |
 | 6 | wolny |
 | 7 | wolny |
@@ -276,9 +276,9 @@ Piny 4 i 5 są przeznaczone do równoległego prowadzenia zasilania +12 V. Piny 
 
 ```text
 1          Vout0
-2          wolny
+2          Tacho dla Vout0
 3          GND
-4          wolny
+4          Tacho dla Vout1
 5          Vout1
 6, 7, 8, 9 wolne
 ```
