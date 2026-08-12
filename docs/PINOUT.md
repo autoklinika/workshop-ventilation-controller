@@ -258,6 +258,38 @@ Pinout złącza AERO jest identyczny jak dla SEN55.
 
 Piny 4 i 5 są przeznaczone do równoległego prowadzenia zasilania +12 V. Piny 7 i 8 są przeznaczone do równoległego prowadzenia masy zasilania 12 V.
 
+## Złącze DB9 przewodu połączeniowego CM5 ↔ BOX wykonawczy
+
+To złącze jest pinoutem przewodu sygnałowego łączącego CM5 z BOX-em wykonawczym. Nie należy go mylić z osobnym złączem DB9 BOX-u służącym do sterowania wentylatorami.
+
+| Pin DB9 | Pin fizyczny CM5 | GPIO / funkcja CM5 | Sygnał w przewodzie |
+|---:|---:|---|---|
+| 1 | 32 | GPIO12 / TXD4 | `T` UART dla RS-485 rekuperatora / AERO BUS |
+| 2 | 33 | GPIO13 / RXD4 | `R` UART dla RS-485 rekuperatora / AERO BUS |
+| 3 | 8 | GPIO14 / TXD0 | `T` UART dla RS-485 SENSOR BUS / SEN55 |
+| 4 | 10 | GPIO15 / RXD0 | `R` UART dla RS-485 SENSOR BUS / SEN55 |
+| 5 | 6 | GND | wspólna masa logiczna |
+| 6 | 3 | GPIO2 / SDA1 | SDA / dane DAC DFR0971 |
+| 7 | 5 | GPIO3 / SCL1 | SCL / zegar DAC DFR0971 |
+| 8 | 11 | GPIO17 | TACHO dla Vout0 |
+| 9 | 13 | GPIO27 | TACHO dla Vout1 |
+
+### Podsumowanie przewodu CM5 ↔ BOX wykonawczy
+
+```text
+DB9 1 -> CM5 pin 32 -> GPIO12 / TXD4 -> T UART RS-485 rekuperator / AERO BUS
+DB9 2 -> CM5 pin 33 -> GPIO13 / RXD4 -> R UART RS-485 rekuperator / AERO BUS
+DB9 3 -> CM5 pin 8  -> GPIO14 / TXD0 -> T UART RS-485 SENSOR BUS / SEN55
+DB9 4 -> CM5 pin 10 -> GPIO15 / RXD0 -> R UART RS-485 SENSOR BUS / SEN55
+DB9 5 -> CM5 pin 6  -> GND            -> wspólna masa logiczna
+DB9 6 -> CM5 pin 3  -> GPIO2 / SDA1   -> DAC SDA
+DB9 7 -> CM5 pin 5  -> GPIO3 / SCL1   -> DAC SCL
+DB9 8 -> CM5 pin 11 -> GPIO17         -> TACHO dla Vout0
+DB9 9 -> CM5 pin 13 -> GPIO27         -> TACHO dla Vout1
+```
+
+> Linie `T`/`R` w tym przewodzie są liniami UART po stronie logicznej modułów DFR0845. Nie są to linie `A`/`B` magistrali RS-485.
+
 ## Złącze DB9 sterowania wentylatorami
 
 | Pin DB9 | Funkcja |
