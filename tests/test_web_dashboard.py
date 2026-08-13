@@ -72,6 +72,20 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertIn('src="/app.js"', html)
         self.assertIn('src="/tacho.js"', html)
 
+    def test_control_page_uses_native_v2_shell_without_runtime_reflow(self):
+        html = (STATIC / "control.html").read_text(encoding="utf-8")
+        js = (STATIC / "tacho.js").read_text(encoding="utf-8")
+        css = (STATIC / "sidebar.css").read_text(encoding="utf-8")
+        self.assertIn('href="/sidebar.css"', html)
+        self.assertIn('class="v2-topbar"', html)
+        self.assertIn('class="v2-sidebar"', html)
+        self.assertIn('class="v2-main"', html)
+        self.assertNotIn('class="app-sidebar"', html)
+        self.assertNotIn('class="with-sidebar"', html)
+        self.assertNotIn("upgradeControlToV2Shell", js)
+        self.assertIn(".v2-main>.app-shell{width:100%;max-width:none;margin:0;padding:0}", css)
+        self.assertIn(".v2-nav.active{margin:0 0 4px", css)
+
     def test_v2_css_contains_reference_shell(self):
         css = (STATIC / "dashboard.css").read_text(encoding="utf-8")
         for selector in (
