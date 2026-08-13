@@ -3,60 +3,130 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1016">
-  <title>Dashboard · Wentylacja warsztatu</title>
+  <meta name="theme-color" content="#07101a">
+  <title>V2 · Pulpit warsztatu</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/dashboard.css">
   <script src="/dashboard-live.js" defer></script>
 </head>
-<body class="with-sidebar">
-  <aside class="app-sidebar" aria-label="Główna nawigacja">
-    <a class="sidebar-item active" href="/" aria-current="page"><span class="sidebar-icon">▦</span><span>PULPIT</span></a>
-    <nav class="sidebar-nav">
-      <span class="sidebar-item disabled" aria-disabled="true"><span class="sidebar-icon">◉</span><span>CZUJNIKI</span></span>
-      <span class="sidebar-item disabled" aria-disabled="true"><span class="sidebar-icon">⌁</span><span>HISTORIA</span></span>
-      <a class="sidebar-item" href="/control"><span class="sidebar-icon">≛</span><span>STEROWANIE</span></a>
-    </nav>
+<body class="v2-body">
+  <header class="v2-topbar">
+    <div class="v2-brand">AUTOKLINIKA</div>
+    <div class="v2-top-separator"></div>
+    <div class="v2-context">Warsztat – Jakość Powietrza</div>
+    <div class="v2-system"><span id="systemDot" class="v2-dot neutral"></span><span id="systemText">System —</span></div>
+    <div class="v2-time"><strong id="clock">--:--</strong><span id="date">--.--.----</span></div>
+    <div class="v2-settings">⚙</div>
+  </header>
+
+  <aside class="v2-sidebar" aria-label="Główna nawigacja">
+    <a class="v2-nav active" href="/" aria-current="page"><span class="v2-nav-icon">▦</span><span>PULPIT</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon">⌂</span><span>STREFY</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon">⌁</span><span>HISTORIA</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon">♢</span><span>ALARMY</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon">⚙</span><span>USTAWIENIA</span></a>
+    <a class="v2-nav" href="/control"><span class="v2-nav-icon">⌘</span><span>SERWIS</span></a>
+    <div class="v2-nav-lock">▣</div>
   </aside>
-  <div class="app-shell dashboard-shell">
-    <header class="topbar dashboard-topbar">
-      <div><p class="eyebrow">WORKSHOP VENTILATION CONTROLLER</p><h1>Wentylacja warsztatu</h1></div>
-      <div class="topbar-status" aria-live="polite"><span id="systemChip" class="status-chip status-unknown">SYSTEM · ŁĄCZENIE…</span><span id="clock" class="clock">--:--</span></div>
-    </header>
-    <main class="overview-grid" aria-label="Dashboard stanu wentylacji">
-      <section class="overview-card air-card" aria-labelledby="airTitle">
-        <div class="overview-heading"><div><p class="zone-label">POWIETRZE</p><h2 id="airTitle">Jakość powietrza</h2></div><span id="airSummaryChip" class="status-chip status-unknown">Czujniki —</span></div>
-        <div class="air-zones">
-          <article class="air-zone"><div class="air-zone-heading"><strong id="airZone1Name">Mycie i wygrzewanie ECU</strong><span id="airZone1Status" class="air-zone-status">—</span></div><div class="air-zone-values"><span>PM2.5 <strong id="airZone1Pm25">—</strong> µg/m³</span><span>VOC <strong id="airZone1Voc">—</strong></span><span>NOx <strong id="airZone1Nox">—</strong></span></div></article>
-          <article class="air-zone"><div class="air-zone-heading"><strong id="airZone2Name">Pomieszczenie lutowania</strong><span id="airZone2Status" class="air-zone-status">—</span></div><div class="air-zone-values"><span>PM2.5 <strong id="airZone2Pm25">—</strong> µg/m³</span><span>VOC <strong id="airZone2Voc">—</strong></span><span>NOx <strong id="airZone2Nox">—</strong></span></div></article>
+
+  <main class="v2-main">
+    <section class="v2-page-heading">
+      <h1>PULPIT WARSZTATU</h1>
+      <p>Podgląd ogólny</p>
+    </section>
+
+    <section class="v2-top-grid">
+      <article class="v2-zone-card zone-one">
+        <header class="v2-zone-header">
+          <div class="v2-zone-icon amber">⌁</div>
+          <div><span>STREFA 1</span><h2 id="zone1Name">Mycie / Wygrzewanie</h2></div>
+          <span id="zone1Dot" class="v2-zone-dot amber"></span>
+        </header>
+        <div class="v2-zone-air">
+          <div class="v2-air-status"><span>Jakość powietrza</span><strong id="zone1AirStatus">MONITORING</strong></div>
+          <div class="v2-air-value"><span>VOC</span><strong id="zone1Voc">—</strong><small>index</small></div>
+          <div class="v2-air-value"><span>PM2.5</span><strong id="zone1Pm25">—</strong><small>µg/m³</small></div>
         </div>
-      </section>
-      <section class="overview-card temperature-card" aria-labelledby="temperatureTitle">
-        <div class="overview-heading"><div><p class="zone-label">TEMPERATURA</p><h2 id="temperatureTitle">Warunki</h2></div></div>
-        <div class="temperature-lines"><div><span id="insideTempZone1Label">Mycie i wygrzewanie ECU</span><strong id="insideTempZone1">—</strong></div><div><span id="insideTempZone2Label">Pomieszczenie lutowania</span><strong id="insideTempZone2">—</strong></div><div><span>Na zewnątrz</span><strong id="outsideTemp">—</strong></div></div>
-      </section>
-      <section class="overview-card weather-card" aria-labelledby="weatherTitle">
-        <div class="overview-heading"><div><p class="zone-label">POGODA</p><h2 id="weatherTitle">Na zewnątrz</h2></div></div>
-        <div class="weather-main"><span id="weatherIcon" class="weather-icon" aria-hidden="true">◌</span><strong id="weatherTemp">—</strong></div>
-        <p id="weatherCondition" class="weather-condition">Brak danych pogodowych</p>
-        <div class="compact-metrics two-columns"><div><span>Opady</span><strong id="weatherRain">—</strong></div><div><span>Wiatr</span><strong id="weatherWind">—</strong></div></div>
-      </section>
-      <section class="overview-card ventilation-card" aria-labelledby="ventilationTitle">
-        <div class="overview-heading ventilation-heading"><div><p class="zone-label">WENTYLACJA</p><h2 id="ventilationTitle">Stan instalacji</h2></div><span id="dashboardMode" class="mode-pill">—</span></div>
-        <div class="ventilation-section"><div class="subsystem-heading"><div><strong>WENTYLATORY EC</strong><small id="ecZoneLabel" class="subsystem-context">Mycie i wygrzewanie ECU</small></div><span id="ecStatus">—</span></div>
-          <div class="fan-overview-grid">
-            <div class="fan-overview-item"><span>Nawiew</span><div class="fan-value-row"><strong id="dashboardSupplyRpm">—</strong><span id="dashboardSupplyPercent" class="fan-drive">0%</span></div><small id="dashboardSupplyStatus">—</small></div>
-            <div class="fan-overview-item"><span>Wyciąg</span><div class="fan-value-row"><strong id="dashboardExtractRpm">—</strong><span id="dashboardExtractPercent" class="fan-drive">0%</span></div><small id="dashboardExtractStatus">—</small></div>
+        <div class="v2-zone-control">
+          <div class="v2-control-main">
+            <div class="v2-control-icon">◉</div>
+            <div><span>Wentylacja</span><strong id="zone1VentilationPercent">0%</strong><small id="zone1Mode">—</small></div>
           </div>
+          <div class="v2-control-values">
+            <div><span>Nawiew</span><strong id="zone1SupplyPercent">0%</strong></div>
+            <div><span>Wyciąg</span><strong id="zone1ExtractPercent">0%</strong></div>
+          </div>
+          <div class="v2-bar" aria-hidden="true"><div id="zone1Bar" class="v2-bar-fill amber"></div></div>
+          <a class="v2-card-link" href="/control">›</a>
         </div>
-        <div class="section-divider compact-divider"></div>
-        <div class="ventilation-section"><div class="subsystem-heading"><div><strong>REKUPERATOR</strong><small id="aeroZoneLabel" class="subsystem-context">Pomieszczenie lutowania</small></div><span id="dashboardAeroStatus">—</span></div>
-          <div class="recuperator-grid"><div><span>Bieg</span><strong id="dashboardAeroSpeed">—</strong></div><div><span>Nawiew</span><strong id="dashboardAeroFan1">—</strong><small id="dashboardAeroSupplyTemp">—</small></div><div><span>Wywiew</span><strong id="dashboardAeroFan2">—</strong><small id="dashboardAeroExtractTemp">—</small></div></div>
+      </article>
+
+      <article class="v2-zone-card zone-two">
+        <header class="v2-zone-header">
+          <div class="v2-zone-icon green">⌁</div>
+          <div><span>STREFA 2</span><h2 id="zone2Name">Lutowanie</h2></div>
+          <span id="zone2Dot" class="v2-zone-dot green"></span>
+        </header>
+        <div class="v2-zone-air">
+          <div class="v2-air-status"><span>Jakość powietrza</span><strong id="zone2AirStatus">MONITORING</strong></div>
+          <div class="v2-air-value"><span>VOC</span><strong id="zone2Voc">—</strong><small>index</small></div>
+          <div class="v2-air-value"><span>PM2.5</span><strong id="zone2Pm25">—</strong><small>µg/m³</small></div>
         </div>
-        <a id="openControlButton" class="dashboard-action" href="/control">OTWÓRZ STEROWANIE</a>
-      </section>
-      <section id="attentionCard" class="attention-card attention-neutral" aria-live="polite"><span id="attentionIcon" aria-hidden="true">●</span><strong id="attentionText">Odczytuję stan systemu…</strong></section>
-    </main>
-  </div>
+        <div class="v2-zone-control">
+          <div class="v2-control-main">
+            <div class="v2-control-icon">↻</div>
+            <div><span>Rekuperator</span><strong id="zone2AeroMode">—</strong><small id="zone2AeroExtra">—</small></div>
+          </div>
+          <div class="v2-control-values">
+            <div><span>Nawiew</span><strong id="zone2AeroSupply">—</strong></div>
+            <div><span>Wyciąg</span><strong id="zone2AeroExtract">—</strong></div>
+          </div>
+          <div class="v2-bar" aria-hidden="true"><div id="zone2Bar" class="v2-bar-fill green"></div></div>
+          <a class="v2-card-link" href="/control">›</a>
+        </div>
+      </article>
+
+      <article class="v2-unit-card">
+        <span class="v2-unit-kicker">CENTRALA WENTYLACYJNA</span>
+        <h2>Rekuperator AERO</h2>
+        <div class="v2-unit-illustration" aria-hidden="true">
+          <div class="v2-unit-box"><i></i><i></i><i></i></div>
+        </div>
+        <dl class="v2-unit-list">
+          <div><dt>Temperatura nawiewu</dt><dd id="unitSupplyTemp">—</dd></div>
+          <div><dt>Temperatura wywiewu</dt><dd id="unitExtractTemp">—</dd></div>
+          <div><dt>Temperatura zewnętrzna</dt><dd id="unitOutdoorTemp">—</dd></div>
+          <div><dt>Bypass</dt><dd>—</dd></div>
+          <div><dt>Filtr</dt><dd>—</dd></div>
+          <div><dt>Rozmrażanie</dt><dd>—</dd></div>
+          <div><dt>Alarm</dt><dd id="unitAlarm">—</dd></div>
+        </dl>
+      </article>
+    </section>
+
+    <section class="v2-lower-grid">
+      <article class="v2-panel v2-trends">
+        <header><h3>TRENDY <span>– OSTATNIE 24H</span></h3><div class="v2-legend"><span class="amber-key"></span>VOC <span class="blue-key"></span>PM2.5 <span class="green-key"></span>Temp.</div></header>
+        <div class="v2-chart-placeholder">
+          <div class="v2-chart-grid"></div>
+          <div class="v2-chart-message"><strong>Historia 24 h</strong><span>oczekiwanie na integrację danych historycznych</span></div>
+        </div>
+      </article>
+
+      <article class="v2-panel v2-events">
+        <header><h3>OSTATNIE ZDARZENIA</h3></header>
+        <div id="eventsList" class="v2-events-list">
+          <div class="v2-event muted"><span class="v2-event-icon">•</span><div><strong>Brak historii zdarzeń</strong><small>Moduł historii zostanie podłączony w osobnym etapie.</small></div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="v2-footer-status">
+      <div><span>SYSTEM</span><p>Core <strong id="footerCore">—</strong> TACHO <strong id="footerTacho">—</strong></p></div>
+      <div><span>KOMUNIKACJA</span><p>SENSOR BUS <strong id="footerSensor">—</strong> AERO <strong id="footerAero">—</strong></p></div>
+      <div><span>WERSJA</span><p>Core <strong>—</strong> UI <strong>V2</strong></p></div>
+      <div><span>UPTIME</span><p id="footerUptime">—</p></div>
+    </section>
+  </main>
 </body>
 </html>
