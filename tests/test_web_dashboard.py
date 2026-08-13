@@ -67,7 +67,7 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         css = (STATIC / "dashboard.css").read_text(encoding="utf-8")
         for selector in (
             ".v2-topbar", ".v2-sidebar", ".v2-zone-card",
-            ".v2-unit-card", ".v2-trends", ".v2-footer-status",
+            ".v2-unit-card", ".v2-lower-grid", ".v2-footer-status",
         ):
             self.assertIn(selector, css)
 
