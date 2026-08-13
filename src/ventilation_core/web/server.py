@@ -115,8 +115,22 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _serve_static(self, request_path: str) -> None:
-        relative = "index.html" if request_path in ("", "/") else request_path.lstrip("/")
-        if relative not in {"index.html", "styles.css", "app.js", "tacho.js"}:
+        if request_path in ("", "/"):
+            relative = "index.html"
+        elif request_path in ("/control", "/control/"):
+            relative = "control.html"
+        else:
+            relative = request_path.lstrip("/")
+
+        allowed = {
+            "index.html",
+            "control.html",
+            "styles.css",
+            "dashboard.js",
+            "app.js",
+            "tacho.js",
+        }
+        if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
 
