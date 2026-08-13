@@ -90,7 +90,7 @@ Zachowane argumenty EXTRACT:
 --extract-tacho-line GPIO27
 ```
 
-Produkcjny plik `deploy/systemd/ventilation-core.service` w tej gałęzi włącza oba kanały.
+Produkcyjny plik `deploy/systemd/ventilation-core.service` w tej gałęzi włącza oba kanały.
 
 ## Kontrakt CoreState
 
@@ -132,26 +132,110 @@ Brak sygnału lub awaria monitora TACHO:
 
 ## Walidacja programowa
 
-Testy zostały rozszerzone o:
+Na docelowym CM5, z osobnego worktree `workshop-ventilation-tacho-supply-stage2`, wykonano pełny lokalny zestaw testów:
 
-- publikację jednocześnie `supply` i `extract`,
-- domyślne mapowanie GPIO17/GPIO27,
-- osobne flagi enable dla obu kanałów,
-- blokadę przypisania obu kanałów do tej samej linii GPIO,
-- wymóg co najmniej jednego skonfigurowanego kanału,
-- produkcyjną konfigurację obu kanałów w systemd.
+```text
+Ran 162 tests in 0.119s
+OK
+```
 
-## Walidacja sprzętowa — PENDING
+`compileall` również zakończył się PASS. Produkcyjny `ventilation-core.service` pozostał aktywny podczas testów.
 
-Przed merge wymagane jest potwierdzenie na docelowym CM5 i drugim fizycznym wentylatorze:
+GitHub Actions run #862 nie uruchomił testów z powodu blokady billing/spending limit konta GitHub; czerwony status nie wynikał z błędu testów ani implementacji.
 
-1. GPIO17 jest wolne i poprawnie przejęte przez `ventilation-core-supply-tacho`.
-2. STOP: brak fałszywych impulsów.
-3. SUPPLY przy zadanym napięciu publikuje stabilne Hz/RPM.
-4. EXTRACT na GPIO27 nadal działa równolegle.
-5. Fizyczne odłączenie wyłącznie SUPPLY TACHO nie zmienia setpointu SUPPLY ani trybu core.
-6. Ponowne podłączenie SUPPLY TACHO odzyskuje `valid=true` bez restartu core.
-7. SENSOR BUS i AERO BUS pozostają niezależne.
-8. Końcowy stan DAC po walidacji: STOP / 0.0 V / 0.0 V.
+## Walidacja sprzętowa SUPPLY / GPIO17 — PASS częściowy
+
+Data: 2026-08-13
+
+Zweryfikowano fizyczny drugi wentylator nawiewny na docelowym torze:
+
+```text
+SUPPLY control -> DAC CH0 / VOUT0
+SUPPLY TACHO   -> GPIO17 / physical pin 11
+```
+
+Przed testem:
+
+```text
+GPIO17: input, bez właściciela
+ventilation-core.service: active
+```
+
+### STOP / baseline
+
+Przy:
+
+```text
+mode=STOP
+supply_voltage=0.0
+extract_voltage=0.0
+hardware_ready=True
+active_alarms=[]
+```
+
+przez 5 s nie zarejestrowano żadnych fałszywych impulsów:
+
+```text
+SUPPLY   NO VALID TACHO
+```
+
+### SUPPLY = 5.0 V
+
+Po ustawieniu:
+
+```text
+mode=MANUAL
+supply_voltage=5.0
+extract_voltage=0.0
+hardware_ready=True
+active_alarms=[]
+```
+
+GPIO17 rozpoczął stabilny odczyt TACHO. Początkowy rozbieg wentylatora:
+
+```text
+58.296 Hz -> 1165.9 RPM
+67.063 Hz -> 1341.3 RPM
+68.467 Hz -> 1369.3 RPM
+```
+
+Stan ustalony był około:
+
+```text
+69.0 Hz -> około 1380 RPM
+```
+
+Końcowa próbka:
+
+```text
+69.423 Hz -> 1388.5 RPM
+samples=6
+age=0.006 s
+```
+
+Wynik jest spójny z kontraktem 3 impulsy/obrót i `RPM = Hz * 20`.
+
+### Końcowy STOP
+
+Po teście potwierdzono:
+
+```text
+mode=STOP
+supply_voltage=0.0
+extract_voltage=0.0
+hardware_ready=True
+active_alarms=[]
+```
+
+## Pozostała walidacja sprzętowa
+
+Przed merge nadal wymagane jest potwierdzenie:
+
+1. dwukanałowy runtime publikuje jednocześnie `state.tacho.supply` i `state.tacho.extract`,
+2. EXTRACT na GPIO27 nadal działa równolegle z SUPPLY na GPIO17,
+3. fizyczne odłączenie wyłącznie SUPPLY TACHO nie zmienia setpointu SUPPLY ani trybu core,
+4. ponowne podłączenie SUPPLY TACHO odzyskuje `valid=true` bez restartu core,
+5. SENSOR BUS i AERO BUS pozostają niezależne,
+6. końcowy stan DAC po pełnej walidacji: STOP / 0.0 V / 0.0 V.
 
 PR pozostaje Draft do zakończenia walidacji sprzętowej i jawnej decyzji użytkownika o Ready/Merge.
