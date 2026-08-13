@@ -87,9 +87,20 @@ class WebDashboardStructureTest(unittest.TestCase):
         js = (STATIC / "dashboard.js").read_text(encoding="utf-8")
 
         self.assertIn("Brak danych pogodowych", html)
-        self.assertIn("Źródło internetowej pogody dodamy w osobnym etapie", html)
+        self.assertNotIn("Źródło internetowej pogody dodamy", html)
+        self.assertNotIn("Kafel przygotowany", html)
         self.assertNotIn("open-meteo", js.lower())
         self.assertNotIn("weatherapi", js.lower())
+
+    def test_dashboard_omits_development_helper_copy(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        css = (STATIC / "dashboard.css").read_text(encoding="utf-8")
+
+        self.assertNotIn("ostatnio potwierdzony", html)
+        self.assertNotIn("Dashboard read-only", html)
+        self.assertIn('id="temperatureSource" hidden', html)
+        self.assertIn(".air-zone-neutral { display: none; }", css)
+        self.assertIn("#ecStatus { display: none; }", css)
 
 
 if __name__ == "__main__":
