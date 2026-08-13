@@ -9,7 +9,7 @@ from .app import WebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
 from .server import WebUiHttpServer
-from .weather import OpenMeteoWeatherProvider, WeatherConfig
+from .weather import MetNoWeatherProvider, WeatherConfig
 
 
 DEFAULT_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
@@ -20,30 +20,32 @@ DEFAULT_PORT = 8088
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Workshop Ventilation web UI")
     parser.add_argument("--host", default=os.getenv("WVC_WEB_HOST", DEFAULT_HOST))
+    parser.add_argument("--port", type=int, default=int(os.getenv("WVC_WEB_PORT", str(DEFAULT_PORT))))
+    parser.add_argument("--socket", type=Path, default=Path(os.getenv("WVC_CORE_SOCKET", str(DEFAULT_SOCKET))))
+    parser.add_argument("--core-timeout", type=float, default=float(os.getenv("WVC_WEB_CORE_TIMEOUT", "70")))
     parser.add_argument(
-        "--port",
-        type=int,
-        default=int(os.getenv("WVC_WEB_PORT", str(DEFAULT_PORT))),
-    )
-    parser.add_argument(
-        "--socket",
-        type=Path,
-        default=Path(os.getenv("WVC_CORE_SOCKET", str(DEFAULT_SOCKET))),
-    )
-    parser.add_argument(
-        "--core-timeout",
+        "--weather-latitude",
         type=float,
-        default=float(os.getenv("WVC_WEB_CORE_TIMEOUT", "70")),
+        default=os.getenv("WVC_WEB_WEATHER_LATITUDE") or None,
     )
     parser.add_argument(
-        "--weather-location",
-        default=os.getenv("WVC_WEB_WEATHER_LOCATION", ""),
-        help="Location name or postal code used only for informational weather data",
+        "--weather-longitude",
+        type=float,
+        default=os.getenv("WVC_WEB_WEATHER_LONGITUDE") or None,
+    )
+    parser.add_argument(
+        "--weather-label",
+        default=os.getenv("WVC_WEB_WEATHER_LABEL", ""),
+    )
+    parser.add_argument(
+        "--weather-user-agent",
+        default=os.getenv("WVC_WEB_WEATHER_USER_AGENT", ""),
+        help="Identifying User-Agent with application/company contact required by MET Norway",
     )
     parser.add_argument(
         "--weather-cache-seconds",
         type=float,
-        default=float(os.getenv("WVC_WEB_WEATHER_CACHE_SECONDS", "900")),
+        default=float(os.getenv("WVC_WEB_WEATHER_CACHE_SECONDS", "3600")),
     )
     parser.add_argument(
         "--weather-timeout",
@@ -64,9 +66,12 @@ def main() -> int:
     )
     static_root = Path(__file__).with_name("static")
     core = CoreUnixClient(args.socket, timeout_seconds=args.core_timeout)
-    weather = OpenMeteoWeatherProvider(
+    weather = MetNoWeatherProvider(
         WeatherConfig(
-            location=args.weather_location,
+            latitude=args.weather_latitude,
+            longitude=args.weather_longitude,
+            label=args.weather_label,
+            user_agent=args.weather_user_agent,
             cache_seconds=args.weather_cache_seconds,
             timeout_seconds=args.weather_timeout,
         )
@@ -79,7 +84,7 @@ def main() -> int:
         args.host,
         args.port,
         args.socket,
-        args.weather_location or "disabled",
+        args.weather_label or "disabled",
     )
     try:
         server.serve_forever(poll_interval=0.5)
