@@ -71,7 +71,7 @@
           <div><span id="insideTempZone2Label">Pomieszczenie lutowania</span><strong id="insideTempZone2">—</strong></div>
           <div><span>Na zewnątrz</span><strong id="outsideTemp">—</strong></div>
         </div>
-        <p id="temperatureSource" class="overview-note">Pomieszczenia: SEN55 · zewnętrzny czujnik: oczekiwanie na integrację.</p>
+        <p id="temperatureSource" hidden></p>
       </section>
 
       <section class="overview-card weather-card" aria-labelledby="weatherTitle">
@@ -90,7 +90,6 @@
           <div><span>Opady</span><strong id="weatherRain">—</strong></div>
           <div><span>Wiatr</span><strong id="weatherWind">—</strong></div>
         </div>
-        <p class="overview-note">Kafel przygotowany. Źródło internetowej pogody dodamy w osobnym etapie.</p>
       </section>
 
       <section class="overview-card ventilation-card" aria-labelledby="ventilationTitle">
@@ -135,7 +134,7 @@
             <span id="dashboardAeroStatus">—</span>
           </div>
           <div class="recuperator-grid">
-            <div><span>Bieg</span><strong id="dashboardAeroSpeed">—</strong><small>ostatnio potwierdzony</small></div>
+            <div><span>Bieg</span><strong id="dashboardAeroSpeed">—</strong></div>
             <div><span>Nawiew</span><strong id="dashboardAeroFan1">—</strong><small id="dashboardAeroSupplyTemp">—</small></div>
             <div><span>Wywiew</span><strong id="dashboardAeroFan2">—</strong><small id="dashboardAeroExtractTemp">—</small></div>
           </div>
@@ -156,8 +155,6 @@
       <span aria-disabled="true">Historia</span>
       <a href="/control">Sterowanie</a>
     </nav>
-
-    <footer>Dashboard read-only · sterowanie dostępne wyłącznie na osobnym ekranie</footer>
   </div>
 </body>
 </html>
