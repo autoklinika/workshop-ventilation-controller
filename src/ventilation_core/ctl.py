@@ -19,6 +19,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("sensors")
     subparsers.add_parser("aero")
 
+    alerts = subparsers.add_parser("alerts")
+    alerts.add_argument("--limit", type=int, default=200)
+
+    ack_alert = subparsers.add_parser("ack-alert")
+    ack_alert.add_argument("alert_id", type=int)
+
     aero_speed = subparsers.add_parser("aero-speed")
     aero_speed.add_argument("speed", type=int, choices=(0, 1, 2, 3))
 
@@ -40,6 +46,10 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
             "supply_voltage": args.supply,
             "extract_voltage": args.extract,
         }
+    if args.command == "alerts":
+        return {"command": "alerts", "limit": args.limit}
+    if args.command == "ack-alert":
+        return {"command": "ack-alert", "alert_id": args.alert_id}
     if args.command == "aero-speed":
         return {"command": "aero-speed", "speed": args.speed}
     if args.command == "aero-airing":
