@@ -28,14 +28,33 @@
             <p class="zone-label">POWIETRZE</p>
             <h2 id="airTitle">Jakość powietrza</h2>
           </div>
-          <span id="airSensorChip" class="status-chip status-unknown">Czujnik —</span>
+          <span id="airSummaryChip" class="status-chip status-unknown">Czujniki —</span>
         </div>
-        <div id="airVerdict" class="hero-value hero-neutral">—</div>
-        <p id="airSource" class="overview-note">Oczekiwanie na dane SEN55…</p>
-        <div class="compact-metrics three-columns">
-          <div><span>PM2.5</span><strong id="airPm25">—</strong><small>µg/m³</small></div>
-          <div><span>VOC</span><strong id="airVoc">—</strong><small>index</small></div>
-          <div><span>NOx</span><strong id="airNox">—</strong><small>index</small></div>
+
+        <div class="air-zones">
+          <article class="air-zone">
+            <div class="air-zone-heading">
+              <strong id="airZone1Name">Mycie i wygrzewanie ECU</strong>
+              <span id="airZone1Status" class="air-zone-status">—</span>
+            </div>
+            <div class="air-zone-values">
+              <span>PM2.5 <strong id="airZone1Pm25">—</strong> µg/m³</span>
+              <span>VOC <strong id="airZone1Voc">—</strong></span>
+              <span>NOx <strong id="airZone1Nox">—</strong></span>
+            </div>
+          </article>
+
+          <article class="air-zone">
+            <div class="air-zone-heading">
+              <strong id="airZone2Name">Pomieszczenie lutowania</strong>
+              <span id="airZone2Status" class="air-zone-status">—</span>
+            </div>
+            <div class="air-zone-values">
+              <span>PM2.5 <strong id="airZone2Pm25">—</strong> µg/m³</span>
+              <span>VOC <strong id="airZone2Voc">—</strong></span>
+              <span>NOx <strong id="airZone2Nox">—</strong></span>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -47,10 +66,11 @@
           </div>
         </div>
         <div class="temperature-lines">
-          <div><span>Wewnątrz</span><strong id="insideTemp">—</strong></div>
+          <div><span id="insideTempZone1Label">Mycie i wygrzewanie ECU</span><strong id="insideTempZone1">—</strong></div>
+          <div><span id="insideTempZone2Label">Pomieszczenie lutowania</span><strong id="insideTempZone2">—</strong></div>
           <div><span>Na zewnątrz</span><strong id="outsideTemp">—</strong></div>
         </div>
-        <p id="temperatureSource" class="overview-note">Wewnątrz: SEN55 · zewnętrzny czujnik: oczekiwanie na integrację.</p>
+        <p id="temperatureSource" class="overview-note">Pomieszczenia: SEN55 · zewnętrzny czujnik: oczekiwanie na integrację.</p>
       </section>
 
       <section class="overview-card weather-card" aria-labelledby="weatherTitle">
@@ -83,7 +103,10 @@
 
         <div class="ventilation-section">
           <div class="subsystem-heading">
-            <strong>WENTYLATORY EC</strong>
+            <div>
+              <strong>WENTYLATORY EC</strong>
+              <small id="ecZoneLabel" class="subsystem-context">Mycie i wygrzewanie ECU</small>
+            </div>
             <span id="ecStatus">—</span>
           </div>
           <div class="fan-overview-grid">
@@ -104,7 +127,10 @@
 
         <div class="ventilation-section">
           <div class="subsystem-heading">
-            <strong>REKUPERATOR</strong>
+            <div>
+              <strong>REKUPERATOR</strong>
+              <small id="aeroZoneLabel" class="subsystem-context">Pomieszczenie lutowania</small>
+            </div>
             <span id="dashboardAeroStatus">—</span>
           </div>
           <div class="recuperator-grid">
