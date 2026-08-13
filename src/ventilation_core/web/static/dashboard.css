@@ -1,0 +1,26 @@
+/* Dashboard-only presentation refinements. Manual control keeps styles.css unchanged. */
+.air-zones { display: grid; gap: 10px; margin-top: 8px; }
+.air-zone { padding: 12px 13px; border: 1px solid var(--line); border-radius: 13px; background: rgba(3,8,12,.28); }
+.air-zone-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.air-zone-heading > strong { min-width: 0; font-size: .84rem; line-height: 1.25; }
+.air-zone-status { flex: 0 0 auto; font-size: .68rem; font-weight: 850; letter-spacing: .035em; color: var(--muted); }
+.air-zone-good { color: #aef3d2; }
+.air-zone-warn { color: #ffe09a; }
+.air-zone-bad { color: #ffb5b5; }
+.air-zone-neutral { color: #b7c5d2; }
+.air-zone-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(38,51,65,.72); }
+.air-zone-values > span { min-width: 0; color: var(--muted); font-size: .67rem; white-space: nowrap; }
+.air-zone-values strong { margin-left: 3px; color: var(--text); font-size: .92rem; font-variant-numeric: tabular-nums; }
+.temperature-card .temperature-lines { margin-top: 12px; gap: 9px; }
+.temperature-card .temperature-lines > div { padding-bottom: 9px; }
+.temperature-card .temperature-lines span { max-width: 62%; line-height: 1.25; }
+.temperature-card .temperature-lines strong { font-size: clamp(1.35rem, 2.6vw, 2rem); }
+.subsystem-heading > div { min-width: 0; }
+.subsystem-heading > div > strong { display: block; font-size: .76rem; letter-spacing: .11em; color: var(--muted); }
+.subsystem-context { display: block; margin-top: 4px; color: #718599; font-size: .68rem; font-weight: 650; letter-spacing: 0; }
+
+@media (max-width: 620px) {
+  .air-zone-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .air-zone-values { grid-template-columns: repeat(3, minmax(78px, 1fr)); overflow-x: auto; }
+  .temperature-card .temperature-lines span { max-width: 56%; }
+}
