@@ -4,52 +4,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "ventilation_core" / "web" / "static"
+WEB = ROOT / "src" / "ventilation_core" / "web"
 
 
 class WebDashboardV2StructureTest(unittest.TestCase):
-    def test_v2_root_is_read_only_and_links_to_service_control(self):
+    def test_v2_shell_has_one_fixed_sidebar_and_no_topbar(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertIn("PULPIT WARSZTATU", html)
-        self.assertIn('src="/dashboard-live.js"', html)
-        self.assertIn('href="/dashboard.css"', html)
-        self.assertIn('href="/control"', html)
-        self.assertIn("AUTOKLINIKA", html)
-        self.assertIn("STREFY", html)
-        self.assertIn("HISTORIA", html)
-        self.assertIn("ALARMY", html)
-        self.assertIn("USTAWIENIA", html)
-        self.assertIn("SERWIS", html)
-        self.assertNotIn('class="v2-footer-status"', html)
-        self.assertNotIn('id="footerCore"', html)
-        self.assertNotIn('id="footerTacho"', html)
-        self.assertNotIn('id="footerSensor"', html)
-        self.assertNotIn('id="footerAero"', html)
-        self.assertNotIn('id="footerUptime"', html)
-        self.assertNotIn('id="applyFansButton"', html)
-        self.assertNotIn('id="stopFansButton"', html)
-        self.assertNotIn('data-aero-speed=', html)
-        self.assertNotIn('src="/app.js"', html)
-        self.assertNotIn('src="/tacho.js"', html)
+        self.assertEqual(html.count('class="v2-sidebar"'), 1)
+        self.assertNotIn('class="v2-topbar"', html)
+        self.assertIn('id="viewHost"', html)
+        self.assertIn('id="dashboardView"', html)
+        self.assertIn('id="controlView"', html)
+        self.assertIn('data-route="/"', html)
+        self.assertIn('data-route="/control"', html)
 
-    def test_v2_contains_live_zone_and_aero_fields(self):
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        for element_id in (
-            "zone1Name", "zone2Name",
-            "zone1AirStatus", "zone2AirStatus",
-            "zone1Voc", "zone2Voc", "zone1Pm25", "zone2Pm25",
-            "zone1VentilationPercent", "zone1SupplyPercent", "zone1ExtractPercent",
-            "zone2AeroMode", "zone2AeroSupply", "zone2AeroExtract",
-        ):
-            self.assertIn(f'id="{element_id}"', html)
-
-    def test_v2_history_and_events_are_explicit_placeholders(self):
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertIn("TRENDY", html)
-        self.assertIn("OSTATNIE 24H", html)
-        self.assertIn("oczekiwanie na integrację danych historycznych", html)
-        self.assertIn("Brak historii zdarzeń", html)
-
-    def test_v2_script_is_read_only(self):
+    def test_dashboard_view_remains_read_only(self):
         js = (STATIC / "dashboard-live.js").read_text(encoding="utf-8")
         self.assertIn('/api/v1/state', js)
         self.assertIn('/api/v1/config', js)
@@ -58,13 +27,18 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertNotIn('method:"POST"', js)
         self.assertNotIn('method: "POST"', js)
         self.assertIn("Math.round(n*10)", js)
-        self.assertNotIn("footerCore", js)
-        self.assertNotIn("footerTacho", js)
-        self.assertNotIn("footerSensor", js)
-        self.assertNotIn("footerAero", js)
-        self.assertNotIn("footerUptime", js)
 
-    def test_manual_controls_remain_on_control_page(self):
+    def test_shell_switches_views_without_document_navigation(self):
+        js = (STATIC / "dashboard-live.js").read_text(encoding="utf-8")
+        self.assertIn("history.pushState", js)
+        self.assertIn("dashboardView.hidden", js)
+        self.assertIn("controlView.hidden", js)
+        self.assertIn("event.preventDefault()", js)
+        self.assertIn('fetch("/control.html"', js)
+        self.assertIn('loadV2Script("/app.js")', js)
+        self.assertIn('loadV2Script("/tacho.js")', js)
+
+    def test_control_source_keeps_manual_controls(self):
         html = (STATIC / "control.html").read_text(encoding="utf-8")
         self.assertIn('id="applyFansButton"', html)
         self.assertIn('id="stopFansButton"', html)
@@ -72,27 +46,24 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertIn('src="/app.js"', html)
         self.assertIn('src="/tacho.js"', html)
 
-    def test_control_page_uses_native_v2_shell_without_runtime_reflow(self):
-        html = (STATIC / "control.html").read_text(encoding="utf-8")
-        js = (STATIC / "tacho.js").read_text(encoding="utf-8")
-        css = (STATIC / "sidebar.css").read_text(encoding="utf-8")
-        self.assertIn('href="/sidebar.css"', html)
-        self.assertIn('class="v2-topbar"', html)
-        self.assertIn('class="v2-sidebar"', html)
-        self.assertIn('class="v2-main"', html)
-        self.assertNotIn('class="app-sidebar"', html)
-        self.assertNotIn('class="with-sidebar"', html)
-        self.assertNotIn("upgradeControlToV2Shell", js)
-        self.assertIn(".v2-main>.app-shell{width:100%;max-width:none;margin:0;padding:0}", css)
-        self.assertIn(".v2-nav.active{margin:0 0 4px", css)
+    def test_control_route_returns_same_application_shell(self):
+        server = (WEB / "server.py").read_text(encoding="utf-8")
+        self.assertIn('request_path in ("", "/", "/control", "/control/")', server)
+        self.assertIn('relative = "index.html"', server)
 
-    def test_v2_css_contains_reference_shell(self):
-        css = (STATIC / "dashboard.css").read_text(encoding="utf-8")
-        for selector in (
-            ".v2-topbar", ".v2-sidebar", ".v2-zone-card",
-            ".v2-unit-card", ".v2-lower-grid",
-        ):
-            self.assertIn(selector, css)
+    def test_sidebar_css_locks_shell_geometry(self):
+        css = (STATIC / "sidebar.css").read_text(encoding="utf-8")
+        self.assertIn("position:fixed", css)
+        self.assertIn("top:0", css)
+        self.assertIn(".v2-shell-view[hidden]", css)
+        self.assertIn("margin-left:118px", css)
+
+    def test_dashboard_placeholders_remain_explicit(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn("TRENDY", html)
+        self.assertIn("OSTATNIE 24H", html)
+        self.assertIn("oczekiwanie na integrację danych historycznych", html)
+        self.assertIn("Brak historii zdarzeń", html)
 
 
 if __name__ == "__main__":

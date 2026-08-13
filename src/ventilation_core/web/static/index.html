@@ -4,71 +4,56 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#07101a">
-  <title>V2 · Pulpit warsztatu</title>
+  <title>V2 · Wentylacja warsztatu</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/sidebar.css">
   <script src="/dashboard-live.js" defer></script>
 </head>
 <body class="v2-body">
-  <header class="v2-topbar">
-    <div class="v2-brand">AUTOKLINIKA</div>
-    <div class="v2-top-separator"></div>
-    <div class="v2-context">Warsztat – Jakość Powietrza</div>
-    <div class="v2-system"><span id="systemDot" class="v2-dot neutral"></span><span id="systemText">System —</span></div>
-    <div class="v2-time"><strong id="clock">--:--</strong><span id="date">--.--.----</span></div>
-    <div class="v2-settings">⚙</div>
-  </header>
-
   <aside class="v2-sidebar" aria-label="Główna nawigacja">
-    <a class="v2-nav active" href="/" aria-current="page">
-      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg></span>
-      <span>PULPIT</span>
+    <a class="v2-nav active" href="/" data-route="/" aria-current="page">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg></span><span>PULPIT</span>
     </a>
-    <a class="v2-nav disabled" href="#" aria-disabled="true">
-      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5.5h5V20"/></svg></span>
-      <span>STREFY</span>
+    <a class="v2-nav" href="/control" data-route="/control">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5.5h5V20"/></svg></span><span>STREFY</span>
     </a>
-    <a class="v2-nav disabled" href="#" aria-disabled="true">
-      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/><circle cx="7" cy="15" r=".7"/><circle cx="11" cy="11" r=".7"/><circle cx="14" cy="13" r=".7"/><circle cx="19" cy="7" r=".7"/></svg></span>
-      <span>HISTORIA</span>
-    </a>
-    <a class="v2-nav disabled" href="#" aria-disabled="true">
-      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/><path d="M10 4.2a2 2 0 0 1 4 0"/></svg></span>
-      <span>ALARMY</span>
-    </a>
-    <a class="v2-nav disabled" href="#" aria-disabled="true">
-      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.45-2.45 1a7 7 0 0 0-2.25-1.3L13.8 3h-4l-.38 2.4A7 7 0 0 0 7.17 6.7l-2.45-1-2 3.45 2 1.55A7 7 0 0 0 4.6 12c0 .44.04.88.12 1.3l-2 1.55 2 3.45 2.45-1a7 7 0 0 0 2.25 1.3L9.8 21h4l.38-2.4a7 7 0 0 0 2.25-1.3l2.45 1 2-3.45-2-1.55c.08-.42.12-.86.12-1.3Z"/></svg></span>
-      <span>USTAWIENIA</span>
-    </a>
-    <a class="v2-nav" href="/control">
-      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span>
-      <span>SERWIS</span>
-    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/><circle cx="7" cy="15" r=".7"/><circle cx="11" cy="11" r=".7"/><circle cx="14" cy="13" r=".7"/><circle cx="19" cy="7" r=".7"/></svg></span><span>HISTORIA</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/><path d="M10 4.2a2 2 0 0 1 4 0"/></svg></span><span>ALARMY</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.45-2.45 1a7 7 0 0 0-2.25-1.3L13.8 3h-4l-.38 2.4A7 7 0 0 0 7.17 6.7l-2.45-1-2 3.45 2 1.55A7 7 0 0 0 4.6 12c0 .44.04.88.12 1.3l-2 1.55 2 3.45 2.45-1a7 7 0 0 0 2.25 1.3L9.8 21h4l.38-2.4a7 7 0 0 0 2.25-1.3l2.45 1 2-3.45-2-1.55c.08-.42.12-.86.12-1.3Z"/></svg></span><span>USTAWIENIA</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span><span>SERWIS</span></a>
   </aside>
 
-  <main class="v2-main">
-    <section class="v2-page-heading"><h1>PULPIT WARSZTATU</h1><p>Podgląd ogólny</p></section>
+  <div class="v2-shell-hidden-status" hidden aria-hidden="true">
+    <span id="connectionChip" class="status-chip status-unknown">Łączenie…</span><span id="clock">--:--</span><span id="date">--.--.----</span>
+    <span id="systemDot" class="v2-dot neutral"></span><span id="systemText">System —</span>
+    <span id="controlSystemDot" class="v2-dot neutral"></span><span id="controlSystemText">System —</span><span id="controlClock">--:--</span><span id="controlDate">--.--.----</span>
+  </div>
 
-    <section class="v2-top-grid">
-      <article class="v2-zone-card zone-one">
-        <header class="v2-zone-header"><div class="v2-zone-icon amber">⌁</div><div><span>STREFA 1</span><h2 id="zone1Name">Mycie / Wygrzewanie</h2></div><span id="zone1Dot" class="v2-zone-dot amber"></span></header>
-        <div class="v2-zone-air"><div class="v2-air-status"><span>Jakość powietrza</span><strong id="zone1AirStatus">MONITORING</strong></div><div class="v2-air-value"><span>VOC</span><strong id="zone1Voc">—</strong><small>index</small></div><div class="v2-air-value"><span>PM2.5</span><strong id="zone1Pm25">—</strong><small>µg/m³</small></div></div>
-        <div class="v2-zone-control"><div class="v2-control-main"><div class="v2-control-icon">◉</div><div><span>Wentylacja</span><strong id="zone1VentilationPercent">0%</strong><small id="zone1Mode">—</small></div></div><div class="v2-control-values"><div><span>Nawiew</span><strong id="zone1SupplyPercent">0%</strong></div><div><span>Wyciąg</span><strong id="zone1ExtractPercent">0%</strong></div></div><div class="v2-bar" aria-hidden="true"><div id="zone1Bar" class="v2-bar-fill amber"></div></div><a class="v2-card-link" href="/control">›</a></div>
-      </article>
-
-      <article class="v2-zone-card zone-two">
-        <header class="v2-zone-header"><div class="v2-zone-icon green">⌁</div><div><span>STREFA 2</span><h2 id="zone2Name">Lutowanie</h2></div><span id="zone2Dot" class="v2-zone-dot green"></span></header>
-        <div class="v2-zone-air"><div class="v2-air-status"><span>Jakość powietrza</span><strong id="zone2AirStatus">MONITORING</strong></div><div class="v2-air-value"><span>VOC</span><strong id="zone2Voc">—</strong><small>index</small></div><div class="v2-air-value"><span>PM2.5</span><strong id="zone2Pm25">—</strong><small>µg/m³</small></div></div>
-        <div class="v2-zone-control"><div class="v2-control-main"><div class="v2-control-icon">↻</div><div><span>Rekuperator</span><strong id="zone2AeroMode">—</strong><small id="zone2AeroExtra">—</small></div></div><div class="v2-control-values"><div><span>Nawiew</span><strong id="zone2AeroSupply">—</strong></div><div><span>Wyciąg</span><strong id="zone2AeroExtract">—</strong></div></div><div class="v2-bar" aria-hidden="true"><div id="zone2Bar" class="v2-bar-fill green"></div></div><a class="v2-card-link" href="/control">›</a></div>
-      </article>
-
-      <article class="v2-unit-card"><span class="v2-unit-kicker">CENTRALA WENTYLACYJNA</span><h2>Rekuperator AERO</h2><div class="v2-unit-illustration" aria-hidden="true"><div class="v2-unit-box"><i></i><i></i><i></i></div></div><dl class="v2-unit-list"><div><dt>Temperatura nawiewu</dt><dd id="unitSupplyTemp">—</dd></div><div><dt>Temperatura wywiewu</dt><dd id="unitExtractTemp">—</dd></div><div><dt>Temperatura zewnętrzna</dt><dd id="unitOutdoorTemp">—</dd></div><div><dt>Bypass</dt><dd>—</dd></div><div><dt>Filtr</dt><dd>—</dd></div><div><dt>Rozmrażanie</dt><dd>—</dd></div><div><dt>Alarm</dt><dd id="unitAlarm">—</dd></div></dl></article>
+  <main class="v2-main" id="viewHost">
+    <section id="dashboardView" class="v2-shell-view" data-view="dashboard">
+      <section class="v2-page-heading"><h1>PULPIT WARSZTATU</h1><p>Podgląd ogólny</p></section>
+      <section class="v2-top-grid">
+        <article class="v2-zone-card zone-one">
+          <header class="v2-zone-header"><div class="v2-zone-icon amber">⌁</div><div><span>STREFA 1</span><h2 id="zone1Name">Mycie / Wygrzewanie</h2></div><span id="zone1Dot" class="v2-zone-dot amber"></span></header>
+          <div class="v2-zone-air"><div class="v2-air-status"><span>Jakość powietrza</span><strong id="zone1AirStatus">MONITORING</strong></div><div class="v2-air-value"><span>VOC</span><strong id="zone1Voc">—</strong><small>index</small></div><div class="v2-air-value"><span>PM2.5</span><strong id="zone1Pm25">—</strong><small>µg/m³</small></div></div>
+          <div class="v2-zone-control"><div class="v2-control-main"><div class="v2-control-icon">◉</div><div><span>Wentylacja</span><strong id="zone1VentilationPercent">0%</strong><small id="zone1Mode">—</small></div></div><div class="v2-control-values"><div><span>Nawiew</span><strong id="zone1SupplyPercent">0%</strong></div><div><span>Wyciąg</span><strong id="zone1ExtractPercent">0%</strong></div></div><div class="v2-bar" aria-hidden="true"><div id="zone1Bar" class="v2-bar-fill amber"></div></div><a class="v2-card-link" href="/control">›</a></div>
+        </article>
+        <article class="v2-zone-card zone-two">
+          <header class="v2-zone-header"><div class="v2-zone-icon green">⌁</div><div><span>STREFA 2</span><h2 id="zone2Name">Lutowanie</h2></div><span id="zone2Dot" class="v2-zone-dot green"></span></header>
+          <div class="v2-zone-air"><div class="v2-air-status"><span>Jakość powietrza</span><strong id="zone2AirStatus">MONITORING</strong></div><div class="v2-air-value"><span>VOC</span><strong id="zone2Voc">—</strong><small>index</small></div><div class="v2-air-value"><span>PM2.5</span><strong id="zone2Pm25">—</strong><small>µg/m³</small></div></div>
+          <div class="v2-zone-control"><div class="v2-control-main"><div class="v2-control-icon">↻</div><div><span>Rekuperator</span><strong id="zone2AeroMode">—</strong><small id="zone2AeroExtra">—</small></div></div><div class="v2-control-values"><div><span>Nawiew</span><strong id="zone2AeroSupply">—</strong></div><div><span>Wyciąg</span><strong id="zone2AeroExtract">—</strong></div></div><div class="v2-bar" aria-hidden="true"><div id="zone2Bar" class="v2-bar-fill green"></div></div><a class="v2-card-link" href="/control">›</a></div>
+        </article>
+        <article class="v2-unit-card"><span class="v2-unit-kicker">CENTRALA WENTYLACYJNA</span><h2>Rekuperator AERO</h2><div class="v2-unit-illustration" aria-hidden="true"><div class="v2-unit-box"><i></i><i></i><i></i></div></div><dl class="v2-unit-list"><div><dt>Temperatura nawiewu</dt><dd id="unitSupplyTemp">—</dd></div><div><dt>Temperatura wywiewu</dt><dd id="unitExtractTemp">—</dd></div><div><dt>Temperatura zewnętrzna</dt><dd id="unitOutdoorTemp">—</dd></div><div><dt>Bypass</dt><dd>—</dd></div><div><dt>Filtr</dt><dd>—</dd></div><div><dt>Rozmrażanie</dt><dd>—</dd></div><div><dt>Alarm</dt><dd id="unitAlarm">—</dd></div></dl></article>
+      </section>
+      <section class="v2-lower-grid">
+        <article class="v2-panel v2-trends"><header><h3>TRENDY <span>– OSTATNIE 24H</span></h3><div class="v2-legend"><span class="amber-key"></span>VOC <span class="blue-key"></span>PM2.5 <span class="green-key"></span>Temp.</div></header><div class="v2-chart-placeholder"><div class="v2-chart-grid"></div><div class="v2-chart-message"><strong>Historia 24 h</strong><span>oczekiwanie na integrację danych historycznych</span></div></div></article>
+        <article class="v2-panel v2-events"><header><h3>OSTATNIE ZDARZENIA</h3></header><div id="eventsList" class="v2-events-list"><div class="v2-event muted"><span class="v2-event-icon">•</span><div><strong>Brak historii zdarzeń</strong><small>Moduł historii zostanie podłączony w osobnym etapie.</small></div></div></div></article>
+      </section>
     </section>
 
-    <section class="v2-lower-grid">
-      <article class="v2-panel v2-trends"><header><h3>TRENDY <span>– OSTATNIE 24H</span></h3><div class="v2-legend"><span class="amber-key"></span>VOC <span class="blue-key"></span>PM2.5 <span class="green-key"></span>Temp.</div></header><div class="v2-chart-placeholder"><div class="v2-chart-grid"></div><div class="v2-chart-message"><strong>Historia 24 h</strong><span>oczekiwanie na integrację danych historycznych</span></div></div></article>
-      <article class="v2-panel v2-events"><header><h3>OSTATNIE ZDARZENIA</h3></header><div id="eventsList" class="v2-events-list"><div class="v2-event muted"><span class="v2-event-icon">•</span><div><strong>Brak historii zdarzeń</strong><small>Moduł historii zostanie podłączony w osobnym etapie.</small></div></div></div></article>
+    <section id="controlView" class="v2-shell-view v2-shell-view-control" data-view="control" hidden>
+      <section class="v2-page-heading"><h1>STREFY</h1><p>Ładowanie widoku sterowania…</p></section>
     </section>
   </main>
 </body>
