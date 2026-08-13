@@ -31,41 +31,20 @@
           </div>
           <span id="airSummaryChip" class="status-chip status-unknown">Czujniki —</span>
         </div>
-
         <div class="air-zones">
           <article class="air-zone">
-            <div class="air-zone-heading">
-              <strong id="airZone1Name">Mycie i wygrzewanie ECU</strong>
-              <span id="airZone1Status" class="air-zone-status">—</span>
-            </div>
-            <div class="air-zone-values">
-              <span>PM2.5 <strong id="airZone1Pm25">—</strong> µg/m³</span>
-              <span>VOC <strong id="airZone1Voc">—</strong></span>
-              <span>NOx <strong id="airZone1Nox">—</strong></span>
-            </div>
+            <div class="air-zone-heading"><strong id="airZone1Name">Mycie i wygrzewanie ECU</strong><span id="airZone1Status" class="air-zone-status">—</span></div>
+            <div class="air-zone-values"><span>PM2.5 <strong id="airZone1Pm25">—</strong> µg/m³</span><span>VOC <strong id="airZone1Voc">—</strong></span><span>NOx <strong id="airZone1Nox">—</strong></span></div>
           </article>
-
           <article class="air-zone">
-            <div class="air-zone-heading">
-              <strong id="airZone2Name">Pomieszczenie lutowania</strong>
-              <span id="airZone2Status" class="air-zone-status">—</span>
-            </div>
-            <div class="air-zone-values">
-              <span>PM2.5 <strong id="airZone2Pm25">—</strong> µg/m³</span>
-              <span>VOC <strong id="airZone2Voc">—</strong></span>
-              <span>NOx <strong id="airZone2Nox">—</strong></span>
-            </div>
+            <div class="air-zone-heading"><strong id="airZone2Name">Pomieszczenie lutowania</strong><span id="airZone2Status" class="air-zone-status">—</span></div>
+            <div class="air-zone-values"><span>PM2.5 <strong id="airZone2Pm25">—</strong> µg/m³</span><span>VOC <strong id="airZone2Voc">—</strong></span><span>NOx <strong id="airZone2Nox">—</strong></span></div>
           </article>
         </div>
       </section>
 
       <section class="overview-card temperature-card" aria-labelledby="temperatureTitle">
-        <div class="overview-heading">
-          <div>
-            <p class="zone-label">TEMPERATURA</p>
-            <h2 id="temperatureTitle">Warunki</h2>
-          </div>
-        </div>
+        <div class="overview-heading"><div><p class="zone-label">TEMPERATURA</p><h2 id="temperatureTitle">Warunki</h2></div></div>
         <div class="temperature-lines">
           <div><span id="insideTempZone1Label">Mycie i wygrzewanie ECU</span><strong id="insideTempZone1">—</strong></div>
           <div><span id="insideTempZone2Label">Pomieszczenie lutowania</span><strong id="insideTempZone2">—</strong></div>
@@ -75,16 +54,8 @@
       </section>
 
       <section class="overview-card weather-card" aria-labelledby="weatherTitle">
-        <div class="overview-heading">
-          <div>
-            <p class="zone-label">POGODA</p>
-            <h2 id="weatherTitle">Na zewnątrz</h2>
-          </div>
-        </div>
-        <div class="weather-main">
-          <span class="weather-icon" aria-hidden="true">◌</span>
-          <strong id="weatherTemp">—</strong>
-        </div>
+        <div class="overview-heading"><div><p class="zone-label">POGODA</p><h2 id="weatherTitle">Na zewnątrz</h2></div></div>
+        <div class="weather-main"><span id="weatherIcon" class="weather-icon" aria-hidden="true">◌</span><strong id="weatherTemp">—</strong></div>
         <p id="weatherCondition" class="weather-condition">Brak danych pogodowych</p>
         <div class="compact-metrics two-columns">
           <div><span>Opady</span><strong id="weatherRain">—</strong></div>
@@ -93,68 +64,38 @@
       </section>
 
       <section class="overview-card ventilation-card" aria-labelledby="ventilationTitle">
-        <div class="overview-heading ventilation-heading">
-          <div>
-            <p class="zone-label">WENTYLACJA</p>
-            <h2 id="ventilationTitle">Stan instalacji</h2>
-          </div>
-          <span id="dashboardMode" class="mode-pill">—</span>
-        </div>
-
+        <div class="overview-heading ventilation-heading"><div><p class="zone-label">WENTYLACJA</p><h2 id="ventilationTitle">Stan instalacji</h2></div><span id="dashboardMode" class="mode-pill">—</span></div>
         <div class="ventilation-section">
-          <div class="subsystem-heading">
-            <div>
-              <strong>WENTYLATORY EC</strong>
-              <small id="ecZoneLabel" class="subsystem-context">Mycie i wygrzewanie ECU</small>
-            </div>
-            <span id="ecStatus">—</span>
-          </div>
+          <div class="subsystem-heading"><div><strong>WENTYLATORY EC</strong><small id="ecZoneLabel" class="subsystem-context">Mycie i wygrzewanie ECU</small></div><span id="ecStatus">—</span></div>
           <div class="fan-overview-grid">
             <div class="fan-overview-item">
               <span>Nawiew</span>
-              <strong id="dashboardSupplyRpm">—</strong>
+              <div class="fan-value-row"><strong id="dashboardSupplyRpm">—</strong><span id="dashboardSupplyPercent" class="fan-drive">0%</span></div>
               <small id="dashboardSupplyStatus">—</small>
             </div>
             <div class="fan-overview-item">
               <span>Wyciąg</span>
-              <strong id="dashboardExtractRpm">—</strong>
+              <div class="fan-value-row"><strong id="dashboardExtractRpm">—</strong><span id="dashboardExtractPercent" class="fan-drive">0%</span></div>
               <small id="dashboardExtractStatus">—</small>
             </div>
           </div>
         </div>
-
         <div class="section-divider compact-divider"></div>
-
         <div class="ventilation-section">
-          <div class="subsystem-heading">
-            <div>
-              <strong>REKUPERATOR</strong>
-              <small id="aeroZoneLabel" class="subsystem-context">Pomieszczenie lutowania</small>
-            </div>
-            <span id="dashboardAeroStatus">—</span>
-          </div>
+          <div class="subsystem-heading"><div><strong>REKUPERATOR</strong><small id="aeroZoneLabel" class="subsystem-context">Pomieszczenie lutowania</small></div><span id="dashboardAeroStatus">—</span></div>
           <div class="recuperator-grid">
             <div><span>Bieg</span><strong id="dashboardAeroSpeed">—</strong></div>
             <div><span>Nawiew</span><strong id="dashboardAeroFan1">—</strong><small id="dashboardAeroSupplyTemp">—</small></div>
             <div><span>Wywiew</span><strong id="dashboardAeroFan2">—</strong><small id="dashboardAeroExtractTemp">—</small></div>
           </div>
         </div>
-
         <a id="openControlButton" class="dashboard-action" href="/control">OTWÓRZ STEROWANIE</a>
       </section>
 
-      <section id="attentionCard" class="attention-card attention-neutral" aria-live="polite">
-        <span id="attentionIcon" aria-hidden="true">●</span>
-        <strong id="attentionText">Odczytuję stan systemu…</strong>
-      </section>
+      <section id="attentionCard" class="attention-card attention-neutral" aria-live="polite"><span id="attentionIcon" aria-hidden="true">●</span><strong id="attentionText">Odczytuję stan systemu…</strong></section>
     </main>
 
-    <nav class="bottom-nav" aria-label="Główna nawigacja">
-      <a class="active" href="/" aria-current="page">Dashboard</a>
-      <span aria-disabled="true">Czujniki</span>
-      <span aria-disabled="true">Historia</span>
-      <a href="/control">Sterowanie</a>
-    </nav>
+    <nav class="bottom-nav" aria-label="Główna nawigacja"><a class="active" href="/" aria-current="page">Dashboard</a><span aria-disabled="true">Czujniki</span><span aria-disabled="true">Historia</span><a href="/control">Sterowanie</a></nav>
   </div>
 </body>
 </html>
