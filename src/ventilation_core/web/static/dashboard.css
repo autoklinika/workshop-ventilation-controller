@@ -9,22 +9,72 @@
 .air-zone-bad { color: #ffb5b5; }
 .air-zone-neutral { display: none; }
 .air-zone-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid rgba(38,51,65,.72); }
-.air-zone-values > span { min-width: 0; color: var(--muted); font-size: .67rem; white-space: nowrap; }
-.air-zone-values strong { margin-left: 3px; color: var(--text); font-size: .92rem; font-variant-numeric: tabular-nums; }
+.air-zone-values > span { min-width: 0; color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.air-zone-values strong { margin-left: 4px; color: var(--text); font-size: 1.08rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+
 .temperature-card .temperature-lines { margin-top: 12px; gap: 9px; }
 .temperature-card .temperature-lines > div { padding-bottom: 9px; }
 .temperature-card .temperature-lines span { max-width: 62%; line-height: 1.25; }
 .temperature-card .temperature-lines strong { font-size: clamp(1.35rem, 2.6vw, 2rem); }
+
+.weather-card .compact-metrics::after {
+  content: "Źródło: MET Norway";
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  color: #6f8294;
+  font-size: .66rem;
+  font-weight: 650;
+  letter-spacing: .025em;
+}
+
 .subsystem-heading > div { min-width: 0; }
 .subsystem-heading > div > strong { display: block; font-size: .76rem; letter-spacing: .11em; color: var(--muted); }
 .subsystem-context { display: block; margin-top: 4px; color: #718599; font-size: .68rem; font-weight: 650; letter-spacing: 0; }
 #ecStatus { display: none; }
-.fan-value-row { display: flex; align-items: baseline; gap: 14px; margin-top: 5px; }
-.fan-value-row > strong { margin-top: 0; }
-.fan-drive { color: var(--accent); font-size: 1rem; font-weight: 850; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.fan-value-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(130px, .8fr);
+  gap: 28px;
+  align-items: end;
+  margin-top: 8px;
+}
+.fan-value-row > strong,
+.fan-value-row > .fan-drive {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 0;
+  font-variant-numeric: tabular-nums;
+}
+.fan-value-row > strong {
+  color: var(--text);
+  font-size: clamp(1.4rem, 2.7vw, 2rem);
+  font-weight: 850;
+  line-height: 1;
+}
+.fan-value-row > strong::before,
+.fan-value-row > .fan-drive::before {
+  color: var(--muted);
+  font-size: .64rem;
+  font-weight: 750;
+  letter-spacing: .07em;
+  line-height: 1.2;
+}
+#dashboardSupplyRpm::before,
+#dashboardExtractRpm::before { content: "RPM"; }
+.fan-drive {
+  color: var(--accent);
+  font-size: 1.2rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.fan-drive::before { content: "WYSTEROWANIE"; }
+.fan-status { display: inline-block; margin-top: 9px; font-size: .78rem; font-weight: 700; }
 
 @media (max-width: 620px) {
   .air-zone-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
   .air-zone-values { grid-template-columns: repeat(3, minmax(78px, 1fr)); overflow-x: auto; }
   .temperature-card .temperature-lines span { max-width: 56%; }
+  .fan-value-row { grid-template-columns: 1fr 1fr; gap: 18px; }
 }
