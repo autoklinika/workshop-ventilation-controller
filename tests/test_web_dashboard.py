@@ -46,6 +46,22 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertIn('src="/app.js"', html)
         self.assertIn('src="/tacho.js"', html)
 
+    def test_zones_present_both_production_tacho_channels(self):
+        html = (STATIC / "control.html").read_text(encoding="utf-8")
+        js = (STATIC / "tacho.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="supplyRpm"', html)
+        self.assertIn('id="extractRpm"', html)
+        self.assertIn('id="supplyTachoChip"', html)
+        self.assertIn('id="extractTachoChip"', html)
+
+        self.assertIn('renderTachoChannel(tacho, "supply"', js)
+        self.assertIn('renderTachoChannel(tacho, "extract"', js)
+        self.assertIn('tacho.supply && tacho.extract', js)
+        self.assertIn('channel.frequency_hz', js)
+        self.assertIn('channel.line_name', js)
+        self.assertIn('"NIEPEŁNE"', js)
+
     def test_control_route_returns_same_application_shell(self):
         server = (WEB / "server.py").read_text(encoding="utf-8")
         self.assertIn('request_path in ("", "/", "/control", "/control/")', server)
