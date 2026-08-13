@@ -143,7 +143,7 @@ OK
 
 GitHub Actions run #862 nie uruchomił testów z powodu blokady billing/spending limit konta GitHub; czerwony status nie wynikał z błędu testów ani implementacji.
 
-## Walidacja sprzętowa SUPPLY / GPIO17 — PASS częściowy
+## Walidacja sprzętowa SUPPLY / GPIO17 — PASS
 
 Data: 2026-08-13
 
@@ -227,15 +227,92 @@ hardware_ready=True
 active_alarms=[]
 ```
 
+## Dwukanałowy runtime SUPPLY + EXTRACT — PASS
+
+Na osobnym testowym socketcie uruchomiono core z gałęzi Stage 2 z oboma wejściami TACHO aktywnymi jednocześnie:
+
+```text
+SUPPLY  -> GPIO17
+EXTRACT -> GPIO27
+```
+
+Produkcjny `ventilation-core.service` został wcześniej bezpiecznie zatrzymany po wymuszeniu STOP. Początkowy stan testowego core:
+
+```text
+mode=STOP
+hardware_ready=True
+active_alarms=[]
+SUPPLY valid=False / 0 RPM
+EXTRACT valid=False / 0 RPM
+SENSOR BUS: slave 1 i 2 online/usable
+```
+
+Po ustawieniu:
+
+```text
+supply=5.0 V
+extract=5.0 V
+```
+
+uzyskano pięć kolejnych próbek z jednoczesnym poprawnym feedbackiem obu kanałów:
+
+```text
+SUPPLY  69.996 Hz / 1399.9 RPM | EXTRACT 70.138 Hz / 1402.8 RPM
+SUPPLY  71.087 Hz / 1421.7 RPM | EXTRACT 72.368 Hz / 1447.4 RPM
+SUPPLY  70.590 Hz / 1411.8 RPM | EXTRACT 72.742 Hz / 1454.8 RPM
+SUPPLY  70.373 Hz / 1407.5 RPM | EXTRACT 72.948 Hz / 1459.0 RPM
+SUPPLY  71.282 Hz / 1425.6 RPM | EXTRACT 72.908 Hz / 1458.2 RPM
+```
+
+Dla wszystkich próbek:
+
+```text
+mode=MANUAL
+SUPPLY valid=True
+EXTRACT valid=True
+active_alarms=[]
+```
+
+SENSOR BUS pozostał zdrowy podczas pracy obu wentylatorów:
+
+```text
+slave 1: online=True, usable=True, consecutive_failures=0
+slave 2: online=True, usable=True, consecutive_failures=0
+```
+
+Po poleceniu STOP testowy core wrócił do:
+
+```text
+mode=STOP
+supply=0.0 V
+extract=0.0 V
+hardware_ready=True
+active_alarms=[]
+```
+
+Następnie testowy proces został zamknięty, produkcyjny `ventilation-core.service` uruchomiony ponownie i ponownie potwierdzono STOP / 0.0 V / 0.0 V.
+
+### AERO BUS podczas testu
+
+Podczas tego konkretnego uruchomienia testowego core AERO BUS zgłaszał:
+
+```text
+online=False
+usable=False
+last_error=No response or incomplete Modbus header
+consecutive_failures=7
+```
+
+Jednocześnie TACHO, DAC i SENSOR BUS działały poprawnie. Potwierdza to izolację AERO BUS od pozostałych torów, ale ponieważ AERO było wcześniej fizycznie naprawione i zwalidowane jako online/usable, należy osobno potwierdzić stan AERO po powrocie produkcyjnego core. Tego wyniku nie klasyfikujemy jako błąd TACHO Stage 2.
+
 ## Pozostała walidacja sprzętowa
 
 Przed merge nadal wymagane jest potwierdzenie:
 
-1. dwukanałowy runtime publikuje jednocześnie `state.tacho.supply` i `state.tacho.extract`,
-2. EXTRACT na GPIO27 nadal działa równolegle z SUPPLY na GPIO17,
-3. fizyczne odłączenie wyłącznie SUPPLY TACHO nie zmienia setpointu SUPPLY ani trybu core,
-4. ponowne podłączenie SUPPLY TACHO odzyskuje `valid=true` bez restartu core,
-5. SENSOR BUS i AERO BUS pozostają niezależne,
-6. końcowy stan DAC po pełnej walidacji: STOP / 0.0 V / 0.0 V.
+1. fizyczne odłączenie wyłącznie SUPPLY TACHO nie zmienia setpointu SUPPLY ani trybu core,
+2. ponowne podłączenie SUPPLY TACHO odzyskuje `valid=true` bez restartu core,
+3. stan AERO BUS po powrocie produkcyjnego core,
+4. integracja odczytu `state.tacho.supply` w Web GUI,
+5. końcowy stan DAC po pełnej walidacji: STOP / 0.0 V / 0.0 V.
 
 PR pozostaje Draft do zakończenia walidacji sprzętowej i jawnej decyzji użytkownika o Ready/Merge.
