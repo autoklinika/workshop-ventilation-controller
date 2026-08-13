@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from threading import RLock
+from threading import Lock, RLock
 
 from ventilation_core.domain.aero_control import AeroControlCommand, AeroControlResult
 from ventilation_core.domain.models import (
@@ -52,6 +52,7 @@ class VentilationService:
         self._aero_bus = aero_bus
         self._tacho = tacho
         self._lock = RLock()
+        self._aero_control_lock = Lock()
         self._setpoints = FanSetpoints.stopped()
         self._mode = VentilationMode.STOP
         self._output_state_known = actuator.ready
@@ -85,15 +86,27 @@ class VentilationService:
             return self.state()
 
     def control_aero(self, command: AeroControlCommand) -> AeroControlResult:
-        with self._lock:
-            if self._aero_bus is None:
-                raise AeroControlUnavailableError("AERO BUS is not configured")
-            state = self._aero_bus.state()
-            if not state.worker_alive or not state.ready or not state.online or not state.usable:
-                raise AeroControlUnavailableError("AERO BUS is not ready for control")
-            if state.control_busy:
-                raise AeroControlUnavailableError("AERO control command already in progress")
-            return self._aero_bus.execute_control(command)
+        if not self._aero_control_lock.acquire(blocking=False):
+            raise AeroControlUnavailableError("AERO control command already in progress")
+        try:
+            with self._lock:
+                if self._aero_bus is None:
+                    raise AeroControlUnavailableError("AERO BUS is not configured")
+                aero_bus = self._aero_bus
+                state = aero_bus.state()
+                if not state.worker_alive or not state.ready or not state.online or not state.usable:
+                    raise AeroControlUnavailableError("AERO BUS is not ready for control")
+                if state.control_busy:
+                    raise AeroControlUnavailableError("AERO control command already in progress")
+
+            # AERO execution can legitimately wait up to ~60 s for physical
+            # confirmation. Do not hold the global service lock while waiting:
+            # status, SENSOR BUS, TACHO, DAC commands and health supervision must
+            # remain available. The dedicated AERO lock above still guarantees
+            # that only one control command can be in flight at a time.
+            return aero_bus.execute_control(command)
+        finally:
+            self._aero_control_lock.release()
 
     def stop(self) -> CoreState:
         with self._lock:
@@ -159,25 +172,28 @@ class VentilationService:
             return self.state()
 
     def close(self) -> None:
-        with self._lock:
-            try:
-                self._actuator.stop_all()
-            except Exception:
-                LOGGER.exception("Failed to force DAC outputs to zero during shutdown")
-            finally:
+        # Keep shutdown serialized with a possibly in-flight AERO command, while
+        # using the same lock order as control_aero (AERO lock -> service lock).
+        with self._aero_control_lock:
+            with self._lock:
                 try:
-                    self._actuator.close()
+                    self._actuator.stop_all()
+                except Exception:
+                    LOGGER.exception("Failed to force DAC outputs to zero during shutdown")
                 finally:
                     try:
-                        if self._sensor_bus is not None:
-                            self._sensor_bus.close()
+                        self._actuator.close()
                     finally:
                         try:
-                            if self._aero_bus is not None:
-                                self._aero_bus.close()
+                            if self._sensor_bus is not None:
+                                self._sensor_bus.close()
                         finally:
-                            if self._tacho is not None:
-                                self._tacho.close()
+                            try:
+                                if self._aero_bus is not None:
+                                    self._aero_bus.close()
+                            finally:
+                                if self._tacho is not None:
+                                    self._tacho.close()
 
     def _require_operational_hardware(self) -> None:
         if self._recovery_required or not self._actuator.ready or self._active_alarms:
