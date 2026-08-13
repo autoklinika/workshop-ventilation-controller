@@ -19,6 +19,9 @@
 .subsystem-heading > div > strong { display: block; font-size: .76rem; letter-spacing: .11em; color: var(--muted); }
 .subsystem-context { display: block; margin-top: 4px; color: #718599; font-size: .68rem; font-weight: 650; letter-spacing: 0; }
 #ecStatus { display: none; }
+.fan-value-row { display: flex; align-items: baseline; gap: 14px; margin-top: 5px; }
+.fan-value-row > strong { margin-top: 0; }
+.fan-drive { color: var(--accent); font-size: 1rem; font-weight: 850; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @media (max-width: 620px) {
   .air-zone-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
