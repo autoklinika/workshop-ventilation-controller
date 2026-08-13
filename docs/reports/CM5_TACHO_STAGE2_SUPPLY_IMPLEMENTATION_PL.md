@@ -236,7 +236,7 @@ SUPPLY  -> GPIO17
 EXTRACT -> GPIO27
 ```
 
-Produkcjny `ventilation-core.service` został wcześniej bezpiecznie zatrzymany po wymuszeniu STOP. Początkowy stan testowego core:
+Produkcyjny `ventilation-core.service` został wcześniej bezpiecznie zatrzymany po wymuszeniu STOP. Początkowy stan testowego core:
 
 ```text
 mode=STOP
@@ -294,25 +294,49 @@ Następnie testowy proces został zamknięty, produkcyjny `ventilation-core.serv
 
 ### AERO BUS podczas testu
 
-Podczas tego konkretnego uruchomienia testowego core AERO BUS zgłaszał:
+Podczas tego uruchomienia rekuperator AERO był **fizycznie odłączony od RS-485**. Dlatego stan:
 
 ```text
 online=False
 usable=False
 last_error=No response or incomplete Modbus header
-consecutive_failures=7
 ```
 
-Jednocześnie TACHO, DAC i SENSOR BUS działały poprawnie. Potwierdza to izolację AERO BUS od pozostałych torów, ale ponieważ AERO było wcześniej fizycznie naprawione i zwalidowane jako online/usable, należy osobno potwierdzić stan AERO po powrocie produkcyjnego core. Tego wyniku nie klasyfikujemy jako błąd TACHO Stage 2.
+jest oczekiwany i nie jest traktowany jako usterka. Jednocześnie TACHO, DAC i SENSOR BUS działały poprawnie, co potwierdza izolację AERO BUS od pozostałych torów.
 
-## Pozostała walidacja sprzętowa
+## Test utraty i automatycznego odzyskania SUPPLY TACHO — DEFERRED
 
-Przed merge nadal wymagane jest potwierdzenie:
+Kontrolowany test fizycznego odłączenia wyłącznie przewodu SUPPLY TACHO podczas pracy wentylatora nie został wykonany, ponieważ w aktualnej konfiguracji sprzętowej nie ma wygodnego dostępu do tego przewodu.
 
-1. fizyczne odłączenie wyłącznie SUPPLY TACHO nie zmienia setpointu SUPPLY ani trybu core,
-2. ponowne podłączenie SUPPLY TACHO odzyskuje `valid=true` bez restartu core,
-3. stan AERO BUS po powrocie produkcyjnego core,
-4. integracja odczytu `state.tacho.supply` w Web GUI,
-5. końcowy stan DAC po pełnej walidacji: STOP / 0.0 V / 0.0 V.
+Test nie jest oznaczony jako PASS. Został świadomie odłożony na później.
 
-PR pozostaje Draft do zakończenia walidacji sprzętowej i jawnej decyzji użytkownika o Ready/Merge.
+Oczekiwany kontrakt pozostaje bez zmian:
+
+```text
+utrata impulsów SUPPLY TACHO -> supply.valid=False
+setpoint SUPPLY              -> bez zmiany
+tryb core                    -> bez zmiany
+alarm DAC                    -> brak
+ponowne pojawienie impulsów  -> automatyczny powrót valid=True bez restartu
+```
+
+Zachowanie to jest objęte architekturą read-only TACHO i testami programowymi, ale pełne potwierdzenie fizycznego disconnect/reconnect pozostaje niewykonane.
+
+## Status Stage 2
+
+Potwierdzone na sprzęcie:
+
+1. GPIO17 / SUPPLY TACHO działa i nie generuje fałszywych impulsów przy STOP.
+2. SUPPLY przy 5.0 V publikuje stabilne Hz/RPM.
+3. Dwukanałowy runtime publikuje równocześnie `state.tacho.supply` i `state.tacho.extract`.
+4. EXTRACT na GPIO27 działa równolegle z SUPPLY na GPIO17.
+5. SENSOR BUS pozostaje niezależny i zdrowy.
+6. Fizycznie odłączony AERO BUS nie wpływa na DAC, SENSOR BUS ani TACHO.
+7. Końcowy stan DAC po testach: STOP / 0.0 V / 0.0 V.
+
+Niewykonane / odłożone:
+
+- kontrolowany fizyczny disconnect/reconnect wyłącznie SUPPLY TACHO,
+- finalna integracja odczytu `state.tacho.supply` w Web GUI na działającym runtime Stage 2.
+
+PR pozostaje Draft do jawnej decyzji użytkownika o dalszym lifecycle / merge.
