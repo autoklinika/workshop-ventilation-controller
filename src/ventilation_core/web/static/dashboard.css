@@ -1,3 +1,31 @@
+/* Shared left navigation */
+.with-sidebar { padding-left: 112px; }
+.app-sidebar {
+  position: fixed; inset: 0 auto 0 0; z-index: 50; width: 112px; min-height: 100vh;
+  padding: 18px 10px; display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #07121d 0%, #08101a 48%, #060d15 100%);
+  border-right: 1px solid #1c2a37; box-shadow: 18px 0 45px rgba(0,0,0,.18);
+}
+.sidebar-nav { display: flex; flex-direction: column; gap: 7px; }
+.sidebar-item {
+  position: relative; min-height: 88px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 9px; padding: 10px 6px; border: 1px solid transparent; border-radius: 13px;
+  color: #a8b5c2; text-decoration: none; text-align: center; font-size: .66rem; font-weight: 760; letter-spacing: .025em;
+}
+.app-sidebar > .sidebar-item { min-height: 92px; margin-bottom: 14px; }
+.sidebar-item.active {
+  color: #d9f1ff; background: linear-gradient(180deg, rgba(25,75,112,.72), rgba(10,39,61,.76));
+  border-color: rgba(67,185,255,.26); box-shadow: inset 0 0 24px rgba(67,185,255,.08), 0 8px 22px rgba(0,0,0,.18);
+}
+.sidebar-item.disabled { opacity: .5; cursor: default; }
+.sidebar-icon { width: 34px; height: 34px; display: grid; place-items: center; font-size: 1.9rem; line-height: 1; color: currentColor; }
+.app-sidebar > .sidebar-item .sidebar-icon { color: #61c4ff; font-size: 2.15rem; text-shadow: 0 0 18px rgba(67,185,255,.28); }
+.sidebar-nav .sidebar-item::after {
+  content: ""; position: absolute; left: 18px; right: 18px; bottom: -4px; height: 1px; background: rgba(38,51,65,.56);
+}
+.sidebar-nav .sidebar-item:last-child::after { display: none; }
+.bottom-nav { display: none !important; }
+
 /* Dashboard-only presentation refinements. Manual control keeps styles.css unchanged. */
 .air-zones { display: grid; gap: 10px; margin-top: 8px; }
 .air-zone { padding: 12px 13px; border: 1px solid var(--line); border-radius: 13px; background: rgba(3,8,12,.28); }
@@ -72,7 +100,19 @@
 .fan-drive::before { content: "WYSTEROWANIE"; }
 .fan-status { display: inline-block; margin-top: 9px; font-size: .78rem; font-weight: 700; }
 
+@media (max-width: 900px) {
+  .with-sidebar { padding-left: 82px; }
+  .app-sidebar { width: 82px; padding: 12px 7px; }
+  .sidebar-item { min-height: 78px; gap: 7px; font-size: .57rem; }
+  .app-sidebar > .sidebar-item { min-height: 82px; }
+  .sidebar-icon { width: 29px; height: 29px; font-size: 1.55rem; }
+}
+
 @media (max-width: 620px) {
+  .with-sidebar { padding-left: 68px; }
+  .app-sidebar { width: 68px; padding: 9px 5px; }
+  .sidebar-item { min-height: 70px; padding: 7px 3px; font-size: .5rem; }
+  .sidebar-icon { font-size: 1.35rem; }
   .air-zone-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
   .air-zone-values { grid-template-columns: repeat(3, minmax(78px, 1fr)); overflow-x: auto; }
   .temperature-card .temperature-lines span { max-width: 56%; }
