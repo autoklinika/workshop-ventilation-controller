@@ -16,14 +16,16 @@ class WebSystemdTest(unittest.TestCase):
         self.assertIn("NoNewPrivileges=true", unit)
         self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", unit)
 
-    def test_web_env_keeps_core_socket_and_bind_address_explicit(self):
+    def test_web_env_keeps_core_and_weather_configuration_explicit(self):
         env = (ROOT / "deploy/cm5/web/wvc-web-ui.env.example").read_text(encoding="utf-8")
         self.assertIn("WVC_CORE_SOCKET=/run/workshop-ventilation/ventilation-core.sock", env)
         self.assertIn("WVC_WEB_HOST=0.0.0.0", env)
         self.assertIn("WVC_WEB_PORT=8088", env)
+        self.assertIn("WVC_WEB_WEATHER_LOCATION=", env)
+        self.assertIn("WVC_WEB_WEATHER_CACHE_SECONDS=900", env)
 
-    def test_disabled_manual_sliders_start_at_minimum_operating_voltage(self):
-        html = (ROOT / "src/ventilation_core/web/static/index.html").read_text(
+    def test_manual_sliders_start_at_minimum_operating_voltage(self):
+        html = (ROOT / "src/ventilation_core/web/static/control.html").read_text(
             encoding="utf-8"
         )
         self.assertIn(
