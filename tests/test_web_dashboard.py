@@ -19,6 +19,12 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertIn("ALARMY", html)
         self.assertIn("USTAWIENIA", html)
         self.assertIn("SERWIS", html)
+        self.assertNotIn('class="v2-footer-status"', html)
+        self.assertNotIn('id="footerCore"', html)
+        self.assertNotIn('id="footerTacho"', html)
+        self.assertNotIn('id="footerSensor"', html)
+        self.assertNotIn('id="footerAero"', html)
+        self.assertNotIn('id="footerUptime"', html)
         self.assertNotIn('id="applyFansButton"', html)
         self.assertNotIn('id="stopFansButton"', html)
         self.assertNotIn('data-aero-speed=', html)
@@ -33,8 +39,6 @@ class WebDashboardV2StructureTest(unittest.TestCase):
             "zone1Voc", "zone2Voc", "zone1Pm25", "zone2Pm25",
             "zone1VentilationPercent", "zone1SupplyPercent", "zone1ExtractPercent",
             "zone2AeroMode", "zone2AeroSupply", "zone2AeroExtract",
-            "unitSupplyTemp", "unitExtractTemp", "unitOutdoorTemp", "unitAlarm",
-            "footerCore", "footerTacho", "footerSensor", "footerAero",
         ):
             self.assertIn(f'id="{element_id}"', html)
 
@@ -54,6 +58,11 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertNotIn('method:"POST"', js)
         self.assertNotIn('method: "POST"', js)
         self.assertIn("Math.round(n*10)", js)
+        self.assertNotIn("footerCore", js)
+        self.assertNotIn("footerTacho", js)
+        self.assertNotIn("footerSensor", js)
+        self.assertNotIn("footerAero", js)
+        self.assertNotIn("footerUptime", js)
 
     def test_manual_controls_remain_on_control_page(self):
         html = (STATIC / "control.html").read_text(encoding="utf-8")
@@ -67,7 +76,7 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         css = (STATIC / "dashboard.css").read_text(encoding="utf-8")
         for selector in (
             ".v2-topbar", ".v2-sidebar", ".v2-zone-card",
-            ".v2-unit-card", ".v2-lower-grid", ".v2-footer-status",
+            ".v2-unit-card", ".v2-lower-grid",
         ):
             self.assertIn(selector, css)
 
