@@ -106,14 +106,15 @@ class CoreServer:
             limit = request.get("limit", 200)
             if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
                 raise ValueError("Alert history limit must be an integer in range 1..1000")
+            active_method = getattr(self._service, "active_alerts", None)
             history_method = getattr(self._service, "alert_history", None)
-            if history_method is None:
+            if active_method is None or history_method is None:
                 raise RuntimeError("Alert history is not configured")
+            active = await asyncio.to_thread(active_method)
             history = await asyncio.to_thread(history_method, limit)
-            state = self._service.state()
             return {
                 "ok": True,
-                "active": [alarm.to_dict() for alarm in state.active_alarms],
+                "active": [record.to_dict() for record in active],
                 "history": [record.to_dict() for record in history],
             }
         if command == "ack-alert":
