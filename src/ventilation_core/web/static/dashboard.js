@@ -6,16 +6,26 @@ const DASHBOARD_TIMEOUT_MS = 8000;
 const dashboardUi = {
   systemChip: document.getElementById("systemChip"),
   clock: document.getElementById("clock"),
-  airSensorChip: document.getElementById("airSensorChip"),
-  airVerdict: document.getElementById("airVerdict"),
-  airSource: document.getElementById("airSource"),
-  airPm25: document.getElementById("airPm25"),
-  airVoc: document.getElementById("airVoc"),
-  airNox: document.getElementById("airNox"),
-  insideTemp: document.getElementById("insideTemp"),
+  airSummaryChip: document.getElementById("airSummaryChip"),
+  airZone1Name: document.getElementById("airZone1Name"),
+  airZone1Status: document.getElementById("airZone1Status"),
+  airZone1Pm25: document.getElementById("airZone1Pm25"),
+  airZone1Voc: document.getElementById("airZone1Voc"),
+  airZone1Nox: document.getElementById("airZone1Nox"),
+  airZone2Name: document.getElementById("airZone2Name"),
+  airZone2Status: document.getElementById("airZone2Status"),
+  airZone2Pm25: document.getElementById("airZone2Pm25"),
+  airZone2Voc: document.getElementById("airZone2Voc"),
+  airZone2Nox: document.getElementById("airZone2Nox"),
+  insideTempZone1Label: document.getElementById("insideTempZone1Label"),
+  insideTempZone1: document.getElementById("insideTempZone1"),
+  insideTempZone2Label: document.getElementById("insideTempZone2Label"),
+  insideTempZone2: document.getElementById("insideTempZone2"),
   outsideTemp: document.getElementById("outsideTemp"),
   temperatureSource: document.getElementById("temperatureSource"),
   dashboardMode: document.getElementById("dashboardMode"),
+  ecZoneLabel: document.getElementById("ecZoneLabel"),
+  aeroZoneLabel: document.getElementById("aeroZoneLabel"),
   ecStatus: document.getElementById("ecStatus"),
   supplyRpm: document.getElementById("dashboardSupplyRpm"),
   extractRpm: document.getElementById("dashboardExtractRpm"),
@@ -74,52 +84,76 @@ function nodeUsable(node) {
   );
 }
 
-function renderAir(state, node) {
-  const reading = node && node.reading ? node.reading : {};
-  dashboardUi.airPm25.textContent = formatNumber(reading.pm2_5_ug_m3);
-  dashboardUi.airVoc.textContent = formatNumber(reading.voc_index, 0);
-  dashboardUi.airNox.textContent = formatNumber(reading.nox_index, 0);
-  dashboardUi.airSource.textContent = dashboardConfig.zone1.name;
-
-  if (!node) {
-    setChip(dashboardUi.airSensorChip, "Czujnik: brak", "bad");
-    dashboardUi.airVerdict.textContent = "BRAK DANYCH";
-    dashboardUi.airVerdict.className = "hero-value hero-bad";
-    return;
-  }
-
-  if (!nodeUsable(node)) {
-    setChip(
-      dashboardUi.airSensorChip,
-      node.online ? "Czujnik: dane niedostępne" : "Czujnik: offline",
-      node.online ? "warn" : "bad"
-    );
-    dashboardUi.airVerdict.textContent = "BRAK DANYCH";
-    dashboardUi.airVerdict.className = "hero-value hero-warn";
-    return;
-  }
-
-  setChip(dashboardUi.airSensorChip, "Czujnik: OK", "good");
-
-  const publishedStatus = state && state.air_quality && state.air_quality.zone1
-    ? state.air_quality.zone1.status
-    : null;
-  if (typeof publishedStatus === "string" && publishedStatus.trim()) {
-    const normalized = publishedStatus.trim().toUpperCase();
-    dashboardUi.airVerdict.textContent = normalized;
-    dashboardUi.airVerdict.className = `hero-value ${
-      normalized === "DOBRE" ? "hero-good" : normalized === "ZŁE" ? "hero-bad" : "hero-warn"
-    }`;
-  } else {
-    dashboardUi.airVerdict.textContent = "MONITORING";
-    dashboardUi.airVerdict.className = "hero-value hero-info";
-  }
+function publishedAirStatus(state, zoneKey) {
+  const zone = state && state.air_quality ? state.air_quality[zoneKey] : null;
+  const status = zone ? zone.status : null;
+  return typeof status === "string" && status.trim() ? status.trim().toUpperCase() : null;
 }
 
-function renderTemperature(state, node) {
+function airStatusKind(status) {
+  if (status === "DOBRE") return "good";
+  if (status === "ZŁE") return "bad";
+  if (status) return "warn";
+  return "neutral";
+}
+
+function renderAirZone(state, zoneKey, config, node, elements) {
   const reading = node && node.reading ? node.reading : {};
-  dashboardUi.insideTemp.textContent = typeof reading.temperature_celsius === "number"
-    ? `${formatNumber(reading.temperature_celsius)}°C`
+  elements.name.textContent = config.name;
+  elements.pm25.textContent = formatNumber(reading.pm2_5_ug_m3);
+  elements.voc.textContent = formatNumber(reading.voc_index, 0);
+  elements.nox.textContent = formatNumber(reading.nox_index, 0);
+
+  if (!node) {
+    elements.status.textContent = "BRAK CZUJNIKA";
+    elements.status.className = "air-zone-status air-zone-bad";
+    return;
+  }
+  if (!nodeUsable(node)) {
+    elements.status.textContent = node.online ? "BRAK DANYCH" : "OFFLINE";
+    elements.status.className = `air-zone-status ${node.online ? "air-zone-warn" : "air-zone-bad"}`;
+    return;
+  }
+
+  const published = publishedAirStatus(state, zoneKey);
+  const label = published || "MONITORING";
+  elements.status.textContent = label;
+  elements.status.className = `air-zone-status air-zone-${airStatusKind(published)}`;
+}
+
+function renderAir(state, zone1, zone2) {
+  renderAirZone(state, "zone1", dashboardConfig.zone1, zone1, {
+    name: dashboardUi.airZone1Name,
+    status: dashboardUi.airZone1Status,
+    pm25: dashboardUi.airZone1Pm25,
+    voc: dashboardUi.airZone1Voc,
+    nox: dashboardUi.airZone1Nox,
+  });
+  renderAirZone(state, "zone2", dashboardConfig.zone2, zone2, {
+    name: dashboardUi.airZone2Name,
+    status: dashboardUi.airZone2Status,
+    pm25: dashboardUi.airZone2Pm25,
+    voc: dashboardUi.airZone2Voc,
+    nox: dashboardUi.airZone2Nox,
+  });
+
+  const usableCount = [zone1, zone2].filter(nodeUsable).length;
+  if (usableCount === 2) setChip(dashboardUi.airSummaryChip, "2/2 CZUJNIKI OK", "good");
+  else if (usableCount === 1) setChip(dashboardUi.airSummaryChip, "1/2 CZUJNIKI", "warn");
+  else setChip(dashboardUi.airSummaryChip, "CZUJNIKI NIEDOSTĘPNE", "bad");
+}
+
+function renderTemperature(state, zone1, zone2) {
+  const reading1 = zone1 && zone1.reading ? zone1.reading : {};
+  const reading2 = zone2 && zone2.reading ? zone2.reading : {};
+
+  dashboardUi.insideTempZone1Label.textContent = dashboardConfig.zone1.name;
+  dashboardUi.insideTempZone2Label.textContent = dashboardConfig.zone2.name;
+  dashboardUi.insideTempZone1.textContent = typeof reading1.temperature_celsius === "number"
+    ? `${formatNumber(reading1.temperature_celsius)}°C`
+    : "—";
+  dashboardUi.insideTempZone2.textContent = typeof reading2.temperature_celsius === "number"
+    ? `${formatNumber(reading2.temperature_celsius)}°C`
     : "—";
 
   const environment = state && state.environment ? state.environment : {};
@@ -129,8 +163,8 @@ function renderTemperature(state, node) {
     : "—";
 
   dashboardUi.temperatureSource.textContent = typeof outdoor === "number"
-    ? `Wewnątrz: SEN55 · na zewnątrz: fizyczny czujnik systemu.`
-    : "Wewnątrz: SEN55 · zewnętrzny czujnik: oczekiwanie na integrację.";
+    ? "Pomieszczenia: SEN55 · na zewnątrz: fizyczny czujnik systemu."
+    : "Pomieszczenia: SEN55 · zewnętrzny czujnik: oczekiwanie na integrację.";
 }
 
 function fanPresentation(setpoint, channel) {
@@ -276,8 +310,10 @@ function renderState(state) {
   const zone2 = nodeByAddress(sensorBus, dashboardConfig.zone2.sensor_address);
 
   dashboardUi.dashboardMode.textContent = state.mode || "—";
-  renderAir(state, zone1);
-  renderTemperature(state, zone1);
+  dashboardUi.ecZoneLabel.textContent = dashboardConfig.zone1.name;
+  dashboardUi.aeroZoneLabel.textContent = dashboardConfig.zone2.name;
+  renderAir(state, zone1, zone2);
+  renderTemperature(state, zone1, zone2);
   renderEcFans(state);
   renderAero(state.aero_bus);
   renderSystemSummary(state, zone1, zone2);
