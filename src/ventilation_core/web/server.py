@@ -128,6 +128,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             "styles.css",
             "dashboard.css",
             "dashboard.js",
+            "dashboard-live.js",
             "app.js",
             "tacho.js",
         }
