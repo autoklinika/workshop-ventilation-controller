@@ -86,7 +86,10 @@ class AlertingVentilationService(VentilationService):
 
     def _sync_alerts(self, state: CoreState) -> None:
         signals: list[AlertSignal] = []
+        dac_critical = False
         for alarm in state.active_alarms:
+            if alarm.code is AlarmCode.DAC_COMMUNICATION_LOST:
+                dac_critical = True
             signals.append(
                 AlertSignal(
                     key=f"core:{alarm.code.value}",
@@ -96,6 +99,24 @@ class AlertingVentilationService(VentilationService):
                     message=alarm.message,
                     detail=alarm.last_error,
                     occurrences=alarm.occurrences,
+                )
+            )
+
+        if not dac_critical and (
+            state.hardware_ready is not True or state.output_state_known is not True
+        ):
+            signals.append(
+                AlertSignal(
+                    key="core:DAC_STATE_UNCERTAIN",
+                    code=AlarmCode.DAC_STATE_UNCERTAIN,
+                    source="dac",
+                    severity=AlarmSeverity.WARNING,
+                    message="Stan sterownika DAC nie jest potwierdzony",
+                    detail=(
+                        f"hardware_ready={state.hardware_ready}, "
+                        f"output_state_known={state.output_state_known}"
+                    ),
+                    occurrences=max(1, state.consecutive_hardware_failures),
                 )
             )
 
