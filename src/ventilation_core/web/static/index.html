@@ -9,7 +9,15 @@
   <link rel="stylesheet" href="/dashboard.css">
   <script src="/dashboard-live.js" defer></script>
 </head>
-<body>
+<body class="with-sidebar">
+  <aside class="app-sidebar" aria-label="Główna nawigacja">
+    <a class="sidebar-item active" href="/" aria-current="page"><span class="sidebar-icon">▦</span><span>PULPIT</span></a>
+    <nav class="sidebar-nav">
+      <span class="sidebar-item disabled" aria-disabled="true"><span class="sidebar-icon">◉</span><span>CZUJNIKI</span></span>
+      <span class="sidebar-item disabled" aria-disabled="true"><span class="sidebar-icon">⌁</span><span>HISTORIA</span></span>
+      <a class="sidebar-item" href="/control"><span class="sidebar-icon">≛</span><span>STEROWANIE</span></a>
+    </nav>
+  </aside>
   <div class="app-shell dashboard-shell">
     <header class="topbar dashboard-topbar">
       <div><p class="eyebrow">WORKSHOP VENTILATION CONTROLLER</p><h1>Wentylacja warsztatu</h1></div>
@@ -49,7 +57,6 @@
       </section>
       <section id="attentionCard" class="attention-card attention-neutral" aria-live="polite"><span id="attentionIcon" aria-hidden="true">●</span><strong id="attentionText">Odczytuję stan systemu…</strong></section>
     </main>
-    <nav class="bottom-nav" aria-label="Główna nawigacja"><a class="active" href="/" aria-current="page">Dashboard</a><span aria-disabled="true">Czujniki</span><span aria-disabled="true">Historia</span><a href="/control">Sterowanie</a></nav>
   </div>
 </body>
 </html>
