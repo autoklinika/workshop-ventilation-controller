@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from .client import CoreClient, CoreClientError
 from .config import WebUiConfig
+from .weather import WeatherError
 
 
 @dataclass(frozen=True)
 class ApiResponse:
     status: int
     payload: dict[str, Any]
+
+
+class WeatherProvider(Protocol):
+    def get_snapshot(self) -> dict[str, Any]: ...
 
 
 class WebApplication:
@@ -21,9 +26,15 @@ class WebApplication:
     explicitly listed manual-control intents below can cross this boundary.
     """
 
-    def __init__(self, core: CoreClient, config: WebUiConfig | None = None) -> None:
+    def __init__(
+        self,
+        core: CoreClient,
+        config: WebUiConfig | None = None,
+        weather: WeatherProvider | None = None,
+    ) -> None:
         self._core = core
         self._config = config or WebUiConfig()
+        self._weather_provider = weather
 
     def handle(self, method: str, path: str, body: Any = None) -> ApiResponse:
         try:
@@ -31,6 +42,8 @@ class WebApplication:
                 return self._state()
             if method == "GET" and path == "/api/v1/config":
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
+            if method == "GET" and path == "/api/v1/weather":
+                return self._weather()
             if method == "GET" and path == "/api/v1/health":
                 return self._health()
             if method == "POST" and path == "/api/v1/manual/fans":
@@ -52,6 +65,29 @@ class WebApplication:
         if response.get("ok") is not True or not isinstance(response.get("state"), dict):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _weather(self) -> ApiResponse:
+        if self._weather_provider is None:
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "weather": {
+                        "available": False,
+                        "configured": False,
+                        "error": "weather provider is not configured",
+                    },
+                },
+            )
+        try:
+            snapshot = self._weather_provider.get_snapshot()
+        except WeatherError as exc:
+            snapshot = {
+                "available": False,
+                "configured": True,
+                "error": str(exc),
+            }
+        return ApiResponse(200, {"ok": True, "weather": snapshot})
 
     def _health(self) -> ApiResponse:
         try:
