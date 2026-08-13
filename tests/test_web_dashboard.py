@@ -11,6 +11,7 @@ class WebDashboardStructureTest(unittest.TestCase):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('src="/dashboard.js"', html)
+        self.assertIn('href="/dashboard.css"', html)
         self.assertIn('href="/control"', html)
         self.assertIn('id="openControlButton"', html)
         self.assertIn('id="dashboardSupplyRpm"', html)
@@ -25,6 +26,28 @@ class WebDashboardStructureTest(unittest.TestCase):
         self.assertNotIn('src="/app.js"', html)
         self.assertNotIn('src="/tacho.js"', html)
 
+    def test_dashboard_contains_both_sensor_zones_and_both_room_temperatures(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+
+        for element_id in (
+            "airZone1Name",
+            "airZone1Status",
+            "airZone1Pm25",
+            "airZone1Voc",
+            "airZone1Nox",
+            "airZone2Name",
+            "airZone2Status",
+            "airZone2Pm25",
+            "airZone2Voc",
+            "airZone2Nox",
+            "insideTempZone1",
+            "insideTempZone2",
+            "outsideTemp",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+
+        self.assertNotIn('id="airVerdict"', html)
+
     def test_dashboard_script_has_no_manual_control_endpoint(self):
         js = (STATIC / "dashboard.js").read_text(encoding="utf-8")
 
@@ -32,8 +55,10 @@ class WebDashboardStructureTest(unittest.TestCase):
         self.assertIn('requestJson("/api/v1/config")', js)
         self.assertNotIn('/api/v1/manual/', js)
         self.assertNotIn('method: "POST"', js)
-        self.assertIn('state.air_quality.zone1.status', js)
+        self.assertIn('state.air_quality[zoneKey]', js)
         self.assertIn('environment.outdoor_temperature_celsius', js)
+        self.assertIn('renderAir(state, zone1, zone2)', js)
+        self.assertIn('renderTemperature(state, zone1, zone2)', js)
 
     def test_manual_controls_live_only_on_control_page(self):
         html = (STATIC / "control.html").read_text(encoding="utf-8")
@@ -54,6 +79,7 @@ class WebDashboardStructureTest(unittest.TestCase):
         self.assertIn('request_path in ("/control", "/control/")', server)
         self.assertIn('relative = "control.html"', server)
         self.assertIn('"dashboard.js"', server)
+        self.assertIn('"dashboard.css"', server)
         self.assertIn('"control.html"', server)
 
     def test_weather_is_placeholder_not_fabricated_data(self):
