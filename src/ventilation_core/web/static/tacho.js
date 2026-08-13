@@ -1,5 +1,75 @@
 "use strict";
 
+function upgradeControlToV2Shell() {
+  const body = document.body;
+  const shell = document.querySelector(".app-shell");
+  const legacySidebar = document.querySelector(".app-sidebar");
+  if (!body || !shell || !legacySidebar) return;
+
+  body.classList.remove("with-sidebar");
+  body.classList.add("v2-body");
+
+  if (!document.querySelector('link[href="/sidebar.css"]')) {
+    const sidebarStyles = document.createElement("link");
+    sidebarStyles.rel = "stylesheet";
+    sidebarStyles.href = "/sidebar.css";
+    document.head.appendChild(sidebarStyles);
+  }
+
+  const connectionChip = document.getElementById("connectionChip");
+  const clock = document.getElementById("clock");
+  const legacyTopbar = shell.querySelector(":scope > .topbar");
+  const legacyStatus = legacyTopbar ? legacyTopbar.querySelector(".topbar-status") : null;
+  if (legacyStatus) legacyStatus.remove();
+  if (legacyTopbar) {
+    const eyebrow = legacyTopbar.querySelector(".eyebrow");
+    if (eyebrow) eyebrow.textContent = "STREFY";
+  }
+
+  const topbar = document.createElement("header");
+  topbar.className = "v2-topbar";
+  topbar.innerHTML = '<div class="v2-brand">AUTOKLINIKA</div><div class="v2-top-separator"></div><div class="v2-context">Warsztat – Strefy</div><div class="v2-system"></div><div class="v2-time"></div><div class="v2-settings">⚙</div>';
+  if (connectionChip) topbar.querySelector(".v2-system").appendChild(connectionChip);
+  if (clock) {
+    topbar.querySelector(".v2-time").appendChild(clock);
+    const label = document.createElement("span");
+    label.textContent = "STEROWANIE";
+    topbar.querySelector(".v2-time").appendChild(label);
+  }
+  body.insertBefore(topbar, body.firstChild);
+
+  const sidebar = document.createElement("aside");
+  sidebar.className = "v2-sidebar";
+  sidebar.setAttribute("aria-label", "Główna nawigacja");
+  sidebar.innerHTML = `
+    <a class="v2-nav" href="/">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg></span><span>PULPIT</span>
+    </a>
+    <a class="v2-nav active" href="/control" aria-current="page">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5.5h5V20"/></svg></span><span>STREFY</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/><circle cx="7" cy="15" r=".7"/><circle cx="11" cy="11" r=".7"/><circle cx="14" cy="13" r=".7"/><circle cx="19" cy="7" r=".7"/></svg></span><span>HISTORIA</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/><path d="M10 4.2a2 2 0 0 1 4 0"/></svg></span><span>ALARMY</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.45-2.45 1a7 7 0 0 0-2.25-1.3L13.8 3h-4l-.38 2.4A7 7 0 0 0 7.17 6.7l-2.45-1-2 3.45 2 1.55A7 7 0 0 0 4.6 12c0 .44.04.88.12 1.3l-2 1.55 2 3.45 2.45-1a7 7 0 0 0 2.25 1.3L9.8 21h4l.38-2.4a7 7 0 0 0 2.25-1.3l2.45 1 2-3.45-2-1.55c.08-.42.12-.86.12-1.3Z"/></svg></span><span>USTAWIENIA</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span><span>SERWIS</span>
+    </a>`;
+  legacySidebar.replaceWith(sidebar);
+
+  const main = document.createElement("main");
+  main.className = "v2-main";
+  shell.parentNode.insertBefore(main, shell);
+  main.appendChild(shell);
+}
+
+upgradeControlToV2Shell();
+
 const TACHO_POLL_MS = 2000;
 const tachoUi = {
   supplyCommandPercent: document.getElementById("supplyCommandPercent"),
