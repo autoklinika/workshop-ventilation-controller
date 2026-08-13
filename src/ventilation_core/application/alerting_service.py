@@ -30,25 +30,28 @@ class AlertingVentilationService(VentilationService):
         return self._with_system_alerts(super().state())
 
     def health_check(self) -> CoreState:
-        raw = super().health_check()
+        super().health_check()
+        raw = super().state()
         self._sync_alerts(raw)
         return self._with_system_alerts(raw)
 
     def set_manual(self, supply_voltage: float, extract_voltage: float) -> CoreState:
         try:
-            raw = super().set_manual(supply_voltage, extract_voltage)
+            super().set_manual(supply_voltage, extract_voltage)
         except Exception:
             self._sync_alerts(super().state())
             raise
+        raw = super().state()
         self._sync_alerts(raw)
         return self._with_system_alerts(raw)
 
     def stop(self) -> CoreState:
         try:
-            raw = super().stop()
+            super().stop()
         except Exception:
             self._sync_alerts(super().state())
             raise
+        raw = super().state()
         self._sync_alerts(raw)
         return self._with_system_alerts(raw)
 
