@@ -95,7 +95,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "styles.css", "dashboard.css", "v2-weather.css",
+            "index.html", "control.html", "styles.css", "dashboard.css", "sidebar.css", "v2-weather.css",
             "dashboard.js", "dashboard-live.js", "app.js", "tacho.js",
         }
         if relative not in allowed:
