@@ -62,6 +62,41 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertIn('channel.line_name', js)
         self.assertIn('"NIEPEŁNE"', js)
 
+    def test_global_system_error_requires_operator_acknowledgement(self):
+        js = (STATIC / "tacho.js").read_text(encoding="utf-8")
+        css = (STATIC / "sidebar.css").read_text(encoding="utf-8")
+
+        self.assertIn('overlay.id = "globalSystemAlert"', js)
+        self.assertIn('overlay.setAttribute("role", "alertdialog")', js)
+        self.assertIn('overlay.setAttribute("aria-modal", "true")', js)
+        self.assertIn('BŁĄD SYSTEMU', js)
+        self.assertIn('id="globalSystemAlertOk"', js)
+        self.assertIn('button.addEventListener("click"', js)
+        self.assertIn('globalAlertState.acknowledged.add', js)
+        self.assertIn('event.key === "Escape"', js)
+        self.assertIn('event.preventDefault()', js)
+        self.assertIn('updateGlobalSystemAlert(state)', js)
+        self.assertIn('updateGlobalSystemAlert(null, true)', js)
+        self.assertIn('active_alarms', js)
+        self.assertIn('state.hardware_ready !== true', js)
+        self.assertIn('state.output_state_known !== true', js)
+        self.assertIn('sensorBus.worker_alive !== true', js)
+        self.assertIn('aero.worker_alive !== true', js)
+        self.assertIn('tacho.worker_alive !== true', js)
+        self.assertIn('.v2-system-alert[hidden]', css)
+        self.assertIn('z-index:1000', css)
+
+    def test_global_alert_does_not_treat_missing_tacho_pulses_as_monitor_failure(self):
+        js = (STATIC / "tacho.js").read_text(encoding="utf-8")
+        start = js.index('function collectGlobalSystemErrors')
+        end = js.index('function updateGlobalSystemAlert')
+        collector = js[start:end]
+
+        self.assertNotIn('channel.valid', collector)
+        self.assertNotIn('tacho.supply.valid', collector)
+        self.assertNotIn('tacho.extract.valid', collector)
+        self.assertIn('dualTachoConfigured(tacho)', collector)
+
     def test_control_route_returns_same_application_shell(self):
         server = (WEB / "server.py").read_text(encoding="utf-8")
         self.assertIn('request_path in ("", "/", "/control", "/control/")', server)
