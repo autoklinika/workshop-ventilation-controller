@@ -44,8 +44,8 @@ class WebTachoContractTest(unittest.TestCase):
         self.assertEqual(response.payload["state"]["tacho"], tacho)
         self.assertEqual(core.requests, [{"command": "status"}])
 
-    def test_dashboard_distinguishes_command_voltage_rpm_and_tacho_state(self):
-        html = (ROOT / "src/ventilation_core/web/static/index.html").read_text(encoding="utf-8")
+    def test_manual_control_page_distinguishes_command_voltage_rpm_and_tacho_state(self):
+        html = (ROOT / "src/ventilation_core/web/static/control.html").read_text(encoding="utf-8")
         for element_id in (
             "supplyCommandPercent",
             "supplyActual",
@@ -59,6 +59,7 @@ class WebTachoContractTest(unittest.TestCase):
         ):
             self.assertIn(f'id="{element_id}"', html)
         self.assertIn('src="/tacho.js"', html)
+        self.assertIn('src="/app.js"', html)
 
     def test_invalid_tacho_is_not_presented_as_confirmed_zero_rpm(self):
         js = (ROOT / "src/ventilation_core/web/static/tacho.js").read_text(encoding="utf-8")
