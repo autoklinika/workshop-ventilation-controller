@@ -35,6 +35,15 @@ class SystemdUnitTest(unittest.TestCase):
         self.assertIn("--aero-inter-register-delay 0.050", unit)
         self.assertNotIn("--aero-write", unit)
 
+    def test_both_tacho_channels_are_explicitly_enabled(self) -> None:
+        unit = UNIT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("--enable-supply-tacho", unit)
+        self.assertIn("--supply-tacho-line GPIO17", unit)
+        self.assertIn("--enable-extract-tacho", unit)
+        self.assertIn("--extract-tacho-line GPIO27", unit)
+        self.assertIn("--tacho-chip /dev/gpiochip0", unit)
+
 
 if __name__ == "__main__":
     unittest.main()
