@@ -17,7 +17,7 @@ from ventilation_core.infrastructure.sensor_bus_worker import (
     ProcessSensorBus,
     SensorBusConfig,
 )
-from ventilation_core.infrastructure.tacho_monitor import ExtractTachoConfig, ExtractTachoMonitor
+from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
 from ventilation_core.runtime.server import CoreServer
 
 
@@ -71,11 +71,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-aero-bus", action="store_true")
 
     parser.add_argument(
+        "--enable-supply-tacho",
+        action="store_true",
+        help="Enable read-only SUPPLY TACHO feedback on GPIO17 by default",
+    )
+    parser.add_argument(
         "--enable-extract-tacho",
         action="store_true",
-        help="Enable read-only EXTRACT TACHO feedback on the validated GPIO input",
+        help="Enable read-only EXTRACT TACHO feedback on GPIO27 by default",
     )
     parser.add_argument("--tacho-chip", default="/dev/gpiochip0")
+    parser.add_argument("--supply-tacho-line", default="GPIO17")
     parser.add_argument("--extract-tacho-line", default="GPIO27")
     parser.add_argument("--tacho-timeout", type=float, default=0.25)
     parser.add_argument("--tacho-averaging-periods", type=int, default=6)
@@ -118,11 +124,16 @@ async def run_core(args: argparse.Namespace) -> None:
                     reconnect_delay_seconds=args.aero_reconnect_delay,
                 )
             )
-        if args.enable_extract_tacho:
-            tacho = ExtractTachoMonitor(
-                ExtractTachoConfig(
+        if args.enable_supply_tacho or args.enable_extract_tacho:
+            tacho = TachoMonitor(
+                TachoMonitorConfig(
                     chip_path=args.tacho_chip,
-                    line_name=args.extract_tacho_line,
+                    supply_line_name=(
+                        args.supply_tacho_line if args.enable_supply_tacho else None
+                    ),
+                    extract_line_name=(
+                        args.extract_tacho_line if args.enable_extract_tacho else None
+                    ),
                     timeout_seconds=args.tacho_timeout,
                     averaging_periods=args.tacho_averaging_periods,
                 )
