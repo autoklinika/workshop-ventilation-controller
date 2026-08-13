@@ -9,6 +9,7 @@ from .app import WebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
 from .server import WebUiHttpServer
+from .weather import OpenMeteoWeatherProvider, WeatherConfig
 
 
 DEFAULT_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
@@ -34,6 +35,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=float(os.getenv("WVC_WEB_CORE_TIMEOUT", "70")),
     )
+    parser.add_argument(
+        "--weather-location",
+        default=os.getenv("WVC_WEB_WEATHER_LOCATION", ""),
+        help="Location name or postal code used only for informational weather data",
+    )
+    parser.add_argument(
+        "--weather-cache-seconds",
+        type=float,
+        default=float(os.getenv("WVC_WEB_WEATHER_CACHE_SECONDS", "900")),
+    )
+    parser.add_argument(
+        "--weather-timeout",
+        type=float,
+        default=float(os.getenv("WVC_WEB_WEATHER_TIMEOUT", "5")),
+    )
     return parser
 
 
@@ -48,14 +64,22 @@ def main() -> int:
     )
     static_root = Path(__file__).with_name("static")
     core = CoreUnixClient(args.socket, timeout_seconds=args.core_timeout)
-    app = WebApplication(core, WebUiConfig.from_environment())
+    weather = OpenMeteoWeatherProvider(
+        WeatherConfig(
+            location=args.weather_location,
+            cache_seconds=args.weather_cache_seconds,
+            timeout_seconds=args.weather_timeout,
+        )
+    )
+    app = WebApplication(core, WebUiConfig.from_environment(), weather)
     server = WebUiHttpServer((args.host, args.port), app, static_root)
 
     logging.getLogger(__name__).info(
-        "web UI listening on http://%s:%d using core socket %s",
+        "web UI listening on http://%s:%d using core socket %s; weather=%s",
         args.host,
         args.port,
         args.socket,
+        args.weather_location or "disabled",
     )
     try:
         server.serve_forever(poll_interval=0.5)
