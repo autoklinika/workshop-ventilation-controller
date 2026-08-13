@@ -55,6 +55,9 @@ class AlertingVentilationService(VentilationService):
         self._sync_alerts(raw)
         return self._with_system_alerts(raw)
 
+    def active_alerts(self) -> tuple[AlertRecord, ...]:
+        return self._system_alerts.active_records()
+
     def alert_history(self, limit: int = 200) -> tuple[AlertRecord, ...]:
         return self._system_alerts.history(limit)
 
@@ -86,10 +89,7 @@ class AlertingVentilationService(VentilationService):
 
     def _sync_alerts(self, state: CoreState) -> None:
         signals: list[AlertSignal] = []
-        dac_critical = False
         for alarm in state.active_alarms:
-            if alarm.code is AlarmCode.DAC_COMMUNICATION_LOST:
-                dac_critical = True
             signals.append(
                 AlertSignal(
                     key=f"core:{alarm.code.value}",
@@ -102,8 +102,17 @@ class AlertingVentilationService(VentilationService):
                 )
             )
 
-        if not dac_critical and (
-            state.hardware_ready is not True or state.output_state_known is not True
+        critical_dac_active = any(
+            alarm.code == AlarmCode.DAC_COMMUNICATION_LOST
+            for alarm in state.active_alarms
+        )
+        if (
+            not critical_dac_active
+            and (
+                state.hardware_ready is not True
+                or state.output_state_known is not True
+                or state.consecutive_hardware_failures > 0
+            )
         ):
             signals.append(
                 AlertSignal(
@@ -111,11 +120,8 @@ class AlertingVentilationService(VentilationService):
                     code=AlarmCode.DAC_STATE_UNCERTAIN,
                     source="dac",
                     severity=AlarmSeverity.WARNING,
-                    message="Stan sterownika DAC nie jest potwierdzony",
-                    detail=(
-                        f"hardware_ready={state.hardware_ready}, "
-                        f"output_state_known={state.output_state_known}"
-                    ),
+                    message="Stan wyjść DAC nie jest potwierdzony",
+                    detail="Oczekiwanie na bezpieczne odzyskanie komunikacji z DAC",
                     occurrences=max(1, state.consecutive_hardware_failures),
                 )
             )
