@@ -21,8 +21,11 @@ class WebSystemdTest(unittest.TestCase):
         self.assertIn("WVC_CORE_SOCKET=/run/workshop-ventilation/ventilation-core.sock", env)
         self.assertIn("WVC_WEB_HOST=0.0.0.0", env)
         self.assertIn("WVC_WEB_PORT=8088", env)
-        self.assertIn("WVC_WEB_WEATHER_LOCATION=", env)
-        self.assertIn("WVC_WEB_WEATHER_CACHE_SECONDS=900", env)
+        self.assertIn("WVC_WEB_WEATHER_LATITUDE=", env)
+        self.assertIn("WVC_WEB_WEATHER_LONGITUDE=", env)
+        self.assertIn("WVC_WEB_WEATHER_LABEL=", env)
+        self.assertIn("WVC_WEB_WEATHER_USER_AGENT=", env)
+        self.assertIn("WVC_WEB_WEATHER_CACHE_SECONDS=3600", env)
 
     def test_manual_sliders_start_at_minimum_operating_voltage(self):
         html = (ROOT / "src/ventilation_core/web/static/control.html").read_text(
