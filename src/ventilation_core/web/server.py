@@ -126,6 +126,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             "index.html",
             "control.html",
             "styles.css",
+            "dashboard.css",
             "dashboard.js",
             "app.js",
             "tacho.js",
