@@ -33,6 +33,10 @@ function controlSensorOk(node) {
   return Boolean(node && node.online === true && node.usable === true && node.measurement_valid === true && node.measurement_stale !== true);
 }
 
+function dualTachoConfigured(tacho) {
+  return Boolean(tacho && tacho.supply && tacho.extract);
+}
+
 function renderControlTopbarState(state) {
   if (!state) {
     tachoUi.systemDot.className = "v2-dot bad";
@@ -48,7 +52,13 @@ function renderControlTopbarState(state) {
   const coreOk = state.hardware_ready === true && state.output_state_known === true && alarms.length === 0;
   const sensorsOk = controlSensorOk(zone1) && controlSensorOk(zone2);
   const aeroOk = Boolean(aero && aero.ready === true && aero.worker_alive === true && aero.online === true && aero.usable === true);
-  const tachoOk = Boolean(tacho && tacho.ready === true && tacho.worker_alive === true && !tacho.last_error);
+  const tachoOk = Boolean(
+    tacho &&
+    tacho.ready === true &&
+    tacho.worker_alive === true &&
+    !tacho.last_error &&
+    dualTachoConfigured(tacho)
+  );
   const allOk = coreOk && sensorsOk && aeroOk && tachoOk;
   tachoUi.systemDot.className = `v2-dot ${allOk ? "good" : "warn"}`;
   tachoUi.systemText.textContent = allOk ? "System OK" : "System UWAGA";
@@ -125,6 +135,7 @@ function renderTachoState(state) {
   if (!tacho) tachoUi.health.textContent = "NIEAKTYWNE";
   else if (tacho.last_error || tacho.worker_alive !== true) tachoUi.health.textContent = "BŁĄD";
   else if (tacho.ready !== true) tachoUi.health.textContent = "NIEGOTOWE";
+  else if (!dualTachoConfigured(tacho)) tachoUi.health.textContent = "NIEPEŁNE";
   else tachoUi.health.textContent = "OK";
 
   renderTachoChannel(tacho, "supply", tachoUi.supplyRpm, tachoUi.supplyChip, tachoUi.supplyDetail);
