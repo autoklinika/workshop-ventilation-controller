@@ -6,14 +6,23 @@
   <meta name="theme-color" content="#0b1016">
   <title>Sterowanie · Wentylacja warsztatu</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/dashboard.css">
   <script src="/app.js" defer></script>
   <script src="/tacho.js" defer></script>
 </head>
-<body>
+<body class="with-sidebar">
+  <aside class="app-sidebar" aria-label="Główna nawigacja">
+    <a class="sidebar-item" href="/"><span class="sidebar-icon">▦</span><span>PULPIT</span></a>
+    <nav class="sidebar-nav">
+      <span class="sidebar-item disabled" aria-disabled="true"><span class="sidebar-icon">◉</span><span>CZUJNIKI</span></span>
+      <span class="sidebar-item disabled" aria-disabled="true"><span class="sidebar-icon">⌁</span><span>HISTORIA</span></span>
+      <a class="sidebar-item active" href="/control" aria-current="page"><span class="sidebar-icon">≛</span><span>STEROWANIE</span></a>
+    </nav>
+  </aside>
+
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <a class="back-link" href="/">← Dashboard</a>
         <p class="eyebrow">WORKSHOP VENTILATION CONTROLLER</p>
         <h1>Sterowanie ręczne</h1>
       </div>
@@ -161,13 +170,6 @@
       <div class="system-item"><span>TACHO</span><strong id="tachoHealth">—</strong></div>
       <div class="system-item"><span>Ostatni odczyt GUI</span><strong id="lastRefresh">—</strong></div>
     </section>
-
-    <nav class="bottom-nav" aria-label="Główna nawigacja">
-      <a href="/">Dashboard</a>
-      <span aria-disabled="true">Czujniki</span>
-      <span aria-disabled="true">Historia</span>
-      <a class="active" href="/control" aria-current="page">Sterowanie</a>
-    </nav>
 
     <footer>Sterowanie ręczne · AUTO wyłączone na tym etapie · TACHO read-only · AI advisory-only</footer>
   </div>
