@@ -14,11 +14,12 @@ from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActu
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
+from ventilation_core.infrastructure.zigbee_managed_monitor import ManagedReliableZigbeeMqttMonitor
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import (
     ZigbeeDeviceConfig,
     ZigbeeMqttConfig,
 )
-from ventilation_core.infrastructure.zigbee_reliable_monitor import ReliableZigbeeMqttMonitor
+from ventilation_core.infrastructure.zigbee_role_store import ZigbeeRoleStore
 from ventilation_core.runtime.server import CoreServer
 
 
@@ -86,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--zigbee-extract-name", default="temp_wywiew")
     parser.add_argument("--zigbee-supply-ieee", default="")
     parser.add_argument("--zigbee-extract-ieee", default="")
+    parser.add_argument(
+        "--zigbee-roles-file",
+        type=Path,
+        default=Path("/var/lib/workshop-ventilation/zigbee-roles.json"),
+    )
     parser.add_argument("--disable-zigbee", action="store_true")
 
     parser.add_argument("--log-level", default="INFO")
@@ -144,24 +150,28 @@ async def run_core(args: argparse.Namespace) -> None:
 
         if not args.disable_zigbee:
             try:
-                zigbee = ReliableZigbeeMqttMonitor(
+                seed_devices = (
+                    ZigbeeDeviceConfig(
+                        role="supply",
+                        friendly_name=args.zigbee_supply_name,
+                        ieee_address=args.zigbee_supply_ieee or None,
+                    ),
+                    ZigbeeDeviceConfig(
+                        role="extract",
+                        friendly_name=args.zigbee_extract_name,
+                        ieee_address=args.zigbee_extract_ieee or None,
+                    ),
+                )
+                role_store = ZigbeeRoleStore(args.zigbee_roles_file)
+                runtime_devices = role_store.load_or_seed(seed_devices)
+                zigbee = ManagedReliableZigbeeMqttMonitor(
                     ZigbeeMqttConfig(
                         broker_host=args.zigbee_mqtt_host,
                         broker_port=args.zigbee_mqtt_port,
                         base_topic=args.zigbee_base_topic,
-                        devices=(
-                            ZigbeeDeviceConfig(
-                                role="supply",
-                                friendly_name=args.zigbee_supply_name,
-                                ieee_address=args.zigbee_supply_ieee or None,
-                            ),
-                            ZigbeeDeviceConfig(
-                                role="extract",
-                                friendly_name=args.zigbee_extract_name,
-                                ieee_address=args.zigbee_extract_ieee or None,
-                            ),
-                        ),
-                    )
+                        devices=runtime_devices,
+                    ),
+                    role_store=role_store,
                 )
             except Exception:
                 LOGGER.exception("Unable to initialize Zigbee MQTT monitor; continuing without Zigbee")
