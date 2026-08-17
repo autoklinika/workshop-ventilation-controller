@@ -30,6 +30,7 @@ class HistoryProvider(Protocol):
         start_at: str | None = None,
         end_at: str | None = None,
         limit: int = 720,
+        resolution: str = "raw",
     ) -> list[dict[str, Any]]: ...
 
 
@@ -129,11 +130,18 @@ class WebApplication:
         start_at = data.get("start_at")
         end_at = data.get("end_at")
         limit = data.get("limit", 720)
-        samples = provider.query(start_at=start_at, end_at=end_at, limit=limit)
+        resolution = data.get("resolution", "raw")
+        samples = provider.query(
+            start_at=start_at,
+            end_at=end_at,
+            limit=limit,
+            resolution=resolution,
+        )
         return ApiResponse(
             200,
             {
                 "ok": True,
+                "resolution": resolution,
                 "count": len(samples),
                 "samples": samples,
             },
