@@ -17,8 +17,8 @@ from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMon
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import (
     ZigbeeDeviceConfig,
     ZigbeeMqttConfig,
-    ZigbeeMqttMonitor,
 )
+from ventilation_core.infrastructure.zigbee_reliable_monitor import ReliableZigbeeMqttMonitor
 from ventilation_core.runtime.server import CoreServer
 
 
@@ -144,7 +144,7 @@ async def run_core(args: argparse.Namespace) -> None:
 
         if not args.disable_zigbee:
             try:
-                zigbee = ZigbeeMqttMonitor(
+                zigbee = ReliableZigbeeMqttMonitor(
                     ZigbeeMqttConfig(
                         broker_host=args.zigbee_mqtt_host,
                         broker_port=args.zigbee_mqtt_port,
@@ -164,9 +164,6 @@ async def run_core(args: argparse.Namespace) -> None:
                     )
                 )
             except Exception:
-                # Zigbee is read-only telemetry in this stage. Even a missing
-                # MQTT runtime dependency or a local adapter failure must not
-                # prevent the existing ventilation controller from starting.
                 LOGGER.exception("Unable to initialize Zigbee MQTT monitor; continuing without Zigbee")
                 zigbee = None
 
