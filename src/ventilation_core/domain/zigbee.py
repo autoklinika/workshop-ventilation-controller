@@ -5,6 +5,39 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class ZigbeeInventoryDevice:
+    ieee_address: str
+    friendly_name: str
+    device_type: str
+    supported: bool
+    disabled: bool
+    model: str | None = None
+    vendor: str | None = None
+    description: str | None = None
+    power_source: str | None = None
+    interview_state: str | None = None
+
+    @property
+    def is_coordinator(self) -> bool:
+        return self.device_type.lower() == "coordinator"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ieee_address": self.ieee_address,
+            "friendly_name": self.friendly_name,
+            "device_type": self.device_type,
+            "supported": self.supported,
+            "disabled": self.disabled,
+            "model": self.model,
+            "vendor": self.vendor,
+            "description": self.description,
+            "power_source": self.power_source,
+            "interview_state": self.interview_state,
+            "is_coordinator": self.is_coordinator,
+        }
+
+
+@dataclass(frozen=True)
 class ZigbeeTemperatureSensorState:
     role: str
     friendly_name: str
@@ -50,6 +83,12 @@ class ZigbeeMqttState:
     last_message_at: str | None = None
     last_error: str | None = None
     devices: tuple[ZigbeeTemperatureSensorState, ...] = ()
+    bridge_online: bool | None = None
+    permit_join: bool | None = None
+    permit_join_end: int | None = None
+    inventory_updated_at: str | None = None
+    last_event: dict[str, Any] | None = None
+    inventory: tuple[ZigbeeInventoryDevice, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,4 +102,10 @@ class ZigbeeMqttState:
             "last_message_at": self.last_message_at,
             "last_error": self.last_error,
             "devices": [device.to_dict() for device in self.devices],
+            "bridge_online": self.bridge_online,
+            "permit_join": self.permit_join,
+            "permit_join_end": self.permit_join_end,
+            "inventory_updated_at": self.inventory_updated_at,
+            "last_event": self.last_event,
+            "inventory": [device.to_dict() for device in self.inventory],
         }

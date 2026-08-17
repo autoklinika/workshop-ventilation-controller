@@ -160,6 +160,32 @@ class CoreServer:
                 AeroControlCommand.set_airing(enabled),
             )
             return {"ok": result.succeeded, "aero_control": result.to_dict()}
+        if command == "zigbee-permit-join":
+            seconds = request.get("seconds")
+            if isinstance(seconds, bool) or not isinstance(seconds, int) or not 0 <= seconds <= 254:
+                raise ValueError("Zigbee permit-join seconds must be an integer in range 0..254")
+            method = getattr(self._service, "zigbee_permit_join", None)
+            if method is None:
+                raise RuntimeError("Zigbee management is not configured")
+            result = await asyncio.to_thread(method, seconds)
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
+        if command == "zigbee-remove-device":
+            device_id = request.get("device_id")
+            if not isinstance(device_id, str) or not device_id.strip():
+                raise ValueError("Zigbee device_id must be a non-empty string")
+            method = getattr(self._service, "zigbee_remove_device", None)
+            if method is None:
+                raise RuntimeError("Zigbee management is not configured")
+            result = await asyncio.to_thread(method, device_id.strip())
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
         if command == "set":
             state = await asyncio.to_thread(
                 self._service.set_manual,

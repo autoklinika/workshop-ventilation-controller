@@ -21,13 +21,14 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn('settings.dataset.route = "/settings"', dashboard)
         self.assertIn('path.startsWith("/settings")', dashboard)
 
-    def test_zigbee_settings_reads_only_authoritative_web_api(self) -> None:
+    def test_zigbee_settings_uses_only_explicit_core_web_api(self) -> None:
         script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
         self.assertIn('fetch("/api/v1/zigbee"', script)
+        self.assertIn('apiPost("/api/v1/zigbee/permit-join"', script)
+        self.assertIn('apiPost("/api/v1/zigbee/remove"', script)
         self.assertNotIn("zigbee2mqtt/", script)
-        self.assertNotIn("permit_join", script)
-        self.assertNotIn('method: "POST"', script)
         self.assertNotIn("mosquitto", script.lower())
+        self.assertNotIn("/api/v1/zigbee/publish", script)
 
     def test_gui_exposes_both_semantic_channel_roles(self) -> None:
         script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
@@ -40,9 +41,11 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn("linkquality", script)
         self.assertIn("parse_errors", script)
 
-    def test_read_only_scope_is_visible_in_gui(self) -> None:
+    def test_management_scope_is_visible_in_gui(self) -> None:
         script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
-        self.assertIn("TRYB TYLKO DO ODCZYTU", script)
+        self.assertIn("DODAJ URZĄDZENIE · 120 S", script)
+        self.assertIn("ZAMKNIJ PAROWANIE", script)
+        self.assertIn("USUŃ", script)
         self.assertIn("GUI nie łączy się bezpośrednio z MQTT ani Zigbee2MQTT", script)
 
 

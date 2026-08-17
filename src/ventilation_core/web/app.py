@@ -25,6 +25,7 @@ class WebApplication:
     The browser never receives a generic ventilation-core command proxy. Only the
     explicitly listed intents below can cross this boundary. ALERTY remain owned
     by ventilation-core; Web V2 only reads them and forwards operator ACK by id.
+    Zigbee writes are limited to permit-join and normal device removal.
     """
 
     def __init__(
@@ -53,6 +54,10 @@ class WebApplication:
                 return self._health()
             if method == "POST" and path == "/api/v1/alerts/ack":
                 return self._ack_alert(body)
+            if method == "POST" and path == "/api/v1/zigbee/permit-join":
+                return self._zigbee_permit_join(body)
+            if method == "POST" and path == "/api/v1/zigbee/remove":
+                return self._zigbee_remove(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -102,6 +107,22 @@ class WebApplication:
         if isinstance(alert_id, bool) or not isinstance(alert_id, int) or alert_id < 1:
             raise ValueError("alert_id must be a positive integer")
         return self._command({"command": "ack-alert", "alert_id": alert_id})
+
+    def _zigbee_permit_join(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        seconds = data.get("seconds")
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or not 0 <= seconds <= 254:
+            raise ValueError("seconds must be an integer in range 0..254")
+        return self._command({"command": "zigbee-permit-join", "seconds": seconds})
+
+    def _zigbee_remove(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        device_id = data.get("device_id")
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise ValueError("device_id must be a non-empty string")
+        return self._command(
+            {"command": "zigbee-remove-device", "device_id": device_id.strip()}
+        )
 
     def _weather(self) -> ApiResponse:
         if self._weather_provider is None:

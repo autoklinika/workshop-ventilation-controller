@@ -62,12 +62,12 @@ class ZigbeeWebApiStage5Tests(unittest.TestCase):
         self.assertIn("not available", response.payload["error"])
         self.assertEqual(core.requests, [{"command": "status"}])
 
-    def test_endpoint_does_not_expose_zigbee_write_or_generic_proxy(self):
+    def test_no_generic_zigbee_command_proxy_exists(self):
         core = FakeCoreClient({"ok": True, "state": {"zigbee": {}}})
         app = WebApplication(core)
 
         self.assertEqual(app.handle("POST", "/api/v1/zigbee", {}).status, 404)
-        self.assertEqual(app.handle("POST", "/api/v1/zigbee/permit-join", {}).status, 404)
+        self.assertEqual(app.handle("POST", "/api/v1/zigbee/publish", {}).status, 404)
         self.assertEqual(core.requests, [])
 
 
