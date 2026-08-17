@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from threading import Event, Thread
+from time import monotonic
 from typing import Any, Protocol
 
 from .store import TelemetryBatchRecord, TelemetryStore
@@ -31,7 +32,11 @@ class TelemetryAgent:
         capture_interval_seconds: float = 5.0,
         idle_sync_interval_seconds: float = 5.0,
         batch_size: int = 100,
-        retention_days: int = 30,
+        retention_days: int = 7,
+        minute_retention_days: int = 90,
+        quarter_retention_days: int = 730,
+        maintenance_interval_seconds: float = 60.0,
+        max_rollup_buckets_per_run: int = 240,
     ) -> None:
         if capture_interval_seconds <= 0:
             raise ValueError("Capture interval must be positive")
@@ -40,7 +45,15 @@ class TelemetryAgent:
         if not 1 <= batch_size <= 500:
             raise ValueError("Batch size must be in range 1..500")
         if retention_days < 1:
-            raise ValueError("Retention must be at least 1 day")
+            raise ValueError("Raw retention must be at least 1 day")
+        if minute_retention_days < 1:
+            raise ValueError("Minute retention must be at least 1 day")
+        if quarter_retention_days < 1:
+            raise ValueError("Quarter-hour retention must be at least 1 day")
+        if maintenance_interval_seconds <= 0:
+            raise ValueError("Maintenance interval must be positive")
+        if max_rollup_buckets_per_run < 1:
+            raise ValueError("max_rollup_buckets_per_run must be at least 1")
         if not source_id:
             raise ValueError("source_id must not be empty")
 
@@ -52,6 +65,10 @@ class TelemetryAgent:
         self.idle_sync_interval_seconds = idle_sync_interval_seconds
         self.batch_size = batch_size
         self.retention_days = retention_days
+        self.minute_retention_days = minute_retention_days
+        self.quarter_retention_days = quarter_retention_days
+        self.maintenance_interval_seconds = maintenance_interval_seconds
+        self.max_rollup_buckets_per_run = max_rollup_buckets_per_run
 
     @property
     def sync_enabled(self) -> bool:
@@ -90,7 +107,6 @@ class TelemetryAgent:
                 f"Local sync state mismatch for batch {batch.batch_id}: "
                 f"expected {len(batch.samples)} rows, marked {marked}"
             )
-        self.store.prune_synced(self.retention_days)
         LOGGER.info(
             "Telemetry batch synced batch_id=%s samples=%d stored=%s duplicates=%s",
             batch.batch_id,
@@ -99,6 +115,26 @@ class TelemetryAgent:
             ack.get("duplicates"),
         )
         return True
+
+    def maintenance_once(self) -> None:
+        built = self.store.build_rollups(
+            max_buckets_per_resolution=self.max_rollup_buckets_per_run,
+        )
+        deleted = self.store.prune_history(
+            raw_retention_days=self.retention_days,
+            minute_retention_days=self.minute_retention_days,
+            quarter_retention_days=self.quarter_retention_days,
+        )
+        if any(built.values()) or any(deleted.values()):
+            LOGGER.info(
+                "Telemetry history maintenance rollups_1m=%d rollups_15m=%d "
+                "deleted_raw=%d deleted_1m=%d deleted_15m=%d",
+                built["1m"],
+                built["15m"],
+                deleted["raw"],
+                deleted["1m"],
+                deleted["15m"],
+            )
 
     def run(self, stop_event: Event) -> None:
         capture_thread = Thread(
@@ -134,11 +170,21 @@ class TelemetryAgent:
             thread.join(timeout=10.0)
 
     def _capture_loop(self, stop_event: Event) -> None:
+        next_maintenance = monotonic()
         while not stop_event.is_set():
             try:
                 self.capture_once()
             except Exception:
                 LOGGER.exception("Telemetry snapshot capture failed; ventilation-core is unaffected")
+
+            current = monotonic()
+            if current >= next_maintenance:
+                try:
+                    self.maintenance_once()
+                except Exception:
+                    LOGGER.exception("Telemetry history maintenance failed; capture remains active")
+                next_maintenance = current + self.maintenance_interval_seconds
+
             stop_event.wait(self.capture_interval_seconds)
 
     def _sync_loop(self, stop_event: Event) -> None:
