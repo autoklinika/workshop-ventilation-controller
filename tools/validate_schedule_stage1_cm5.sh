@@ -21,7 +21,9 @@ TEST_CORE_PID=""
 TEST_WEB_PID=""
 TEST_CORE_RUN=0
 VALIDATION_PASS=0
-RESTORE_OK=0
+CORE_PAUSED=0
+TELEMETRY_PAUSED=0
+WEB_PAUSED=0
 
 prod_ctl() {
     PYTHONPATH="$PROD/src" python3 -m ventilation_core.ctl \
@@ -90,6 +92,7 @@ PY
 
 restore_production() {
     local rc="$1"
+    local restore_ok=1
     set +e
 
     stop_test_web
@@ -98,11 +101,11 @@ restore_production() {
     echo
     echo "===== RESTORE PRODUKCJI ====="
 
-    if [ "$CORE_WAS_ACTIVE" = "active" ]; then
-        sudo systemctl start "$CORE_SERVICE"
-        if wait_production_core; then
+    if [ "$CORE_PAUSED" = "1" ]; then
+        sudo systemctl start "$CORE_SERVICE" || restore_ok=0
+        if [ "$restore_ok" = "1" ] && wait_production_core; then
             if prod_ctl stop >/tmp/wvc-schedule-stage1-production-stop.json 2>/dev/null; then
-                if python3 - <<'PY'
+                python3 - <<'PY' || restore_ok=0
 import json
 s=json.load(open('/tmp/wvc-schedule-stage1-production-stop.json'))['state']
 assert s['mode'] == 'STOP'
@@ -112,27 +115,26 @@ assert s['hardware_ready'] is True
 assert s['output_state_known'] is True
 print('production core: STOP / 0 V / hardware ready: PASS')
 PY
-                then
-                    RESTORE_OK=1
-                fi
+            else
+                restore_ok=0
             fi
+        else
+            restore_ok=0
         fi
-    else
-        RESTORE_OK=1
     fi
 
-    if [ "$TELEMETRY_WAS_ACTIVE" = "active" ]; then
-        sudo systemctl start "$TELEMETRY_SERVICE" || RESTORE_OK=0
+    if [ "$TELEMETRY_PAUSED" = "1" ]; then
+        sudo systemctl start "$TELEMETRY_SERVICE" || restore_ok=0
     fi
-    if [ "$WEB_WAS_ACTIVE" = "active" ]; then
-        sudo systemctl start "$WEB_SERVICE" || RESTORE_OK=0
+    if [ "$WEB_PAUSED" = "1" ]; then
+        sudo systemctl start "$WEB_SERVICE" || restore_ok=0
     fi
 
     echo "core:      $(service_state "$CORE_SERVICE")"
     echo "telemetry: $(service_state "$TELEMETRY_SERVICE")"
     echo "web V2:    $(service_state "$WEB_SERVICE")"
 
-    if [ "$RESTORE_OK" != "1" ]; then
+    if [ "$restore_ok" != "1" ]; then
         echo "BŁĄD KRYTYCZNY: nie udało się jednoznacznie potwierdzić bezpiecznego restore produkcji."
         rc=1
     fi
@@ -368,13 +370,16 @@ rm -f \
 
 if [ "$TELEMETRY_WAS_ACTIVE" = "active" ]; then
     sudo systemctl stop "$TELEMETRY_SERVICE"
+    TELEMETRY_PAUSED=1
 fi
 if [ "$WEB_WAS_ACTIVE" = "active" ]; then
     sudo systemctl stop "$WEB_SERVICE"
+    WEB_PAUSED=1
 fi
 
 prod_ctl stop >/tmp/wvc-schedule-stage1-production-final-stop.json
 sudo systemctl stop "$CORE_SERVICE"
+CORE_PAUSED=1
 test "$(service_state "$CORE_SERVICE")" != "active"
 
 echo "production services safely paused: PASS"
