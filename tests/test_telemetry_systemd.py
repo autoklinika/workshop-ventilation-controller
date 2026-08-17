@@ -21,6 +21,10 @@ class TelemetrySystemdUnitTest(unittest.TestCase):
         self.assertIn("StateDirectory=workshop-ventilation", unit)
         self.assertIn("/var/lib/workshop-ventilation/telemetry.sqlite3", unit)
 
+    def test_remote_sink_environment_file_is_optional(self) -> None:
+        unit = UNIT_PATH.read_text(encoding="utf-8")
+        self.assertIn("EnvironmentFile=-/etc/default/wvc-telemetry-sync", unit)
+
 
 if __name__ == "__main__":
     unittest.main()
