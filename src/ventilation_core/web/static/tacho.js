@@ -17,158 +17,6 @@ const tachoUi = {
   date: document.getElementById("controlDate"),
 };
 
-const globalAlertState = {
-  acknowledged: new Set(),
-  activeKeys: [],
-};
-
-function ensureGlobalSystemAlert() {
-  let overlay = document.getElementById("globalSystemAlert");
-  if (overlay) return overlay;
-
-  overlay = document.createElement("div");
-  overlay.id = "globalSystemAlert";
-  overlay.className = "v2-system-alert";
-  overlay.hidden = true;
-  overlay.setAttribute("role", "alertdialog");
-  overlay.setAttribute("aria-modal", "true");
-  overlay.setAttribute("aria-labelledby", "globalSystemAlertTitle");
-  overlay.setAttribute("aria-describedby", "globalSystemAlertDescription");
-  overlay.innerHTML = `
-    <section class="v2-system-alert-card">
-      <div class="v2-system-alert-head">
-        <span class="v2-system-alert-icon" aria-hidden="true">!</span>
-        <div>
-          <span class="v2-system-alert-kicker">ALARM</span>
-          <h2 id="globalSystemAlertTitle">BŁĄD SYSTEMU</h2>
-        </div>
-      </div>
-      <p id="globalSystemAlertDescription" class="v2-system-alert-description">Wykryto problem wymagający uwagi operatora.</p>
-      <ul id="globalSystemAlertList" class="v2-system-alert-list"></ul>
-      <p class="v2-system-alert-note">Okno pozostanie otwarte do momentu potwierdzenia komunikatu.</p>
-      <button id="globalSystemAlertOk" class="v2-system-alert-ok" type="button">OK</button>
-    </section>`;
-  document.body.appendChild(overlay);
-
-  const button = document.getElementById("globalSystemAlertOk");
-  button.addEventListener("click", () => {
-    globalAlertState.activeKeys.forEach((key) => globalAlertState.acknowledged.add(key));
-    overlay.hidden = true;
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (!overlay.hidden && event.key === "Escape") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
-  });
-
-  return overlay;
-}
-
-function globalSystemErrorMessage(base, detail) {
-  return typeof detail === "string" && detail.trim() ? `${base} · ${detail.trim()}` : base;
-}
-
-function collectGlobalSystemErrors(state, coreUnavailable = false) {
-  const errors = [];
-  const add = (key, message) => {
-    if (!errors.some((item) => item.key === key)) errors.push({ key, message });
-  };
-
-  if (coreUnavailable || !state) {
-    add("core:unavailable", "Brak komunikacji z ventilation-core.");
-    return errors;
-  }
-
-  const alarms = Array.isArray(state.active_alarms) ? state.active_alarms : [];
-  alarms.forEach((alarm, index) => {
-    const code = alarm && alarm.code ? String(alarm.code) : `alarm-${index + 1}`;
-    const message = alarm && alarm.message ? String(alarm.message) : `Aktywny alarm: ${code}`;
-    const detail = alarm && alarm.last_error ? String(alarm.last_error) : "";
-    add(`alarm:${code}`, globalSystemErrorMessage(message, detail));
-  });
-
-  if (state.hardware_ready !== true) {
-    add("core:hardware", "Sterownik sprzętowy nie jest gotowy do bezpiecznej pracy.");
-  }
-  if (state.output_state_known !== true) {
-    add("core:outputs", "Stan wyjść wentylatorów nie jest potwierdzony.");
-  }
-  if (state.mode === "FAULT" && alarms.length === 0) {
-    add("core:fault", "ventilation-core znajduje się w trybie FAULT.");
-  }
-
-  const sensorBus = state.sensor_bus;
-  if (!sensorBus) {
-    add("sensor-bus:missing", "Brak stanu SENSOR BUS.");
-  } else {
-    if (sensorBus.worker_alive !== true) {
-      add("sensor-bus:worker", "Proces SENSOR BUS nie działa.");
-    } else if (sensorBus.ready !== true) {
-      add("sensor-bus:ready", "SENSOR BUS nie jest gotowy.");
-    }
-    if (Array.isArray(sensorBus.nodes)) {
-      sensorBus.nodes.forEach((sensor, index) => {
-        const address = sensor && sensor.slave_address != null ? sensor.slave_address : index + 1;
-        const detail = sensor && sensor.last_error ? String(sensor.last_error) : "";
-        if (!sensor || sensor.online !== true || sensor.usable !== true) {
-          add(`sensor:${address}`, globalSystemErrorMessage(`Czujnik SEN55 ${address}: brak poprawnej komunikacji.`, detail));
-        } else if (sensor.measurement_stale === true || sensor.measurement_valid !== true) {
-          add(`sensor:${address}`, `Czujnik SEN55 ${address}: dane pomiarowe są nieaktualne lub nieprawidłowe.`);
-        }
-      });
-    }
-  }
-
-  const aero = state.aero_bus;
-  if (!aero) {
-    add("aero:missing", "Brak stanu AERO BUS.");
-  } else if (aero.worker_alive !== true || aero.ready !== true || aero.online !== true || aero.usable !== true) {
-    add("aero:unavailable", globalSystemErrorMessage("Rekuperator AERO: brak poprawnej komunikacji.", aero.last_error));
-  }
-
-  const tacho = state.tacho;
-  if (!tacho) {
-    add("tacho:missing", "Monitor TACHO nie jest skonfigurowany.");
-  } else if (tacho.worker_alive !== true || tacho.ready !== true || tacho.last_error) {
-    add("tacho:monitor", globalSystemErrorMessage("Monitor TACHO nie działa poprawnie.", tacho.last_error));
-  } else if (!dualTachoConfigured(tacho)) {
-    add("tacho:channels", "Nie są skonfigurowane oba kanały TACHO: SUPPLY i EXTRACT.");
-  }
-
-  return errors;
-}
-
-function updateGlobalSystemAlert(state, coreUnavailable = false) {
-  const overlay = ensureGlobalSystemAlert();
-  const errors = collectGlobalSystemErrors(state, coreUnavailable);
-  const activeKeySet = new Set(errors.map((item) => item.key));
-
-  [...globalAlertState.acknowledged].forEach((key) => {
-    if (!activeKeySet.has(key)) globalAlertState.acknowledged.delete(key);
-  });
-
-  globalAlertState.activeKeys = errors.map((item) => item.key);
-  const pending = errors.some((item) => !globalAlertState.acknowledged.has(item.key));
-  if (!pending) {
-    overlay.hidden = true;
-    return;
-  }
-
-  const list = document.getElementById("globalSystemAlertList");
-  list.replaceChildren();
-  errors.forEach((item) => {
-    const row = document.createElement("li");
-    row.textContent = item.message;
-    list.appendChild(row);
-  });
-
-  const wasHidden = overlay.hidden;
-  overlay.hidden = false;
-  if (wasHidden) document.getElementById("globalSystemAlertOk").focus({ preventScroll: true });
-}
-
 function renderControlTopbarClock() {
   const now = new Date();
   tachoUi.clock.textContent = new Intl.DateTimeFormat("pl-PL", { hour: "2-digit", minute: "2-digit" }).format(now);
@@ -278,7 +126,6 @@ function renderTachoChannel(tacho, channelName, rpmElement, chipElement, detailE
 }
 
 function renderTachoState(state) {
-  updateGlobalSystemAlert(state);
   renderControlTopbarState(state);
   const setpoints = state && state.setpoints ? state.setpoints : {};
   tachoUi.supplyCommandPercent.textContent = commandPercentFromVoltage(setpoints.supply_voltage);
@@ -302,7 +149,6 @@ async function pollTachoState() {
     if (!response.ok || payload.ok !== true || !payload.state) throw new Error(payload.error || `HTTP ${response.status}`);
     renderTachoState(payload.state);
   } catch (_error) {
-    updateGlobalSystemAlert(null, true);
     renderControlTopbarState(null);
     tachoUi.health.textContent = "BRAK DANYCH";
     renderTachoChannel(null, "supply", tachoUi.supplyRpm, tachoUi.supplyChip, tachoUi.supplyDetail);
