@@ -1,8 +1,19 @@
 import unittest
+from dataclasses import replace
 
 from ventilation_core.application.alert_registry import AlertRegistry, MemoryAlertStore
 from ventilation_core.domain.alerts import AlertSignal
 from ventilation_core.domain.models import AlarmCode, AlarmSeverity
+
+
+class CountingMemoryAlertStore(MemoryAlertStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.update_calls = 0
+
+    def update_active(self, record, signal):
+        self.update_calls += 1
+        return super().update_active(record, signal)
 
 
 class AlertRegistryTest(unittest.TestCase):
@@ -56,6 +67,38 @@ class AlertRegistryTest(unittest.TestCase):
         self.assertTrue(updated.acknowledged)
         self.assertEqual(updated.detail, "CRC error")
         self.assertEqual(updated.occurrences, 5)
+
+    def test_occurrence_growth_is_batched_but_visible_and_exact_on_clear(self) -> None:
+        store = CountingMemoryAlertStore()
+        registry = AlertRegistry(store, occurrence_persist_step=30)
+        first = registry.reconcile([self.signal])[0]
+        self.assertEqual(first.occurrences, 3)
+
+        for occurrences in range(4, 33):
+            active = registry.reconcile(
+                [replace(self.signal, occurrences=occurrences)]
+            )
+            self.assertEqual(active[0].occurrences, occurrences)
+
+        self.assertEqual(store.update_calls, 0)
+        self.assertEqual(store.list_active()[0].occurrences, 3)
+
+        active = registry.reconcile([replace(self.signal, occurrences=33)])
+        self.assertEqual(active[0].occurrences, 33)
+        self.assertEqual(store.update_calls, 1)
+        self.assertEqual(store.list_active()[0].occurrences, 33)
+
+        for occurrences in range(34, 42):
+            active = registry.reconcile(
+                [replace(self.signal, occurrences=occurrences)]
+            )
+            self.assertEqual(active[0].occurrences, occurrences)
+
+        self.assertEqual(store.update_calls, 1)
+        self.assertEqual(registry.reconcile([]), ())
+        history = registry.history()
+        self.assertEqual(history[0].occurrences, 41)
+        self.assertIsNotNone(history[0].cleared_at)
 
     def test_invalid_acknowledgement_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
