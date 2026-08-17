@@ -74,26 +74,58 @@ if serial_end is None:
     serial_end = len(lines)
 
 block = lines[serial_start + 1:serial_end]
-port_values = []
 adapter_values = []
-for line in block:
-    m = re.fullmatch(r"\s+port:\s*[\"']?(.+?)[\"']?\s*", line)
-    if m:
-        port_values.append(m.group(1))
-    m = re.fullmatch(r"\s+adapter:\s*(\S+)\s*", line)
-    if m:
-        adapter_values.append(m.group(1))
+port_entries = []
 
-if port_values != [serial]:
-    raise SystemExit(f"ERROR: unexpected serial port in probe config: {port_values!r}")
+for rel_index, line in enumerate(block):
+    m = re.fullmatch(r"(\s+)adapter:\s*(\S+)\s*", line)
+    if m:
+        adapter_values.append(m.group(2).strip("\"'"))
+
+    m = re.fullmatch(r"(\s+)port:\s*(.*?)\s*", line)
+    if not m:
+        continue
+
+    indent = len(m.group(1))
+    raw_value = m.group(2).strip()
+
+    if raw_value in {">", ">-", ">+", "|", "|-", "|+"}:
+        parts = []
+        for following in block[rel_index + 1:]:
+            if not following.strip():
+                continue
+            following_indent = len(following) - len(following.lstrip())
+            if following_indent <= indent:
+                break
+            parts.append(following.strip())
+        # Zigbee2MQTT's YAML serializer writes long scalar paths as folded
+        # block values (`port: >-` followed by the path on the next line).
+        # A serial path contains no meaningful whitespace, so concatenating
+        # block fragments is both strict and sufficient for this safety check.
+        value = "".join(parts)
+        encoding = f"block scalar {raw_value}"
+    else:
+        value = raw_value.strip("\"'")
+        encoding = "inline scalar"
+
+    port_entries.append((value, encoding))
+
+if len(port_entries) != 1:
+    raise SystemExit(f"ERROR: expected exactly one serial.port, got {port_entries!r}")
+
+port_value, port_encoding = port_entries[0]
+if port_value != serial:
+    raise SystemExit(f"ERROR: unexpected serial port in probe config: {port_value!r}")
 if adapter_values:
     raise SystemExit(f"ERROR: adapter already specified in current config: {adapter_values!r}")
 
-# The failed native autodetection can replace GENERATE network values with
-# concrete credentials before the radio opens. That mutation is expected and
-# does not mean a Zigbee network exists; persistent-state checks above are the
-# authority for deciding whether automatic recovery is safe.
+# A failed native autodetection may serialize configuration.yaml and replace
+# GENERATE network values with concrete credentials before any radio/network
+# state exists. Persistent state files above remain the authority for deciding
+# whether an automatic recovery is safe.
 print("configuration shape: expected failed-autodetect probe")
+print(f"serial.port encoding: {port_encoding}")
+print(f"serial.port: {port_value}")
 PY
 
 section "PRESERVE FAILED CONFIG"
