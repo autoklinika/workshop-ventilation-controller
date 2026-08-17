@@ -21,6 +21,7 @@ constexpr std::uint16_t kReadDataReadyCommand = 0x0202;
 constexpr std::uint16_t kReadMeasuredValuesCommand = 0x03C4;
 constexpr std::uint16_t kGetProductNameCommand = 0xD014;
 constexpr std::uint16_t kGetVersionCommand = 0xD100;
+constexpr std::uint16_t kReadDeviceStatusCommand = 0xD206;
 
 constexpr std::uint16_t kUnavailableUnsigned = 0xFFFF;
 constexpr std::int16_t kUnavailableSigned = 0x7FFF;
@@ -174,6 +175,31 @@ esp_err_t Sen55::read_measurement(Measurement& measurement) const
     parsed.timestamp_us = esp_timer_get_time();
 
     measurement = parsed;
+    return ESP_OK;
+}
+
+esp_err_t Sen55::read_device_status(std::uint32_t& status) const
+{
+    std::array<std::uint8_t, 6> response{};
+    esp_err_t result = read_command(kReadDeviceStatusCommand,
+                                    response.data(),
+                                    response.size(),
+                                    20);
+    if (result != ESP_OK) {
+        return result;
+    }
+
+    std::array<std::uint8_t, 4> payload{};
+    result = decode_crc_words(response.data(),
+                              response.size(),
+                              payload.data(),
+                              payload.size());
+    if (result != ESP_OK) {
+        return result;
+    }
+
+    status = (static_cast<std::uint32_t>(read_u16_be(&payload[0])) << 16U) |
+             static_cast<std::uint32_t>(read_u16_be(&payload[2]));
     return ESP_OK;
 }
 

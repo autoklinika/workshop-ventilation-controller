@@ -93,8 +93,8 @@ class ServiceOtaStage1ContractTests(unittest.TestCase):
         self.assertIn("rollback_test_pending &&", application)
         self.assertIn("esp_restart();", application)
         self.assertIn("kOtaRollbackTestRestartDelayMs = 15'000", firmware_config)
-        self.assertIn("0.5.2-stage1-rollback-test", firmware_config)
-        self.assertIn("0.5.1-stage1-fix1", firmware_config)
+        self.assertIn("0.6.1-stage1-rollback-test", firmware_config)
+        self.assertIn("0.6.0-stage1-sen55-status", firmware_config)
 
     def test_start_report_keeps_wifi_non_production_and_ota_manual(self) -> None:
         report = (

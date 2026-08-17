@@ -102,6 +102,34 @@ class CoreServer:
         if command == "status":
             state = self._service.state()
             return {"ok": True, "state": state.to_dict()}
+        if command == "alerts":
+            limit = request.get("limit", 200)
+            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+                raise ValueError("Alert history limit must be an integer in range 1..1000")
+            active_method = getattr(self._service, "active_alerts", None)
+            history_method = getattr(self._service, "alert_history", None)
+            if active_method is None or history_method is None:
+                raise RuntimeError("Alert history is not configured")
+            active = await asyncio.to_thread(active_method)
+            history = await asyncio.to_thread(history_method, limit)
+            return {
+                "ok": True,
+                "active": [record.to_dict() for record in active],
+                "history": [record.to_dict() for record in history],
+            }
+        if command == "ack-alert":
+            alert_id = request.get("alert_id")
+            if isinstance(alert_id, bool) or not isinstance(alert_id, int) or alert_id < 1:
+                raise ValueError("alert_id must be a positive integer")
+            acknowledge_method = getattr(self._service, "acknowledge_alert", None)
+            if acknowledge_method is None:
+                raise RuntimeError("Alert acknowledgement is not configured")
+            record = await asyncio.to_thread(acknowledge_method, alert_id)
+            return {
+                "ok": True,
+                "alert": record.to_dict(),
+                "state": self._service.state().to_dict(),
+            }
         if command == "sensors":
             sensor_bus = self._service.state().sensor_bus
             return {

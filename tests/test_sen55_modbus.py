@@ -18,7 +18,7 @@ class Sen55ModbusDecoderTests(unittest.TestCase):
             1234,     # VOC = 123.4
             321,      # NOx = 32.1
             0x00FF,   # all fields available
-            0x0003,   # valid + sensor present
+            0x0003,   # valid + sensor present, legacy firmware
             2,        # age
             5,        # sensor errors
             6,        # Modbus service errors
@@ -48,6 +48,54 @@ class Sen55ModbusDecoderTests(unittest.TestCase):
         self.assertEqual(sample.firmware_version, "0.3")
         self.assertEqual(sample.map_version, 1)
         self.assertEqual(sample.sequence, 0x00040005)
+        self.assertFalse(sample.sen55_device_status_supported)
+        self.assertFalse(sample.sen55_device_status_valid)
+
+    def test_decodes_backwards_compatible_sen55_device_status_extension(self) -> None:
+        registers = [0] * 19
+        registers[8] = 0x00FF
+        registers[9] = (
+            0x0003  # measurement valid + sensor present
+            | (1 << 8)   # status supported
+            | (1 << 9)   # status valid
+            | (1 << 10)  # fan speed warning
+            | (1 << 11)  # fan cleaning info
+            | (1 << 12)  # gas error
+            | (1 << 13)  # RHT error
+            | (1 << 14)  # laser error
+            | (1 << 15)  # fan error
+        )
+        registers[10] = 0
+        registers[15] = 0x0006
+        registers[16] = 1
+
+        sample = decode_sensor_registers(registers)
+
+        self.assertTrue(sample.measurement_valid)
+        self.assertTrue(sample.sen55_device_status_supported)
+        self.assertTrue(sample.sen55_device_status_valid)
+        self.assertTrue(sample.sen55_fan_speed_warning)
+        self.assertTrue(sample.sen55_fan_cleaning)
+        self.assertTrue(sample.sen55_gas_sensor_error)
+        self.assertTrue(sample.sen55_rht_error)
+        self.assertTrue(sample.sen55_laser_error)
+        self.assertTrue(sample.sen55_fan_error)
+        self.assertEqual(sample.firmware_version, "0.6")
+        self.assertEqual(sample.map_version, 1)
+
+    def test_status_flags_are_ignored_when_device_status_is_invalid(self) -> None:
+        registers = [0] * 19
+        registers[8] = 0x00FF
+        registers[9] = 0x0003 | (1 << 8) | (1 << 10) | (1 << 15)
+        registers[10] = 0
+        registers[16] = 1
+
+        sample = decode_sensor_registers(registers)
+
+        self.assertTrue(sample.sen55_device_status_supported)
+        self.assertFalse(sample.sen55_device_status_valid)
+        self.assertTrue(sample.sen55_fan_speed_warning)
+        self.assertTrue(sample.sen55_fan_error)
 
     def test_unavailable_fields_are_none(self) -> None:
         registers = [0] * 19

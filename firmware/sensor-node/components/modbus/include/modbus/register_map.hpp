@@ -40,6 +40,17 @@ enum NodeStatusBit : std::uint16_t {
     kInitializing = 1U << 5,
     kSensorOffline = 1U << 6,
     kPlatformFault = 1U << 7,
+
+    // Backwards-compatible extension of register 9. Old CM5 software masks
+    // the low byte and therefore safely ignores these bits.
+    kSen55DeviceStatusSupported = 1U << 8,
+    kSen55DeviceStatusValid = 1U << 9,
+    kSen55FanSpeedWarning = 1U << 10,
+    kSen55FanCleaning = 1U << 11,
+    kSen55GasSensorError = 1U << 12,
+    kSen55RhtError = 1U << 13,
+    kSen55LaserError = 1U << 14,
+    kSen55FanError = 1U << 15,
 };
 
 struct RegisterSource {
@@ -61,6 +72,10 @@ struct RegisterSource {
     bool initializing{true};
     bool sensor_offline{false};
     bool platform_fault{false};
+
+    bool sen55_device_status_supported{false};
+    bool sen55_device_status_valid{false};
+    std::uint32_t sen55_device_status{0};
 
     std::uint16_t measurement_age_seconds{0xFFFFU};
     std::uint32_t sensor_error_count{0};

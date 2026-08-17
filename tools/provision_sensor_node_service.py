@@ -72,8 +72,19 @@ def load_registry(path: Path) -> dict:
     return value
 
 
+def _preserve_owner_group(fd: int, source_stat: os.stat_result) -> None:
+    current = os.fstat(fd)
+    if (current.st_uid, current.st_gid) != (source_stat.st_uid, source_stat.st_gid):
+        os.fchown(fd, source_stat.st_uid, source_stat.st_gid)
+
+
 def write_registry(path: Path, registry: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing_stat = path.stat()
+    except FileNotFoundError:
+        existing_stat = None
+
     fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(temporary_name)
     try:
@@ -81,8 +92,10 @@ def write_registry(path: Path, registry: dict) -> None:
             json.dump(registry, handle, indent=2, sort_keys=True)
             handle.write("\n")
             handle.flush()
+            if existing_stat is not None:
+                _preserve_owner_group(handle.fileno(), existing_stat)
+            os.fchmod(handle.fileno(), 0o600)
             os.fsync(handle.fileno())
-        os.chmod(temporary, 0o600)
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)

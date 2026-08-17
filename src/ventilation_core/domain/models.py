@@ -16,10 +16,24 @@ class VentilationMode(StrEnum):
 
 
 class AlarmCode(StrEnum):
+    DAC_STATE_UNCERTAIN = "DAC_STATE_UNCERTAIN"
     DAC_COMMUNICATION_LOST = "DAC_COMMUNICATION_LOST"
+    SENSOR_BUS_UNAVAILABLE = "SENSOR_BUS_UNAVAILABLE"
+    SENSOR_NODE_UNAVAILABLE = "SENSOR_NODE_UNAVAILABLE"
+    SENSOR_DATA_INVALID = "SENSOR_DATA_INVALID"
+    SEN55_DIAGNOSTICS_UNAVAILABLE = "SEN55_DIAGNOSTICS_UNAVAILABLE"
+    SEN55_FAN_SPEED_WARNING = "SEN55_FAN_SPEED_WARNING"
+    SEN55_GAS_SENSOR_ERROR = "SEN55_GAS_SENSOR_ERROR"
+    SEN55_RHT_ERROR = "SEN55_RHT_ERROR"
+    SEN55_LASER_ERROR = "SEN55_LASER_ERROR"
+    SEN55_FAN_ERROR = "SEN55_FAN_ERROR"
+    AERO_BUS_UNAVAILABLE = "AERO_BUS_UNAVAILABLE"
+    TACHO_MONITOR_UNAVAILABLE = "TACHO_MONITOR_UNAVAILABLE"
+    TACHO_CONFIGURATION_INVALID = "TACHO_CONFIGURATION_INVALID"
 
 
 class AlarmSeverity(StrEnum):
+    WARNING = "warning"
     CRITICAL = "critical"
 
 
@@ -41,15 +55,26 @@ class AlarmState:
     active_since: str
     last_error: str
     occurrences: int
+    alert_id: int | None = None
+    source: str = "core"
+    acknowledged_at: str | None = None
+
+    @property
+    def acknowledged(self) -> bool:
+        return self.acknowledged_at is not None
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "alert_id": self.alert_id,
             "code": self.code.value,
+            "source": self.source,
             "severity": self.severity.value,
             "message": self.message,
             "active_since": self.active_since,
             "last_error": self.last_error,
             "occurrences": self.occurrences,
+            "acknowledged": self.acknowledged,
+            "acknowledged_at": self.acknowledged_at,
         }
 
 

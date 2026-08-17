@@ -28,6 +28,8 @@ struct Snapshot {
     std::uint32_t crc_failures{0};
     std::uint32_t successful_measurements{0};
     std::int64_t last_success_us{0};
+    bool device_status_valid{false};
+    std::uint32_t device_status{0};
 };
 
 class Diagnostics final {
@@ -43,6 +45,8 @@ public:
     void mark_communication_failure(esp_err_t error);
     void mark_crc_failure();
     void mark_measurement_success();
+    void mark_device_status(std::uint32_t status);
+    void mark_device_status_unavailable();
 
     [[nodiscard]] const Snapshot& snapshot() const;
 

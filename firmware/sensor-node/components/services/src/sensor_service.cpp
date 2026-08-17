@@ -43,8 +43,20 @@ void SensorService::poll()
     bool ready = false;
     esp_err_t result = sensor_.data_ready(ready);
     if (result != ESP_OK) {
+        diagnostics_.mark_device_status_unavailable();
         handle_error(result, "read_data_ready");
         return;
+    }
+
+    std::uint32_t device_status = 0;
+    result = sensor_.read_device_status(device_status);
+    if (result == ESP_OK) {
+        diagnostics_.mark_device_status(device_status);
+    } else {
+        diagnostics_.mark_device_status_unavailable();
+        LOG_WARN(kTag,
+                 "read_device_status failed: %s; measurement path remains active",
+                 esp_err_to_name(result));
     }
 
     consecutive_errors_ = 0;
@@ -94,6 +106,7 @@ void SensorService::connect()
 {
     last_connect_attempt_us_ = esp_timer_get_time();
     diagnostics_.set_sensor_state(diagnostics::SensorState::kDetecting);
+    diagnostics_.mark_device_status_unavailable();
 
     esp_err_t result = sensor_.probe();
     if (result != ESP_OK) {

@@ -267,6 +267,10 @@ RegisterSource ModbusRtuSlave::build_source(
                             !snapshot.i2c_ready ||
                             !snapshot.rs485_ready;
 
+    source.sen55_device_status_supported = true;
+    source.sen55_device_status_valid = snapshot.device_status_valid;
+    source.sen55_device_status = snapshot.device_status;
+
     const std::uint64_t sensor_errors =
         static_cast<std::uint64_t>(snapshot.detection_failures) +
         snapshot.communication_failures + snapshot.crc_failures;

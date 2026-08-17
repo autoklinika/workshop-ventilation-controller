@@ -35,11 +35,11 @@ def response_for(slave_address: int, registers: list[int]) -> bytes:
     return append_crc(bytes((slave_address, 4, len(payload))) + payload)
 
 
-def valid_registers(*, map_version: int = 1) -> list[int]:
+def valid_registers(*, map_version: int = 1, status: int = 0x0003) -> list[int]:
     registers = [0] * 19
     registers[0] = 123
     registers[8] = 0x0001
-    registers[9] = 0x0003
+    registers[9] = status
     registers[10] = 0
     registers[15] = 0x0002
     registers[16] = map_version
@@ -86,6 +86,43 @@ class SensorBusWorkerTests(unittest.TestCase):
         self.assertTrue(node_2.online)
         self.assertTrue(node_2.usable)
         self.assertEqual(node_2.communication_errors, 0)
+
+    def test_sen55_diagnostics_failure_counter_is_local_and_debounced(self) -> None:
+        config = SensorBusConfig(timeout_seconds=0.001)
+        status_supported_but_invalid = 0x0003 | (1 << 8)
+        previous = SensorNodeState(slave_address=1)
+
+        for expected in (1, 2, 3):
+            previous = _poll_node(
+                FakePort(response_for(1, valid_registers(status=status_supported_but_invalid))),
+                config,
+                previous,
+            )
+            self.assertTrue(previous.sen55_device_status_supported)
+            self.assertFalse(previous.sen55_device_status_valid)
+            self.assertEqual(previous.sen55_diagnostics_failures, expected)
+
+        status_valid = status_supported_but_invalid | (1 << 9)
+        recovered = _poll_node(
+            FakePort(response_for(1, valid_registers(status=status_valid))),
+            config,
+            previous,
+        )
+        self.assertTrue(recovered.sen55_device_status_valid)
+        self.assertEqual(recovered.sen55_diagnostics_failures, 0)
+
+    def test_legacy_firmware_does_not_accumulate_diagnostics_failures(self) -> None:
+        config = SensorBusConfig(timeout_seconds=0.001)
+        previous = SensorNodeState(slave_address=1, sen55_diagnostics_failures=7)
+        state = _poll_node(
+            FakePort(response_for(1, valid_registers(status=0x0003))),
+            config,
+            previous,
+        )
+
+        self.assertFalse(state.sen55_device_status_supported)
+        self.assertFalse(state.sen55_device_status_valid)
+        self.assertEqual(state.sen55_diagnostics_failures, 0)
 
 
 if __name__ == "__main__":

@@ -120,6 +120,12 @@ def _poll_node(port: Any, config: SensorBusConfig, previous: SensorNodeState) ->
             registers,
             expected_map_version=config.expected_map_version,
         )
+        diagnostics_failures = (
+            0
+            if not sample.sen55_device_status_supported
+            or sample.sen55_device_status_valid
+            else previous.sen55_diagnostics_failures + 1
+        )
         return SensorNodeState(
             slave_address=previous.slave_address,
             online=True,
@@ -150,6 +156,15 @@ def _poll_node(port: Any, config: SensorBusConfig, previous: SensorNodeState) ->
                 previous.stale_measurements + (1 if sample.measurement_stale else 0)
             ),
             map_version_errors=previous.map_version_errors,
+            sen55_device_status_supported=sample.sen55_device_status_supported,
+            sen55_device_status_valid=sample.sen55_device_status_valid,
+            sen55_fan_speed_warning=sample.sen55_fan_speed_warning,
+            sen55_fan_cleaning=sample.sen55_fan_cleaning,
+            sen55_gas_sensor_error=sample.sen55_gas_sensor_error,
+            sen55_rht_error=sample.sen55_rht_error,
+            sen55_laser_error=sample.sen55_laser_error,
+            sen55_fan_error=sample.sen55_fan_error,
+            sen55_diagnostics_failures=diagnostics_failures,
         )
     except UnsupportedMapVersion as exc:
         return _unsupported_map_state(previous, polls, exc)

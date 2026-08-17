@@ -8,11 +8,11 @@ namespace config::firmware {
 
 inline constexpr char kProjectName[] = "kamod-sen55-sensor-node";
 #ifdef CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE
-inline constexpr char kVersion[] = "0.5.2-stage1-rollback-test";
+inline constexpr char kVersion[] = "0.6.1-stage1-rollback-test";
 #else
-inline constexpr char kVersion[] = "0.5.1-stage1-fix1";
+inline constexpr char kVersion[] = "0.6.0-stage1-sen55-status";
 #endif
-inline constexpr std::uint16_t kFirmwareVersionPacked = 0x0005;
+inline constexpr std::uint16_t kFirmwareVersionPacked = 0x0006;
 
 inline constexpr std::uint32_t kApplicationLoopPeriodMs = 100;
 inline constexpr std::uint32_t kSensorPollPeriodMs = 200;

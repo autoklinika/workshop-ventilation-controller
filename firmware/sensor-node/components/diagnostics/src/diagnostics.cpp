@@ -41,6 +41,7 @@ void Diagnostics::mark_sensor_offline(const esp_err_t error)
 {
     snapshot_.sensor_present = false;
     snapshot_.measurement_running = false;
+    snapshot_.device_status_valid = false;
     snapshot_.last_error = error;
 }
 
@@ -54,6 +55,7 @@ void Diagnostics::mark_detection_failure(const esp_err_t error)
 {
     snapshot_.sensor_present = false;
     snapshot_.measurement_running = false;
+    snapshot_.device_status_valid = false;
     snapshot_.last_error = error;
     ++snapshot_.detection_failures;
 }
@@ -78,6 +80,17 @@ void Diagnostics::mark_measurement_success()
     snapshot_.last_error = ESP_OK;
     ++snapshot_.successful_measurements;
     snapshot_.last_success_us = esp_timer_get_time();
+}
+
+void Diagnostics::mark_device_status(const std::uint32_t status)
+{
+    snapshot_.device_status = status;
+    snapshot_.device_status_valid = true;
+}
+
+void Diagnostics::mark_device_status_unavailable()
+{
+    snapshot_.device_status_valid = false;
 }
 
 const Snapshot& Diagnostics::snapshot() const
