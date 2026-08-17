@@ -1,14 +1,15 @@
 "use strict";
 
 function setV2View(path, push = false) {
-  const target = path.startsWith("/control") ? "/control" : "/";
+  const target = path.startsWith("/control") ? "/control" : path.startsWith("/alerts") ? "/alerts" : "/";
   const dashboardView = document.getElementById("dashboardView");
   const controlView = document.getElementById("controlView");
-  if (!dashboardView || !controlView) return;
+  const alertsView = document.getElementById("alertsView");
+  if (!dashboardView || !controlView || !alertsView) return;
 
-  const controlActive = target === "/control";
-  dashboardView.hidden = controlActive;
-  controlView.hidden = !controlActive;
+  dashboardView.hidden = target !== "/";
+  controlView.hidden = target !== "/control";
+  alertsView.hidden = target !== "/alerts";
 
   document.querySelectorAll(".v2-nav[data-route]").forEach((item) => {
     const active = item.dataset.route === target;
@@ -64,14 +65,16 @@ async function hydrateControlView() {
 function wireV2Navigation() {
   const nav = [...document.querySelectorAll(".v2-nav")];
   const zones = nav.find((el) => el.textContent.trim() === "STREFY");
+  const alerts = nav.find((el) => el.textContent.trim() === "ALERTY");
   const service = nav.find((el) => el.textContent.trim() === "SERWIS");
   const dashboard = nav.find((el) => el.textContent.trim() === "PULPIT");
   if (zones) { zones.classList.remove("disabled"); zones.removeAttribute("aria-disabled"); zones.href = "/control"; zones.dataset.route = "/control"; }
+  if (alerts) { alerts.classList.remove("disabled"); alerts.removeAttribute("aria-disabled"); alerts.href = "/alerts"; alerts.dataset.route = "/alerts"; }
   if (dashboard) dashboard.dataset.route = "/";
   if (service) { service.classList.add("disabled"); service.setAttribute("aria-disabled", "true"); service.href = "#"; }
 
   document.addEventListener("click", (event) => {
-    const link = event.target.closest('a[href="/"],a[href="/control"]');
+    const link = event.target.closest('a[href="/"],a[href="/control"],a[href="/alerts"]');
     if (!link) return;
     event.preventDefault();
     setV2View(link.getAttribute("href") || "/", true);
