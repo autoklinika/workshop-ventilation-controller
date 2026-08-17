@@ -18,6 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status")
     subparsers.add_parser("sensors")
     subparsers.add_parser("aero")
+    subparsers.add_parser("schedule")
+
+    schedule_replace = subparsers.add_parser("schedule-replace")
+    schedule_replace.add_argument("--zone", required=True)
+    schedule_replace.add_argument("--file", type=Path, required=True)
 
     alerts = subparsers.add_parser("alerts")
     alerts.add_argument("--limit", type=int, default=200)
@@ -45,6 +50,15 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
             "command": "set",
             "supply_voltage": args.supply,
             "extract_voltage": args.extract,
+        }
+    if args.command == "schedule-replace":
+        payload = json.loads(args.file.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            raise ValueError("Schedule file must contain a JSON list of windows")
+        return {
+            "command": "schedule-replace",
+            "zone": args.zone,
+            "windows": payload,
         }
     if args.command == "alerts":
         return {"command": "alerts", "limit": args.limit}
@@ -74,7 +88,7 @@ def main() -> int:
     args = build_parser().parse_args()
     try:
         response = send_request(args.socket, build_request(args))
-    except OSError as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
         return 2
     print(json.dumps(response, indent=2))

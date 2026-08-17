@@ -9,6 +9,7 @@ from typing import Any
 
 from ventilation_core.application.service import VentilationService
 from ventilation_core.domain.aero_control import AeroControlCommand
+from ventilation_core.domain.schedule import ScheduleWindow
 
 
 LOGGER = logging.getLogger(__name__)
@@ -102,6 +103,29 @@ class CoreServer:
         if command == "status":
             state = self._service.state()
             return {"ok": True, "state": state.to_dict()}
+        if command == "schedule":
+            schedule_method = getattr(self._service, "schedule_configuration", None)
+            if schedule_method is None:
+                raise RuntimeError("Schedule manager is not configured")
+            schedule = await asyncio.to_thread(schedule_method)
+            return {"ok": True, "schedule": schedule}
+        if command == "schedule-replace":
+            zone = request.get("zone")
+            raw_windows = request.get("windows")
+            if not isinstance(zone, str) or not zone:
+                raise ValueError("Schedule zone must be non-empty text")
+            if not isinstance(raw_windows, list):
+                raise ValueError("Schedule windows must be a JSON list")
+            windows = tuple(ScheduleWindow.from_payload(zone, item) for item in raw_windows)
+            replace_method = getattr(self._service, "replace_schedule", None)
+            if replace_method is None:
+                raise RuntimeError("Schedule manager is not configured")
+            schedule = await asyncio.to_thread(replace_method, zone, windows)
+            return {
+                "ok": True,
+                "schedule": schedule,
+                "state": self._service.state().to_dict(),
+            }
         if command == "alerts":
             limit = request.get("limit", 200)
             if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:

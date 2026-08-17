@@ -8,13 +8,21 @@ from pathlib import Path
 
 from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.application.alerting_service import AlertingVentilationService
+from ventilation_core.application.schedule_controller import (
+    CoreScheduleManager,
+    UnavailableScheduleManager,
+)
 from ventilation_core.domain.policy import FanSetpointPolicy
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
 from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActuator
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
+from ventilation_core.infrastructure.sqlite_schedule_store import SqliteScheduleStore
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
 from ventilation_core.runtime.server import CoreServer
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def parse_sensor_addresses(value: str) -> tuple[int, ...]:
@@ -39,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--address", type=lambda value: int(value, 0), default=0x58)
     parser.add_argument("--socket", type=Path, default=Path("/run/workshop-ventilation/ventilation-core.sock"))
     parser.add_argument("--alerts-db", type=Path, default=Path("/var/lib/workshop-ventilation/alerts.sqlite3"))
+    parser.add_argument("--automation-db", type=Path, default=Path("/var/lib/workshop-ventilation/automation.sqlite3"))
     parser.add_argument("--minimum-running-voltage", type=float, default=1.0)
     parser.add_argument("--maximum-voltage", type=float, default=10.0)
     parser.add_argument("--command-timeout", type=float, default=3.0)
@@ -76,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def run_core(args: argparse.Namespace) -> None:
     alert_registry = None
+    schedule_manager = None
     actuator = None
     sensor_bus = None
     aero_bus = None
@@ -83,6 +93,13 @@ async def run_core(args: argparse.Namespace) -> None:
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
+        try:
+            schedule_manager = CoreScheduleManager(SqliteScheduleStore(args.automation_db))
+        except Exception as exc:
+            LOGGER.exception(
+                "Persistent schedule store unavailable; continuing with UNKNOWN schedule state"
+            )
+            schedule_manager = UnavailableScheduleManager(str(exc))
         actuator = ProcessIsolatedActuator(
             bus=args.bus,
             address=args.address,
@@ -102,6 +119,7 @@ async def run_core(args: argparse.Namespace) -> None:
             sensor_bus=sensor_bus,
             aero_bus=aero_bus,
             tacho=tacho,
+            schedule_manager=schedule_manager,
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
         )
@@ -126,8 +144,12 @@ async def run_core(args: argparse.Namespace) -> None:
                             if actuator is not None:
                                 actuator.close()
                         finally:
-                            if alert_registry is not None:
-                                alert_registry.close()
+                            try:
+                                if schedule_manager is not None:
+                                    schedule_manager.close()
+                            finally:
+                                if alert_registry is not None:
+                                    alert_registry.close()
         raise
 
     loop = asyncio.get_running_loop()
