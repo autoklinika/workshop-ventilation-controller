@@ -19,7 +19,12 @@ class AlertStore(Protocol):
     def create(self, signal: AlertSignal, active_since: str) -> AlertRecord: ...
     def update_active(self, record: AlertRecord, signal: AlertSignal) -> AlertRecord: ...
     def acknowledge(self, alert_id: int, acknowledged_at: str) -> AlertRecord: ...
-    def clear(self, alert_id: int, cleared_at: str) -> AlertRecord: ...
+    def clear(
+        self,
+        alert_id: int,
+        cleared_at: str,
+        final_occurrences: int | None = None,
+    ) -> AlertRecord: ...
     def close(self) -> None: ...
 
 
@@ -81,12 +86,21 @@ class MemoryAlertStore:
             self._replace(updated)
             return updated
 
-    def clear(self, alert_id: int, cleared_at: str) -> AlertRecord:
+    def clear(
+        self,
+        alert_id: int,
+        cleared_at: str,
+        final_occurrences: int | None = None,
+    ) -> AlertRecord:
         with self._lock:
             record = self._find(alert_id)
             if not record.active:
                 return record
-            updated = replace(record, cleared_at=cleared_at)
+            updated = replace(
+                record,
+                cleared_at=cleared_at,
+                occurrences=max(record.occurrences, final_occurrences or record.occurrences),
+            )
             self._replace(updated)
             return updated
 
@@ -108,56 +122,115 @@ class MemoryAlertStore:
 
 
 class AlertRegistry:
-    """Authoritative alert lifecycle owned by ventilation-core."""
+    """Authoritative alert lifecycle owned by ventilation-core.
 
-    def __init__(self, store: AlertStore | None = None) -> None:
+    Occurrence-only growth is kept current in memory for clients, but persisted
+    in batches to avoid continuous eMMC writes during a long-running fault. The
+    exact final count is persisted atomically when the incident is cleared.
+    """
+
+    def __init__(
+        self,
+        store: AlertStore | None = None,
+        *,
+        occurrence_persist_step: int = 30,
+    ) -> None:
+        if isinstance(occurrence_persist_step, bool) or occurrence_persist_step < 1:
+            raise ValueError("occurrence_persist_step must be a positive integer")
         self._store: AlertStore = store or MemoryAlertStore()
+        self._occurrence_persist_step = occurrence_persist_step
         self._lock = RLock()
+        self._latest_occurrences = {
+            record.key: record.occurrences for record in self._store.list_active()
+        }
 
-    def reconcile(self, signals: tuple[AlertSignal, ...] | list[AlertSignal]) -> tuple[AlertRecord, ...]:
+    def reconcile(
+        self,
+        signals: tuple[AlertSignal, ...] | list[AlertSignal],
+    ) -> tuple[AlertRecord, ...]:
         with self._lock:
             by_key = {signal.key: signal for signal in signals}
             active = {record.key: record for record in self._store.list_active()}
             now = _now_iso()
 
             for key, signal in by_key.items():
+                latest = max(self._latest_occurrences.get(key, 0), signal.occurrences)
+                self._latest_occurrences[key] = latest
                 record = active.get(key)
                 if record is None:
-                    active[key] = self._store.create(signal, now)
-                elif self._changed(record, signal):
-                    active[key] = self._store.update_active(record, signal)
+                    active[key] = self._store.create(
+                        replace(signal, occurrences=latest),
+                        now,
+                    )
+                elif self._metadata_changed(record, signal) or (
+                    latest >= record.occurrences + self._occurrence_persist_step
+                ):
+                    active[key] = self._store.update_active(
+                        record,
+                        replace(signal, occurrences=latest),
+                    )
 
             for key, record in tuple(active.items()):
                 if key not in by_key:
-                    self._store.clear(record.alert_id, now)
+                    final_occurrences = max(
+                        record.occurrences,
+                        self._latest_occurrences.pop(key, record.occurrences),
+                    )
+                    self._store.clear(
+                        record.alert_id,
+                        now,
+                        final_occurrences=final_occurrences,
+                    )
 
-            return self._store.list_active()
+            return self._active_records_unlocked()
 
     def activate(self, signal: AlertSignal) -> AlertRecord:
         """Activate/update one condition without clearing unrelated alerts."""
         with self._lock:
+            latest = max(
+                self._latest_occurrences.get(signal.key, 0),
+                signal.occurrences,
+            )
+            self._latest_occurrences[signal.key] = latest
             for record in self._store.list_active():
                 if record.key != signal.key:
                     continue
-                return self._store.update_active(record, signal) if self._changed(record, signal) else record
-            return self._store.create(signal, _now_iso())
+                if self._metadata_changed(record, signal) or (
+                    latest >= record.occurrences + self._occurrence_persist_step
+                ):
+                    record = self._store.update_active(
+                        record,
+                        replace(signal, occurrences=latest),
+                    )
+                return self._with_latest_occurrences(record)
+            return self._store.create(replace(signal, occurrences=latest), _now_iso())
 
     def clear_key(self, key: str) -> AlertRecord | None:
         with self._lock:
             for record in self._store.list_active():
                 if record.key == key:
-                    return self._store.clear(record.alert_id, _now_iso())
+                    final_occurrences = max(
+                        record.occurrences,
+                        self._latest_occurrences.pop(key, record.occurrences),
+                    )
+                    return self._store.clear(
+                        record.alert_id,
+                        _now_iso(),
+                        final_occurrences=final_occurrences,
+                    )
+            self._latest_occurrences.pop(key, None)
             return None
 
     def acknowledge(self, alert_id: int) -> AlertRecord:
         if isinstance(alert_id, bool) or not isinstance(alert_id, int) or alert_id < 1:
             raise ValueError("alert_id must be a positive integer")
         with self._lock:
-            return self._store.acknowledge(alert_id, _now_iso())
+            record = self._store.acknowledge(alert_id, _now_iso())
+            return self._with_latest_occurrences(record)
 
     def active_records(self) -> tuple[AlertRecord, ...]:
         with self._lock:
-            return self._store.list_active()
+            return self._active_records_unlocked()
 
     def active_alarm_states(self) -> tuple[AlarmState, ...]:
         return tuple(record.to_alarm_state() for record in self.active_records())
@@ -166,19 +239,33 @@ class AlertRegistry:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ValueError("Alert history limit must be an integer in range 1..1000")
         with self._lock:
-            return self._store.list_history(limit)
+            return tuple(
+                self._with_latest_occurrences(record)
+                for record in self._store.list_history(limit)
+            )
 
     def close(self) -> None:
         with self._lock:
             self._store.close()
 
+    def _active_records_unlocked(self) -> tuple[AlertRecord, ...]:
+        return tuple(
+            self._with_latest_occurrences(record)
+            for record in self._store.list_active()
+        )
+
+    def _with_latest_occurrences(self, record: AlertRecord) -> AlertRecord:
+        latest = self._latest_occurrences.get(record.key, record.occurrences)
+        if latest <= record.occurrences:
+            return record
+        return replace(record, occurrences=latest)
+
     @staticmethod
-    def _changed(record: AlertRecord, signal: AlertSignal) -> bool:
+    def _metadata_changed(record: AlertRecord, signal: AlertSignal) -> bool:
         return (
             record.code != signal.code
             or record.source != signal.source
             or record.severity != signal.severity
             or record.message != signal.message
             or record.detail != signal.detail
-            or signal.occurrences > record.occurrences
         )
