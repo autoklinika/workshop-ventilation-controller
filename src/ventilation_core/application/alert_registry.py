@@ -135,7 +135,11 @@ class AlertRegistry:
         *,
         occurrence_persist_step: int = 30,
     ) -> None:
-        if isinstance(occurrence_persist_step, bool) or occurrence_persist_step < 1:
+        if (
+            isinstance(occurrence_persist_step, bool)
+            or not isinstance(occurrence_persist_step, int)
+            or occurrence_persist_step < 1
+        ):
             raise ValueError("occurrence_persist_step must be a positive integer")
         self._store: AlertStore = store or MemoryAlertStore()
         self._occurrence_persist_step = occurrence_persist_step
@@ -255,6 +259,8 @@ class AlertRegistry:
         )
 
     def _with_latest_occurrences(self, record: AlertRecord) -> AlertRecord:
+        if not record.active:
+            return record
         latest = self._latest_occurrences.get(record.key, record.occurrences)
         if latest <= record.occurrences:
             return record
