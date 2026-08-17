@@ -7,14 +7,22 @@ import signal
 from pathlib import Path
 
 from ventilation_core.application.alert_registry import AlertRegistry
-from ventilation_core.application.alerting_service import AlertingVentilationService
+from ventilation_core.application.zigbee_service import ZigbeeAlertingVentilationService
 from ventilation_core.domain.policy import FanSetpointPolicy
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
 from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActuator
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
+from ventilation_core.infrastructure.zigbee_mqtt_monitor import (
+    ZigbeeDeviceConfig,
+    ZigbeeMqttConfig,
+    ZigbeeMqttMonitor,
+)
 from ventilation_core.runtime.server import CoreServer
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def parse_sensor_addresses(value: str) -> tuple[int, ...]:
@@ -70,6 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extract-tacho-line", default="GPIO27")
     parser.add_argument("--tacho-timeout", type=float, default=0.25)
     parser.add_argument("--tacho-averaging-periods", type=int, default=6)
+
+    parser.add_argument("--zigbee-mqtt-host", default="127.0.0.1")
+    parser.add_argument("--zigbee-mqtt-port", type=int, default=1883)
+    parser.add_argument("--zigbee-base-topic", default="zigbee2mqtt")
+    parser.add_argument("--zigbee-supply-name", default="temp_nawiew")
+    parser.add_argument("--zigbee-extract-name", default="temp_wywiew")
+    parser.add_argument("--zigbee-supply-ieee", default="")
+    parser.add_argument("--zigbee-extract-ieee", default="")
+    parser.add_argument("--disable-zigbee", action="store_true")
+
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -80,6 +98,7 @@ async def run_core(args: argparse.Namespace) -> None:
     sensor_bus = None
     aero_bus = None
     tacho = None
+    zigbee = None
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
@@ -89,45 +108,121 @@ async def run_core(args: argparse.Namespace) -> None:
             timeout_seconds=args.command_timeout,
         )
         if not args.disable_sensor_bus:
-            sensor_bus = ProcessSensorBus(SensorBusConfig(port=args.sensor_port, addresses=args.sensor_addresses, baudrate=args.sensor_baud, timeout_seconds=args.sensor_timeout, poll_interval_seconds=args.sensor_poll_interval, inter_node_delay_seconds=args.sensor_inter_node_delay, reconnect_delay_seconds=args.sensor_reconnect_delay))
+            sensor_bus = ProcessSensorBus(
+                SensorBusConfig(
+                    port=args.sensor_port,
+                    addresses=args.sensor_addresses,
+                    baudrate=args.sensor_baud,
+                    timeout_seconds=args.sensor_timeout,
+                    poll_interval_seconds=args.sensor_poll_interval,
+                    inter_node_delay_seconds=args.sensor_inter_node_delay,
+                    reconnect_delay_seconds=args.sensor_reconnect_delay,
+                )
+            )
         if not args.disable_aero_bus:
-            aero_bus = ProcessAeroBus(AeroBusConfig(port=args.aero_port, slave_address=args.aero_address, baudrate=args.aero_baud, timeout_seconds=args.aero_timeout, poll_interval_seconds=args.aero_poll_interval, inter_register_delay_seconds=args.aero_inter_register_delay, reconnect_delay_seconds=args.aero_reconnect_delay))
+            aero_bus = ProcessAeroBus(
+                AeroBusConfig(
+                    port=args.aero_port,
+                    slave_address=args.aero_address,
+                    baudrate=args.aero_baud,
+                    timeout_seconds=args.aero_timeout,
+                    poll_interval_seconds=args.aero_poll_interval,
+                    inter_register_delay_seconds=args.aero_inter_register_delay,
+                    reconnect_delay_seconds=args.aero_reconnect_delay,
+                )
+            )
         if args.enable_supply_tacho or args.enable_extract_tacho:
-            tacho = TachoMonitor(TachoMonitorConfig(chip_path=args.tacho_chip, supply_line_name=args.supply_tacho_line if args.enable_supply_tacho else None, extract_line_name=args.extract_tacho_line if args.enable_extract_tacho else None, timeout_seconds=args.tacho_timeout, averaging_periods=args.tacho_averaging_periods))
-        required_tacho_channels = tuple(channel for channel, enabled in (("supply", args.enable_supply_tacho), ("extract", args.enable_extract_tacho)) if enabled)
-        service = AlertingVentilationService(
+            tacho = TachoMonitor(
+                TachoMonitorConfig(
+                    chip_path=args.tacho_chip,
+                    supply_line_name=args.supply_tacho_line if args.enable_supply_tacho else None,
+                    extract_line_name=args.extract_tacho_line if args.enable_extract_tacho else None,
+                    timeout_seconds=args.tacho_timeout,
+                    averaging_periods=args.tacho_averaging_periods,
+                )
+            )
+
+        if not args.disable_zigbee:
+            try:
+                zigbee = ZigbeeMqttMonitor(
+                    ZigbeeMqttConfig(
+                        broker_host=args.zigbee_mqtt_host,
+                        broker_port=args.zigbee_mqtt_port,
+                        base_topic=args.zigbee_base_topic,
+                        devices=(
+                            ZigbeeDeviceConfig(
+                                role="supply",
+                                friendly_name=args.zigbee_supply_name,
+                                ieee_address=args.zigbee_supply_ieee or None,
+                            ),
+                            ZigbeeDeviceConfig(
+                                role="extract",
+                                friendly_name=args.zigbee_extract_name,
+                                ieee_address=args.zigbee_extract_ieee or None,
+                            ),
+                        ),
+                    )
+                )
+            except Exception:
+                # Zigbee is read-only telemetry in this stage. Even a missing
+                # MQTT runtime dependency or a local adapter failure must not
+                # prevent the existing ventilation controller from starting.
+                LOGGER.exception("Unable to initialize Zigbee MQTT monitor; continuing without Zigbee")
+                zigbee = None
+
+        required_tacho_channels = tuple(
+            channel
+            for channel, enabled in (
+                ("supply", args.enable_supply_tacho),
+                ("extract", args.enable_extract_tacho),
+            )
+            if enabled
+        )
+        service = ZigbeeAlertingVentilationService(
             actuator=actuator,
-            policy=FanSetpointPolicy(minimum_running_voltage=args.minimum_running_voltage, maximum_voltage=args.maximum_voltage),
+            policy=FanSetpointPolicy(
+                minimum_running_voltage=args.minimum_running_voltage,
+                maximum_voltage=args.maximum_voltage,
+            ),
             hardware_failure_threshold=args.hardware_failure_threshold,
             sensor_bus=sensor_bus,
             aero_bus=aero_bus,
             tacho=tacho,
+            zigbee=zigbee,
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
         )
-        server = CoreServer(service=service, socket_path=args.socket, health_interval_seconds=args.health_interval)
+        server = CoreServer(
+            service=service,
+            socket_path=args.socket,
+            health_interval_seconds=args.health_interval,
+        )
     except BaseException:
         if service is not None:
             service.close()
         else:
             try:
-                if tacho is not None:
-                    tacho.close()
+                if zigbee is not None:
+                    zigbee.close()
             finally:
                 try:
-                    if aero_bus is not None:
-                        aero_bus.close()
+                    if tacho is not None:
+                        tacho.close()
                 finally:
                     try:
-                        if sensor_bus is not None:
-                            sensor_bus.close()
+                        if aero_bus is not None:
+                            aero_bus.close()
                     finally:
                         try:
-                            if actuator is not None:
-                                actuator.close()
+                            if sensor_bus is not None:
+                                sensor_bus.close()
                         finally:
-                            if alert_registry is not None:
-                                alert_registry.close()
+                            try:
+                                if actuator is not None:
+                                    actuator.close()
+                            finally:
+                                if alert_registry is not None:
+                                    alert_registry.close()
         raise
 
     loop = asyncio.get_running_loop()
@@ -142,7 +237,10 @@ async def run_core(args: argparse.Namespace) -> None:
 
 def main() -> int:
     args = build_parser().parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     try:
         asyncio.run(run_core(args))
     except KeyboardInterrupt:
