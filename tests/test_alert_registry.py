@@ -100,6 +100,11 @@ class AlertRegistryTest(unittest.TestCase):
         self.assertEqual(history[0].occurrences, 41)
         self.assertIsNotNone(history[0].cleared_at)
 
+        second = registry.reconcile([replace(self.signal, occurrences=100)])[0]
+        self.assertNotEqual(second.alert_id, first.alert_id)
+        old = next(record for record in registry.history() if record.alert_id == first.alert_id)
+        self.assertEqual(old.occurrences, 41)
+
     def test_invalid_acknowledgement_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             self.registry.acknowledge(0)
