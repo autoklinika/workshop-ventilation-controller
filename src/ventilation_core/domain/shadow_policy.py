@@ -55,8 +55,85 @@ class ShadowOutputTuning:
     state_minimum_hold_seconds: float | None = None
     boost_decay_seconds: float | None = None
 
+    def __post_init__(self) -> None:
+        percentage_fields = (
+            "normal_air_request_pct",
+            "boost_air_request_pct",
+            "high_air_request_pct",
+            "max_air_request_pct",
+            "thermal_normal_limit_pct",
+            "thermal_limiting_limit_pct",
+            "thermal_minimum_limit_pct",
+            "thermal_protection_limit_pct",
+            "extract_bias_pct",
+        )
+        for name in percentage_fields:
+            value = getattr(self, name)
+            if value is not None and not 0.0 <= float(value) <= 100.0:
+                raise ValueError(f"{name} must be within 0..100")
+
+        for name in (
+            "aero_normal_speed",
+            "aero_boost_speed",
+            "aero_high_speed",
+            "aero_max_speed",
+        ):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value not in {0, 1, 2, 3}
+            ):
+                raise ValueError(f"{name} must be one of 0, 1, 2, 3")
+
+        for name in (
+            "pm2_5_hysteresis_ug_m3",
+            "voc_hysteresis_index",
+            "nox_hysteresis_index",
+            "temperature_hysteresis_celsius",
+            "pm2_5_boost_confirmation_seconds",
+            "state_minimum_hold_seconds",
+            "boost_decay_seconds",
+        ):
+            value = getattr(self, name)
+            if value is not None and float(value) < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+
+        air_values = (
+            self.normal_air_request_pct,
+            self.boost_air_request_pct,
+            self.high_air_request_pct,
+            self.max_air_request_pct,
+        )
+        if all(value is not None for value in air_values):
+            normal, boost, high, maximum = (float(value) for value in air_values)
+            if not normal <= boost <= high <= maximum:
+                raise ValueError("Air request percentages must be monotonic NORMAL <= BOOST <= HIGH <= MAX")
+
+        thermal_values = (
+            self.thermal_normal_limit_pct,
+            self.thermal_limiting_limit_pct,
+            self.thermal_minimum_limit_pct,
+            self.thermal_protection_limit_pct,
+        )
+        if all(value is not None for value in thermal_values):
+            normal, limiting, minimum, protection = (float(value) for value in thermal_values)
+            if not normal >= limiting >= minimum >= protection:
+                raise ValueError(
+                    "Thermal limits must be monotonic NORMAL >= LIMITING >= MINIMUM >= PROTECTION"
+                )
+
+        aero_values = (
+            self.aero_normal_speed,
+            self.aero_boost_speed,
+            self.aero_high_speed,
+            self.aero_max_speed,
+        )
+        if all(value is not None for value in aero_values):
+            normal, boost, high, maximum = (int(value) for value in aero_values)
+            if not normal <= boost <= high <= maximum:
+                raise ValueError("AERO speeds must be monotonic NORMAL <= BOOST <= HIGH <= MAX")
+
     @property
-    def outputs_configured(self) -> bool:
+    def fan_outputs_configured(self) -> bool:
         values = (
             self.normal_air_request_pct,
             self.boost_air_request_pct,
@@ -67,12 +144,22 @@ class ShadowOutputTuning:
             self.thermal_minimum_limit_pct,
             self.thermal_protection_limit_pct,
             self.extract_bias_pct,
+        )
+        return all(value is not None for value in values)
+
+    @property
+    def aero_outputs_configured(self) -> bool:
+        values = (
             self.aero_normal_speed,
             self.aero_boost_speed,
             self.aero_high_speed,
             self.aero_max_speed,
         )
         return all(value is not None for value in values)
+
+    @property
+    def outputs_configured(self) -> bool:
+        return self.fan_outputs_configured and self.aero_outputs_configured
 
     @property
     def dynamics_configured(self) -> bool:
