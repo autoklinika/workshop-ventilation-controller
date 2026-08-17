@@ -26,6 +26,15 @@ class SensorNodeStatus(IntFlag):
     SENSOR_OFFLINE = 1 << 6
     PLATFORM_FAULT = 1 << 7
 
+    SEN55_DEVICE_STATUS_SUPPORTED = 1 << 8
+    SEN55_DEVICE_STATUS_VALID = 1 << 9
+    SEN55_FAN_SPEED_WARNING = 1 << 10
+    SEN55_FAN_CLEANING = 1 << 11
+    SEN55_GAS_SENSOR_ERROR = 1 << 12
+    SEN55_RHT_ERROR = 1 << 13
+    SEN55_LASER_ERROR = 1 << 14
+    SEN55_FAN_ERROR = 1 << 15
+
 
 @dataclass(frozen=True)
 class AirQualityReading:
@@ -78,6 +87,15 @@ class SensorNodeState:
     invalid_measurements: int = 0
     stale_measurements: int = 0
     map_version_errors: int = 0
+    sen55_device_status_supported: bool = False
+    sen55_device_status_valid: bool = False
+    sen55_fan_speed_warning: bool = False
+    sen55_fan_cleaning: bool = False
+    sen55_gas_sensor_error: bool = False
+    sen55_rht_error: bool = False
+    sen55_laser_error: bool = False
+    sen55_fan_error: bool = False
+    sen55_diagnostics_failures: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -106,6 +124,15 @@ class SensorNodeState:
             "invalid_measurements": self.invalid_measurements,
             "stale_measurements": self.stale_measurements,
             "map_version_errors": self.map_version_errors,
+            "sen55_device_status_supported": self.sen55_device_status_supported,
+            "sen55_device_status_valid": self.sen55_device_status_valid,
+            "sen55_fan_speed_warning": self.sen55_fan_speed_warning,
+            "sen55_fan_cleaning": self.sen55_fan_cleaning,
+            "sen55_gas_sensor_error": self.sen55_gas_sensor_error,
+            "sen55_rht_error": self.sen55_rht_error,
+            "sen55_laser_error": self.sen55_laser_error,
+            "sen55_fan_error": self.sen55_fan_error,
+            "sen55_diagnostics_failures": self.sen55_diagnostics_failures,
         }
 
 
