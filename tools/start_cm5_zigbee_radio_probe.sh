@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 Z2M_VERSION="2.13.0"
+Z2M_DIR="/opt/zigbee2mqtt"
 DATA_DIR="/var/lib/zigbee2mqtt"
 CONFIG_FILE="${DATA_DIR}/configuration.yaml"
 CONFIG_TEMPLATE="${ROOT_DIR}/deploy/cm5/zigbee/zigbee2mqtt/configuration.probe.yaml"
@@ -49,11 +50,22 @@ done
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "${node_major}" == "24" ]] || fail "Expected Node.js 24.x, got $(node --version)"
 
-[[ -f /opt/zigbee2mqtt/package.json ]] || fail "Zigbee2MQTT installation not found"
-package_version="$(cd /opt/zigbee2mqtt && node -p 'require("./package.json").version')"
+[[ -f "${Z2M_DIR}/package.json" ]] || fail "Zigbee2MQTT installation not found"
+package_version="$(cd "${Z2M_DIR}" && node -p 'require("./package.json").version')"
 [[ "${package_version}" == "${Z2M_VERSION}" ]] || fail "Expected Zigbee2MQTT ${Z2M_VERSION}, got ${package_version}"
 echo "node: $(node --version)"
 echo "zigbee2mqtt: ${package_version}"
+
+# The hardened systemd unit intentionally blocks access to /home. Zigbee2MQTT
+# must therefore already have a current dist/.hash and must not try to invoke
+# pnpm/Corepack during service startup.
+expected_hash="$(sudo -u wentylacja git -C "${Z2M_DIR}" rev-parse --short=8 HEAD)"
+if [[ ! -f "${Z2M_DIR}/dist/.hash" ]]; then
+    fail "Zigbee2MQTT runtime build missing (dist/.hash); rerun sudo bash tools/install_cm5_zigbee_stack.sh"
+fi
+built_hash="$(tr -d '\r\n' <"${Z2M_DIR}/dist/.hash")"
+[[ "${built_hash}" == "${expected_hash}" ]] || fail "Zigbee2MQTT runtime build stale (${built_hash} != ${expected_hash}); rerun Stage 2 installer"
+echo "runtime build: ${built_hash}"
 
 [[ -e "${SERIAL_BY_ID}" ]] || fail "Coordinator not present at ${SERIAL_BY_ID}"
 real_port="$(readlink -f "${SERIAL_BY_ID}")"
@@ -67,23 +79,35 @@ fi
 
 [[ -f "${CONFIG_TEMPLATE}" ]] || fail "Missing staged configuration template: ${CONFIG_TEMPLATE}"
 
-# This is deliberately a one-shot initializer. After a successful first start,
-# Zigbee2MQTT replaces GENERATE values with persistent network credentials.
-# Never overwrite that state on a retry.
-if [[ -e "${CONFIG_FILE}" ]]; then
-    fail "${CONFIG_FILE} already exists; refusing to overwrite existing Zigbee network configuration"
-fi
-
+# Never retry once Zigbee2MQTT has created persistent network state. If only
+# the untouched probe template exists (e.g. a failure before controller/radio
+# startup), it is safe to resume the same probe without regenerating anything.
 for state_file in "${DATA_DIR}/database.db" "${DATA_DIR}/coordinator_backup.json"; do
     if [[ -e "${state_file}" ]]; then
-        fail "Unexpected existing Zigbee state: ${state_file}"
+        fail "Existing Zigbee state detected: ${state_file}; refusing probe retry"
     fi
 done
 
+reuse_probe_config=false
+if [[ -e "${CONFIG_FILE}" ]]; then
+    if cmp -s "${CONFIG_FILE}" "${CONFIG_TEMPLATE}"; then
+        reuse_probe_config=true
+        echo "existing untouched probe configuration detected: safe retry"
+    else
+        fail "${CONFIG_FILE} already exists and differs from probe template; refusing to overwrite possible Zigbee network configuration"
+    fi
+fi
+
 section "INSTALL CONTROLLED CONFIG"
 install -d -m 0750 -o wentylacja -g wentylacja "${DATA_DIR}"
-install -m 0600 -o wentylacja -g wentylacja "${CONFIG_TEMPLATE}" "${CONFIG_FILE}"
-echo "configuration installed: ${CONFIG_FILE}"
+if [[ "${reuse_probe_config}" == false ]]; then
+    install -m 0600 -o wentylacja -g wentylacja "${CONFIG_TEMPLATE}" "${CONFIG_FILE}"
+    echo "configuration installed: ${CONFIG_FILE}"
+else
+    chown wentylacja:wentylacja "${CONFIG_FILE}"
+    chmod 0600 "${CONFIG_FILE}"
+    echo "configuration reused unchanged: ${CONFIG_FILE}"
+fi
 echo "adapter driver: omitted intentionally (native discovery probe)"
 echo "frontend: disabled"
 echo "availability: enabled"
@@ -101,7 +125,6 @@ cleanup_files() {
 }
 trap 'cleanup_files; cleanup_probe_failure' EXIT
 
-# Subscribe before startup so the first bridge state cannot be missed.
 mosquitto_sub -h 127.0.0.1 -p 1883 -t "${STATE_TOPIC}" -C 1 -W 75 >"${state_file}" &
 state_sub_pid=$!
 sleep 0.2
