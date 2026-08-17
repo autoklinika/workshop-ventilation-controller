@@ -88,6 +88,96 @@ class AlertingVentilationServiceTest(unittest.TestCase):
         self.assertEqual(actuator.applied, FanSetpoints(2.0, 2.0))
         service.close()
 
+    def test_sen55_documented_internal_faults_become_independent_alerts(self) -> None:
+        actuator = FakeActuator()
+        node = SensorNodeState(
+            slave_address=1,
+            online=True,
+            usable=True,
+            polls=5,
+            measurement_valid=True,
+            measurement_stale=False,
+            sen55_device_status_supported=True,
+            sen55_device_status_valid=True,
+            sen55_fan_speed_warning=True,
+            sen55_fan_cleaning=True,
+            sen55_gas_sensor_error=True,
+            sen55_rht_error=True,
+            sen55_laser_error=True,
+            sen55_fan_error=True,
+        )
+        sensor_bus = FakeSensorBus(SensorBusState(port="/dev/ttyAMA0", baudrate=19200, addresses=(1,), ready=True, worker_alive=True, nodes=(node,)))
+        service = AlertingVentilationService(actuator, FanSetpointPolicy(1.0, 10.0), sensor_bus=sensor_bus, alert_registry=registry())
+
+        state = service.health_check()
+        codes = {alarm.code for alarm in state.active_alarms}
+
+        self.assertEqual(
+            codes,
+            {
+                AlarmCode.SEN55_FAN_SPEED_WARNING,
+                AlarmCode.SEN55_GAS_SENSOR_ERROR,
+                AlarmCode.SEN55_RHT_ERROR,
+                AlarmCode.SEN55_LASER_ERROR,
+                AlarmCode.SEN55_FAN_ERROR,
+            },
+        )
+        self.assertEqual(state.mode, VentilationMode.STOP)
+        self.assertTrue(all(alarm.source == "sensor:1" for alarm in state.active_alarms))
+        service.close()
+
+    def test_sen55_fan_cleaning_is_information_not_alert(self) -> None:
+        actuator = FakeActuator()
+        node = SensorNodeState(
+            slave_address=1,
+            online=True,
+            usable=True,
+            polls=5,
+            measurement_valid=True,
+            measurement_stale=False,
+            sen55_device_status_supported=True,
+            sen55_device_status_valid=True,
+            sen55_fan_cleaning=True,
+        )
+        sensor_bus = FakeSensorBus(SensorBusState(port="/dev/ttyAMA0", baudrate=19200, addresses=(1,), ready=True, worker_alive=True, nodes=(node,)))
+        service = AlertingVentilationService(actuator, FanSetpointPolicy(1.0, 10.0), sensor_bus=sensor_bus, alert_registry=registry())
+
+        self.assertEqual(service.health_check().active_alarms, ())
+        service.close()
+
+    def test_sen55_diagnostics_unavailable_is_debounced_and_legacy_nodes_are_ignored(self) -> None:
+        actuator = FakeActuator()
+        supported = SensorNodeState(
+            slave_address=1,
+            online=True,
+            usable=True,
+            polls=5,
+            measurement_valid=True,
+            measurement_stale=False,
+            sen55_device_status_supported=True,
+            sen55_device_status_valid=False,
+            sen55_diagnostics_failures=3,
+        )
+        legacy = SensorNodeState(
+            slave_address=2,
+            online=True,
+            usable=True,
+            polls=5,
+            measurement_valid=True,
+            measurement_stale=False,
+            sen55_device_status_supported=False,
+            sen55_device_status_valid=False,
+            sen55_diagnostics_failures=100,
+        )
+        sensor_bus = FakeSensorBus(SensorBusState(port="/dev/ttyAMA0", baudrate=19200, addresses=(1, 2), ready=True, worker_alive=True, nodes=(supported, legacy)))
+        service = AlertingVentilationService(actuator, FanSetpointPolicy(1.0, 10.0), sensor_bus=sensor_bus, alert_registry=registry())
+
+        state = service.health_check()
+        self.assertEqual(len(state.active_alarms), 1)
+        self.assertEqual(state.active_alarms[0].code, AlarmCode.SEN55_DIAGNOSTICS_UNAVAILABLE)
+        self.assertEqual(state.active_alarms[0].source, "sensor:1")
+        service.close()
+
     def test_aero_failure_becomes_warning_without_changing_dac_policy(self) -> None:
         actuator = FakeActuator()
         aero = FakeAeroBus(AeroBusState(port="/dev/ttyAMA4", baudrate=9600, slave_address=44, register_addresses=(2016,), inter_register_delay_seconds=0.05, poll_interval_seconds=2.0, ready=True, worker_alive=True, online=False, usable=False, consecutive_failures=3, last_error="timeout"))
