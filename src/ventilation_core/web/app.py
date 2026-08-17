@@ -23,7 +23,8 @@ class WebApplication:
     """Narrow application boundary exposed to the browser.
 
     The browser never receives a generic ventilation-core command proxy. Only the
-    explicitly listed manual-control intents below can cross this boundary.
+    explicitly listed intents below can cross this boundary. ALERTY remain owned
+    by ventilation-core; Web V2 only reads them and forwards operator ACK by id.
     """
 
     def __init__(
@@ -40,12 +41,16 @@ class WebApplication:
         try:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
+            if method == "GET" and path == "/api/v1/alerts":
+                return self._alerts()
             if method == "GET" and path == "/api/v1/config":
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
                 return self._weather()
             if method == "GET" and path == "/api/v1/health":
                 return self._health()
+            if method == "POST" and path == "/api/v1/alerts/ack":
+                return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -65,6 +70,23 @@ class WebApplication:
         if response.get("ok") is not True or not isinstance(response.get("state"), dict):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _alerts(self) -> ApiResponse:
+        response = self._core.request({"command": "alerts", "limit": 200})
+        if (
+            response.get("ok") is not True
+            or not isinstance(response.get("active"), list)
+            or not isinstance(response.get("history"), list)
+        ):
+            return self._core_rejection(response)
+        return ApiResponse(200, response)
+
+    def _ack_alert(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        alert_id = data.get("alert_id")
+        if isinstance(alert_id, bool) or not isinstance(alert_id, int) or alert_id < 1:
+            raise ValueError("alert_id must be a positive integer")
+        return self._command({"command": "ack-alert", "alert_id": alert_id})
 
     def _weather(self) -> ApiResponse:
         if self._weather_provider is None:
