@@ -3,13 +3,18 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 Z2M_VERSION="2.13.0"
-Z2M_DIR="/opt/zigbee2mqtt"
 DATA_DIR="/var/lib/zigbee2mqtt"
 CONFIG_FILE="${DATA_DIR}/configuration.yaml"
-CONFIG_TEMPLATE="${ROOT_DIR}/deploy/cm5/zigbee/zigbee2mqtt/configuration.probe.yaml"
+AUTODETECT_TEMPLATE="${ROOT_DIR}/deploy/cm5/zigbee/zigbee2mqtt/configuration.autodetect.yaml"
+ZSTACK_TEMPLATE="${ROOT_DIR}/deploy/cm5/zigbee/zigbee2mqtt/configuration.zstack-probe.yaml"
 SERIAL_BY_ID="/dev/serial/by-id/usb-Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_822f54682ed0f01198f6423758f97c40-if00-port0"
 STATE_TOPIC="zigbee2mqtt/bridge/state"
 INFO_TOPIC="zigbee2mqtt/bridge/info"
+PROBE_DROPIN_DIR="/run/systemd/system/zigbee2mqtt.service.d"
+PROBE_DROPIN="${PROBE_DROPIN_DIR}/90-wvc-radio-probe.conf"
+
+state_file=""
+info_file=""
 
 fail() {
     echo "ERROR: $*" >&2
@@ -20,8 +25,24 @@ section() {
     printf '\n===== %s =====\n' "$1"
 }
 
-cleanup_probe_failure() {
+cleanup_files() {
+    [[ -z "${state_file}" ]] || rm -f "${state_file}" || true
+    [[ -z "${info_file}" ]] || rm -f "${info_file}" || true
+}
+
+remove_probe_dropin() {
+    if [[ -e "${PROBE_DROPIN}" ]]; then
+        rm -f "${PROBE_DROPIN}" || true
+        rmdir "${PROBE_DROPIN_DIR}" 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+}
+
+on_exit() {
     local rc=$?
+    trap - EXIT
+    cleanup_files
+    remove_probe_dropin
     if [[ ${rc} -ne 0 ]]; then
         echo
         echo "===== STAGE 3 FAILURE CLEANUP ====="
@@ -31,11 +52,18 @@ cleanup_probe_failure() {
     fi
     exit "${rc}"
 }
-trap cleanup_probe_failure EXIT
+trap on_exit EXIT
 
 if [[ "${EUID}" -ne 0 ]]; then
     fail "Run as root: sudo bash tools/start_cm5_zigbee_radio_probe.sh"
 fi
+
+section "QUIESCE PREVIOUS PROBE"
+# A failed probe must never be left in a restart loop. This also makes the
+# script safe after the earlier Stage 3 cleanup bug.
+systemctl disable --now zigbee2mqtt.service 2>/dev/null || true
+systemctl reset-failed zigbee2mqtt.service 2>/dev/null || true
+echo "zigbee2mqtt: stopped before probe"
 
 section "PRECHECK"
 for unit in ventilation-core.service wvc-web-ui.service mosquitto.service; do
@@ -50,22 +78,16 @@ done
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "${node_major}" == "24" ]] || fail "Expected Node.js 24.x, got $(node --version)"
 
-[[ -f "${Z2M_DIR}/package.json" ]] || fail "Zigbee2MQTT installation not found"
-package_version="$(cd "${Z2M_DIR}" && node -p 'require("./package.json").version')"
+[[ -f /opt/zigbee2mqtt/package.json ]] || fail "Zigbee2MQTT installation not found"
+package_version="$(cd /opt/zigbee2mqtt && node -p 'require("./package.json").version')"
 [[ "${package_version}" == "${Z2M_VERSION}" ]] || fail "Expected Zigbee2MQTT ${Z2M_VERSION}, got ${package_version}"
+[[ -f /opt/zigbee2mqtt/dist/.hash ]] || fail "Zigbee2MQTT runtime build missing; rerun Stage 2 installer"
+expected_hash="$(git -C /opt/zigbee2mqtt rev-parse --short=8 HEAD)"
+runtime_hash="$(tr -d '\r\n' </opt/zigbee2mqtt/dist/.hash)"
+[[ "${runtime_hash}" == "${expected_hash}" ]] || fail "Zigbee2MQTT runtime build hash mismatch (${runtime_hash} != ${expected_hash})"
 echo "node: $(node --version)"
 echo "zigbee2mqtt: ${package_version}"
-
-# The hardened systemd unit intentionally blocks access to /home. Zigbee2MQTT
-# must therefore already have a current dist/.hash and must not try to invoke
-# pnpm/Corepack during service startup.
-expected_hash="$(sudo -u wentylacja git -C "${Z2M_DIR}" rev-parse --short=8 HEAD)"
-if [[ ! -f "${Z2M_DIR}/dist/.hash" ]]; then
-    fail "Zigbee2MQTT runtime build missing (dist/.hash); rerun sudo bash tools/install_cm5_zigbee_stack.sh"
-fi
-built_hash="$(tr -d '\r\n' <"${Z2M_DIR}/dist/.hash")"
-[[ "${built_hash}" == "${expected_hash}" ]] || fail "Zigbee2MQTT runtime build stale (${built_hash} != ${expected_hash}); rerun Stage 2 installer"
-echo "runtime build: ${built_hash}"
+echo "runtime build: ${runtime_hash}"
 
 [[ -e "${SERIAL_BY_ID}" ]] || fail "Coordinator not present at ${SERIAL_BY_ID}"
 real_port="$(readlink -f "${SERIAL_BY_ID}")"
@@ -77,80 +99,87 @@ if command -v fuser >/dev/null 2>&1 && fuser "${real_port}" >/dev/null 2>&1; the
     fail "Coordinator serial port is already in use"
 fi
 
-[[ -f "${CONFIG_TEMPLATE}" ]] || fail "Missing staged configuration template: ${CONFIG_TEMPLATE}"
+[[ -f "${AUTODETECT_TEMPLATE}" ]] || fail "Missing autodetect reference template"
+[[ -f "${ZSTACK_TEMPLATE}" ]] || fail "Missing zstack probe template"
+[[ -f "${CONFIG_FILE}" ]] || fail "Expected existing Stage 3 probe configuration at ${CONFIG_FILE}"
 
-# Never retry once Zigbee2MQTT has created persistent network state. If only
-# the untouched probe template exists (e.g. a failure before controller/radio
-# startup), it is safe to resume the same probe without regenerating anything.
-for state_file in "${DATA_DIR}/database.db" "${DATA_DIR}/coordinator_backup.json"; do
-    if [[ -e "${state_file}" ]]; then
-        fail "Existing Zigbee state detected: ${state_file}; refusing probe retry"
+# No successful network initialization should have happened during the failed
+# autodetection runs. Refuse to modify radio settings if persistent Zigbee
+# state already exists.
+for state_path in "${DATA_DIR}/database.db" "${DATA_DIR}/coordinator_backup.json"; do
+    if [[ -e "${state_path}" ]]; then
+        fail "Persistent Zigbee state already exists: ${state_path}; manual review required before another driver probe"
     fi
 done
 
-reuse_probe_config=false
-if [[ -e "${CONFIG_FILE}" ]]; then
-    if cmp -s "${CONFIG_FILE}" "${CONFIG_TEMPLATE}"; then
-        reuse_probe_config=true
-        echo "existing untouched probe configuration detected: safe retry"
-    else
-        fail "${CONFIG_FILE} already exists and differs from probe template; refusing to overwrite possible Zigbee network configuration"
-    fi
-fi
-
-section "INSTALL CONTROLLED CONFIG"
-install -d -m 0750 -o wentylacja -g wentylacja "${DATA_DIR}"
-if [[ "${reuse_probe_config}" == false ]]; then
-    install -m 0600 -o wentylacja -g wentylacja "${CONFIG_TEMPLATE}" "${CONFIG_FILE}"
-    echo "configuration installed: ${CONFIG_FILE}"
+section "SELECT EXPLICIT ZSTACK PROBE"
+if cmp -s "${CONFIG_FILE}" "${AUTODETECT_TEMPLATE}"; then
+    cp -a "${CONFIG_FILE}" "${DATA_DIR}/configuration.autodetect-failed.yaml"
+    install -m 0600 -o wentylacja -g wentylacja "${ZSTACK_TEMPLATE}" "${CONFIG_FILE}"
+    echo "previous native autodetection configuration preserved"
+    echo "configuration upgraded to explicit adapter: zstack"
+elif cmp -s "${CONFIG_FILE}" "${ZSTACK_TEMPLATE}"; then
+    echo "explicit zstack probe configuration already present: safe retry"
 else
-    chown wentylacja:wentylacja "${CONFIG_FILE}"
-    chmod 0600 "${CONFIG_FILE}"
-    echo "configuration reused unchanged: ${CONFIG_FILE}"
+    fail "Existing ${CONFIG_FILE} is not a recognized WVC probe configuration; refusing to overwrite"
 fi
-echo "adapter driver: omitted intentionally (native discovery probe)"
-echo "frontend: disabled"
-echo "availability: enabled"
-echo "last_seen: ISO_8601"
 
-section "START RADIO PROBE"
+echo "adapter: zstack"
+echo "baudrate: 115200"
+echo "rtscts: false"
+echo "frontend: disabled"
+echo "permit_join: not opened"
+
+section "START EXPLICIT ZSTACK PROBE"
+# Prevent systemd from retrying a wrong protocol repeatedly. The runtime
+# drop-in exists only for this probe and is always removed by the EXIT trap.
+install -d -m 0755 "${PROBE_DROPIN_DIR}"
+printf '[Service]\nRestart=no\n' >"${PROBE_DROPIN}"
 systemctl daemon-reload
 systemctl reset-failed zigbee2mqtt.service 2>/dev/null || true
-systemctl stop zigbee2mqtt.service 2>/dev/null || true
 
 state_file="$(mktemp)"
 info_file="$(mktemp)"
-cleanup_files() {
-    rm -f "${state_file:-}" "${info_file:-}"
-}
-trap 'cleanup_files; cleanup_probe_failure' EXIT
-
-mosquitto_sub -h 127.0.0.1 -p 1883 -t "${STATE_TOPIC}" -C 1 -W 75 >"${state_file}" &
+mosquitto_sub -h 127.0.0.1 -p 1883 -t "${STATE_TOPIC}" -C 1 -W 45 >"${state_file}" &
 state_sub_pid=$!
 sleep 0.2
 systemctl start --no-block zigbee2mqtt.service
 
-if ! wait "${state_sub_pid}"; then
-    echo "No bridge state received within 75 seconds."
+# Do not wait the full MQTT timeout when the process already failed.
+for _ in $(seq 1 45); do
+    if [[ -s "${state_file}" ]]; then
+        break
+    fi
+    if systemctl is-failed --quiet zigbee2mqtt.service; then
+        break
+    fi
+    sleep 1
+done
+
+if [[ ! -s "${state_file}" ]]; then
+    kill "${state_sub_pid}" 2>/dev/null || true
+    wait "${state_sub_pid}" 2>/dev/null || true
+    echo "No bridge online state received."
     echo
     echo "===== ZIGBEE2MQTT JOURNAL ====="
-    journalctl -u zigbee2mqtt.service -n 160 --no-pager || true
-    fail "Zigbee2MQTT radio probe did not reach MQTT online state"
+    journalctl -u zigbee2mqtt.service -n 180 --no-pager || true
+    fail "Explicit zstack radio probe failed"
 fi
+wait "${state_sub_pid}" 2>/dev/null || true
 
 bridge_state="$(tr -d '\r\n' <"${state_file}")"
 echo "bridge/state: ${bridge_state}"
 case "${bridge_state}" in
     online|*'"state":"online"'*) ;;
     *)
-        journalctl -u zigbee2mqtt.service -n 160 --no-pager || true
+        journalctl -u zigbee2mqtt.service -n 180 --no-pager || true
         fail "Unexpected bridge state: ${bridge_state}"
         ;;
 esac
 
 section "BRIDGE INFO"
 if ! mosquitto_sub -h 127.0.0.1 -p 1883 -t "${INFO_TOPIC}" -C 1 -W 10 >"${info_file}"; then
-    journalctl -u zigbee2mqtt.service -n 160 --no-pager || true
+    journalctl -u zigbee2mqtt.service -n 180 --no-pager || true
     fail "Unable to read retained ${INFO_TOPIC}"
 fi
 
@@ -159,8 +188,7 @@ import json
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
-raw = path.read_text(encoding="utf-8").strip()
+raw = Path(sys.argv[1]).read_text(encoding="utf-8").strip()
 try:
     value = json.loads(raw)
 except json.JSONDecodeError as exc:
@@ -179,6 +207,7 @@ if value.get("permit_join") is True:
 PY
 
 section "SERVICE ENABLE"
+remove_probe_dropin
 systemctl enable zigbee2mqtt.service
 systemctl is-active --quiet zigbee2mqtt.service || fail "zigbee2mqtt.service is not active after successful probe"
 
@@ -189,8 +218,5 @@ done
 ss -lntp | grep -E '127\.0\.0\.1:1883|0\.0\.0\.0:18091' || true
 
 section "RESULT"
-echo "Stage 3 PASS: coordinator initialized and Zigbee2MQTT online."
+echo "Stage 3 PASS: coordinator initialized using explicit zstack driver."
 echo "Pairing has NOT been opened. Do not pair devices yet."
-
-cleanup_files
-trap - EXIT
