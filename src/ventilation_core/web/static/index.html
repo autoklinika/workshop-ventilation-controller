@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/sidebar.css">
   <script src="/dashboard-live.js" defer></script>
+  <script src="/alerts.js" defer></script>
 </head>
 <body class="v2-body">
   <aside class="v2-sidebar" aria-label="Główna nawigacja">
@@ -19,7 +20,7 @@
       <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5.5h5V20"/></svg></span><span>STREFY</span>
     </a>
     <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/><circle cx="7" cy="15" r=".7"/><circle cx="11" cy="11" r=".7"/><circle cx="14" cy="13" r=".7"/><circle cx="19" cy="7" r=".7"/></svg></span><span>HISTORIA</span></a>
-    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/><path d="M10 4.2a2 2 0 0 1 4 0"/></svg></span><span>ALARMY</span></a>
+    <a class="v2-nav" href="/alerts" data-route="/alerts"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/><path d="M10 4.2a2 2 0 0 1 4 0"/></svg></span><span>ALERTY</span></a>
     <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.45-2.45 1a7 7 0 0 0-2.25-1.3L13.8 3h-4l-.38 2.4A7 7 0 0 0 7.17 6.7l-2.45-1-2 3.45 2 1.55A7 7 0 0 0 4.6 12c0 .44.04.88.12 1.3l-2 1.55 2 3.45 2.45-1a7 7 0 0 0 2.25 1.3L9.8 21h4l.38-2.4a7 7 0 0 0 2.25-1.3l2.45 1 2-3.45-2-1.55c.08-.42.12-.86.12-1.3Z"/></svg></span><span>USTAWIENIA</span></a>
     <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span><span>SERWIS</span></a>
   </aside>
@@ -54,6 +55,29 @@
 
     <section id="controlView" class="v2-shell-view v2-shell-view-control" data-view="control" hidden>
       <section class="v2-page-heading"><h1>STREFY</h1><p>Ładowanie widoku sterowania…</p></section>
+    </section>
+
+    <section id="alertsView" class="v2-shell-view v2-alerts-view" data-view="alerts" hidden>
+      <section class="v2-page-heading"><h1>ALERTY</h1><p>Rejestr zdarzeń systemowych ventilation-core</p></section>
+      <div id="alertsConnectionStatus" class="v2-alert-connection">Łączenie z rejestrem alertów…</div>
+      <section class="v2-alert-summary" aria-label="Podsumowanie alertów">
+        <article><span>AKTYWNE</span><strong id="alertsActiveCount">—</strong></article>
+        <article><span>NIEPOTWIERDZONE</span><strong id="alertsUnackCount">—</strong></article>
+        <article><span>WPISY W HISTORII</span><strong id="alertsHistoryCount">—</strong></article>
+      </section>
+      <section class="v2-alert-section">
+        <header><div><span class="v2-alert-section-kicker">STAN BIEŻĄCY</span><h2>Aktywne alerty</h2></div></header>
+        <div id="alertsActiveList" class="v2-alert-active-list"><div class="v2-alert-empty">Ładowanie…</div></div>
+      </section>
+      <section class="v2-alert-section">
+        <header><div><span class="v2-alert-section-kicker">CM5 · SQLITE</span><h2>Historia alertów</h2></div></header>
+        <div class="v2-alert-table-wrap">
+          <table class="v2-alert-table">
+            <thead><tr><th>ID</th><th>POZIOM</th><th>ALERT</th><th>ŹRÓDŁO</th><th>WYSTĄPIŁ</th><th>POTWIERDZONO</th><th>ZAKOŃCZONO / STAN</th></tr></thead>
+            <tbody id="alertsHistoryBody"><tr><td colspan="7" class="v2-alert-table-empty">Ładowanie…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </section>
   </main>
 </body>
