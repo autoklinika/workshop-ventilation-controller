@@ -7,11 +7,12 @@ import signal
 from pathlib import Path
 
 from ventilation_core.application.alert_registry import AlertRegistry
-from ventilation_core.application.alerting_service import AlertingVentilationService
 from ventilation_core.application.schedule_controller import (
     CoreScheduleManager,
     UnavailableScheduleManager,
 )
+from ventilation_core.application.shadow_controller import UnconfiguredShadowAutomationEvaluator
+from ventilation_core.application.shadow_service import ShadowAlertingVentilationService
 from ventilation_core.domain.policy import FanSetpointPolicy
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
 from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActuator
@@ -112,7 +113,7 @@ async def run_core(args: argparse.Namespace) -> None:
         if args.enable_supply_tacho or args.enable_extract_tacho:
             tacho = TachoMonitor(TachoMonitorConfig(chip_path=args.tacho_chip, supply_line_name=args.supply_tacho_line if args.enable_supply_tacho else None, extract_line_name=args.extract_tacho_line if args.enable_extract_tacho else None, timeout_seconds=args.tacho_timeout, averaging_periods=args.tacho_averaging_periods))
         required_tacho_channels = tuple(channel for channel, enabled in (("supply", args.enable_supply_tacho), ("extract", args.enable_extract_tacho)) if enabled)
-        service = AlertingVentilationService(
+        service = ShadowAlertingVentilationService(
             actuator=actuator,
             policy=FanSetpointPolicy(minimum_running_voltage=args.minimum_running_voltage, maximum_voltage=args.maximum_voltage),
             hardware_failure_threshold=args.hardware_failure_threshold,
@@ -122,6 +123,7 @@ async def run_core(args: argparse.Namespace) -> None:
             schedule_manager=schedule_manager,
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
+            shadow_evaluator=UnconfiguredShadowAutomationEvaluator(),
         )
         server = CoreServer(service=service, socket_path=args.socket, health_interval_seconds=args.health_interval)
     except BaseException:
