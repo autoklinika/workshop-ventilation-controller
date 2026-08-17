@@ -29,12 +29,16 @@ class FakeHistory:
             newest_captured_at="2026-08-17T10:00:45+00:00",
             oldest_pending_at="2026-08-17T10:00:40+00:00",
             last_synced_at="2026-08-17T10:00:42+00:00",
+            rollup_1m_samples=5,
+            rollup_15m_samples=1,
+            database_bytes=65536,
         )
 
-    def query(self, *, start_at=None, end_at=None, limit=720):
-        self.queries.append((start_at, end_at, limit))
+    def query(self, *, start_at=None, end_at=None, limit=720, resolution="raw"):
+        self.queries.append((start_at, end_at, limit, resolution))
         return [
             {
+                "resolution": resolution,
                 "sequence": 10,
                 "sample_id": "sample-10",
                 "captured_at": "2026-08-17T10:00:45+00:00",
@@ -53,9 +57,12 @@ class WebHistoryTest(unittest.TestCase):
         self.assertTrue(response.payload["history"]["available"])
         self.assertTrue(response.payload["history"]["configured"])
         self.assertEqual(response.payload["history"]["pending_samples"], 2)
+        self.assertEqual(response.payload["history"]["rollup_1m_samples"], 5)
+        self.assertEqual(response.payload["history"]["rollup_15m_samples"], 1)
+        self.assertEqual(response.payload["history"]["database_bytes"], 65536)
         self.assertEqual(core.requests, [])
 
-    def test_history_query_is_read_only_and_forwards_only_query_fields(self) -> None:
+    def test_history_query_is_read_only_and_forwards_resolution(self) -> None:
         core = FakeCoreClient()
         history = FakeHistory()
         response = WebApplication(core, history=history).handle(
@@ -65,14 +72,29 @@ class WebHistoryTest(unittest.TestCase):
                 "start_at": "2026-08-17T10:00:00+00:00",
                 "end_at": "2026-08-17T11:00:00+00:00",
                 "limit": 100,
+                "resolution": "1m",
             },
         )
         self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["resolution"], "1m")
         self.assertEqual(response.payload["count"], 1)
         self.assertEqual(
             history.queries,
-            [("2026-08-17T10:00:00+00:00", "2026-08-17T11:00:00+00:00", 100)],
+            [("2026-08-17T10:00:00+00:00", "2026-08-17T11:00:00+00:00", 100, "1m")],
         )
+        self.assertEqual(core.requests, [])
+
+    def test_history_query_defaults_to_raw(self) -> None:
+        core = FakeCoreClient()
+        history = FakeHistory()
+        response = WebApplication(core, history=history).handle(
+            "POST",
+            "/api/v1/history/query",
+            {},
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["resolution"], "raw")
+        self.assertEqual(history.queries, [(None, None, 720, "raw")])
         self.assertEqual(core.requests, [])
 
     def test_history_is_explicitly_unavailable_when_not_configured(self) -> None:
