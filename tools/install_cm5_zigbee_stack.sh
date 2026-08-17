@@ -89,7 +89,6 @@ systemctl is-active --quiet mosquitto.service || {
     fail "mosquitto.service failed to start"
 }
 
-# Confirm broker is loopback-only and can actually exchange a message.
 if ss -lnt | grep -Eq '0\.0\.0\.0:1883|\[::\]:1883'; then
     fail "MQTT broker unexpectedly listens on a non-loopback wildcard address"
 fi
@@ -117,10 +116,6 @@ if [[ -e "${Z2M_DIR}" && ! -d "${Z2M_DIR}/.git" ]]; then
 fi
 
 if [[ ! -d "${Z2M_DIR}/.git" ]]; then
-    # /opt is root-owned on Debian. Create the empty checkout directory as
-    # root and hand only that directory to the unprivileged service user.
-    # This keeps Git/npm work out of the root account while allowing a clean
-    # first install and a safe retry after an interrupted Stage 2 run.
     rm -rf "${Z2M_DIR}"
     install -d -m 0755 -o wentylacja -g wentylacja "${Z2M_DIR}"
     sudo -u wentylacja env HOME=/home/wentylacja \
@@ -134,8 +129,6 @@ fi
 chown -R wentylacja:wentylacja "${Z2M_DIR}"
 cd "${Z2M_DIR}"
 
-# Corepack reads the packageManager field from Zigbee2MQTT's package.json.
-# Pinning here also makes the intended tool version explicit in the installer.
 sudo -u wentylacja env HOME=/home/wentylacja corepack prepare "pnpm@${PNPM_VERSION}" --activate >/dev/null 2>&1 || true
 pnpm_actual="$(sudo -u wentylacja env HOME=/home/wentylacja pnpm --version)"
 [[ "${pnpm_actual}" == "${PNPM_VERSION}" ]] || fail "Expected pnpm ${PNPM_VERSION}, got ${pnpm_actual}"
@@ -146,15 +139,23 @@ package_version="$(node -p 'require("./package.json").version')"
 [[ "${package_version}" == "${Z2M_VERSION}" ]] || fail "Zigbee2MQTT package version mismatch: ${package_version}"
 echo "zigbee2mqtt package: ${package_version}"
 
+section "ZIGBEE2MQTT RUNTIME BUILD"
+# Zigbee2MQTT's index.js performs an initial build when dist/.hash is absent.
+# Our hardened systemd unit uses ProtectHome=true, therefore a runtime build
+# must not depend on Corepack's cache under /home/wentylacja. Build once here,
+# while the service user's HOME is intentionally available, and verify the
+# hash marker which prevents index.js from invoking pnpm during normal start.
+sudo -u wentylacja env HOME=/home/wentylacja pnpm run build
+expected_hash="$(sudo -u wentylacja git -C "${Z2M_DIR}" rev-parse --short=8 HEAD)"
+[[ -f "${Z2M_DIR}/dist/.hash" ]] || fail "Zigbee2MQTT build did not create dist/.hash"
+built_hash="$(tr -d '\r\n' <"${Z2M_DIR}/dist/.hash")"
+[[ "${built_hash}" == "${expected_hash}" ]] || fail "Zigbee2MQTT dist hash mismatch: built=${built_hash}, expected=${expected_hash}"
+echo "runtime build: PASS (${built_hash})"
+
 section "SYSTEMD STAGING"
 install -d -m 0750 -o wentylacja -g wentylacja "${Z2M_DATA}"
 install -m 0644 "${ROOT_DIR}/deploy/systemd/zigbee2mqtt.service" "${UNIT_TARGET}"
 systemctl daemon-reload
-
-# Stage 2 deliberately does not create configuration.yaml and does not start
-# Zigbee2MQTT. The unit has ConditionPathExists on configuration.yaml so an
-# accidental start cannot create a Zigbee network before we choose final radio
-# settings and validate the adapter.
 systemctl disable --now zigbee2mqtt.service 2>/dev/null || true
 
 section "POSTCHECK"
@@ -162,9 +163,10 @@ echo "node:       $(node --version)"
 echo "pnpm:       $(sudo -u wentylacja env HOME=/home/wentylacja pnpm --version)"
 echo "mosquitto:  $(systemctl is-active mosquitto.service)"
 echo "zigbee2mqtt installed version: ${package_version}"
+echo "zigbee2mqtt runtime build: ${built_hash}"
 echo "zigbee2mqtt service: $(systemctl is-active zigbee2mqtt.service 2>/dev/null || true)"
 echo "configuration present: $([[ -f ${Z2M_DATA}/configuration.yaml ]] && echo yes || echo no)"
 ss -lntp | grep -E '127\.0\.0\.1:1883' || true
 
 echo
-echo "Stage 2 PASS: MQTT and Zigbee2MQTT software installed; Zigbee network NOT started."
+echo "Stage 2 PASS: MQTT and Zigbee2MQTT software installed and prebuilt; Zigbee network NOT started."
