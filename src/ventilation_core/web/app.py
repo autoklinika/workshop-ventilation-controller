@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ventilation_core.telemetry.history import TelemetryHistoryUnavailable
+
 from .client import CoreClient, CoreClientError
 from .config import WebUiConfig
 from .weather import WeatherError
@@ -19,12 +21,24 @@ class WeatherProvider(Protocol):
     def get_snapshot(self) -> dict[str, Any]: ...
 
 
+class HistoryProvider(Protocol):
+    def status(self) -> Any: ...
+
+    def query(
+        self,
+        *,
+        start_at: str | None = None,
+        end_at: str | None = None,
+        limit: int = 720,
+    ) -> list[dict[str, Any]]: ...
+
+
 class WebApplication:
     """Narrow application boundary exposed to the browser.
 
-    The browser never receives a generic ventilation-core command proxy. Only the
-    explicitly listed intents below can cross this boundary. ALERTY remain owned
-    by ventilation-core; Web V2 only reads them and forwards operator ACK by id.
+    The browser never receives a generic ventilation-core command proxy and never
+    opens SQLite directly. ALERTY remain owned by ventilation-core. Local history
+    is exposed through a bounded read-only adapter only.
     """
 
     def __init__(
@@ -32,10 +46,12 @@ class WebApplication:
         core: CoreClient,
         config: WebUiConfig | None = None,
         weather: WeatherProvider | None = None,
+        history: HistoryProvider | None = None,
     ) -> None:
         self._core = core
         self._config = config or WebUiConfig()
         self._weather_provider = weather
+        self._history_provider = history
 
     def handle(self, method: str, path: str, body: Any = None) -> ApiResponse:
         try:
@@ -47,8 +63,12 @@ class WebApplication:
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
                 return self._weather()
+            if method == "GET" and path == "/api/v1/history/status":
+                return self._history_status()
             if method == "GET" and path == "/api/v1/health":
                 return self._health()
+            if method == "POST" and path == "/api/v1/history/query":
+                return self._history_query(body)
             if method == "POST" and path == "/api/v1/alerts/ack":
                 return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/manual/fans":
@@ -62,6 +82,8 @@ class WebApplication:
             return ApiResponse(404, {"ok": False, "error": "Not found"})
         except ValueError as exc:
             return ApiResponse(400, {"ok": False, "error": str(exc)})
+        except TelemetryHistoryUnavailable as exc:
+            return ApiResponse(503, {"ok": False, "error": str(exc)})
         except CoreClientError as exc:
             return ApiResponse(503, {"ok": False, "error": str(exc)})
 
@@ -80,6 +102,42 @@ class WebApplication:
         ):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _history_status(self) -> ApiResponse:
+        provider = self._history_provider
+        if provider is None:
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "history": {
+                        "available": False,
+                        "configured": False,
+                    },
+                },
+            )
+        status = provider.status()
+        payload = status.to_dict() if hasattr(status, "to_dict") else dict(status)
+        payload["configured"] = True
+        return ApiResponse(200, {"ok": True, "history": payload})
+
+    def _history_query(self, body: Any) -> ApiResponse:
+        provider = self._history_provider
+        if provider is None:
+            return ApiResponse(503, {"ok": False, "error": "local history is not configured"})
+        data = self._require_object(body)
+        start_at = data.get("start_at")
+        end_at = data.get("end_at")
+        limit = data.get("limit", 720)
+        samples = provider.query(start_at=start_at, end_at=end_at, limit=limit)
+        return ApiResponse(
+            200,
+            {
+                "ok": True,
+                "count": len(samples),
+                "samples": samples,
+            },
+        )
 
     def _ack_alert(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
