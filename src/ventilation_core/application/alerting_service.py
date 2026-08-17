@@ -143,6 +143,7 @@ class AlertingVentilationService(VentilationService):
                     )
                 )
             for node in sensor_bus.nodes:
+                source = f"sensor:{node.slave_address}"
                 if (
                     node.polls >= 3
                     and node.consecutive_failures >= 3
@@ -152,7 +153,7 @@ class AlertingVentilationService(VentilationService):
                         AlertSignal(
                             key=f"sensor-node:{node.slave_address}:communication",
                             code=AlarmCode.SENSOR_NODE_UNAVAILABLE,
-                            source=f"sensor:{node.slave_address}",
+                            source=source,
                             severity=AlarmSeverity.WARNING,
                             message=f"Czujnik SEN55 {node.slave_address}: brak poprawnej komunikacji",
                             detail=node.last_error or "",
@@ -160,6 +161,80 @@ class AlertingVentilationService(VentilationService):
                         )
                     )
                     continue
+
+                if node.online is True and node.sen55_device_status_supported:
+                    if (
+                        node.sen55_device_status_valid is not True
+                        and node.sen55_diagnostics_failures >= 3
+                    ):
+                        signals.append(
+                            AlertSignal(
+                                key=f"sensor-node:{node.slave_address}:sen55-diagnostics",
+                                code=AlarmCode.SEN55_DIAGNOSTICS_UNAVAILABLE,
+                                source=source,
+                                severity=AlarmSeverity.WARNING,
+                                message=f"Czujnik SEN55 {node.slave_address}: diagnostyka wewnętrzna niedostępna",
+                                detail="Brak poprawnego odczytu SEN55 Device Status Register (0xD206)",
+                                occurrences=node.sen55_diagnostics_failures,
+                            )
+                        )
+                    elif node.sen55_device_status_valid:
+                        if node.sen55_fan_speed_warning:
+                            signals.append(
+                                AlertSignal(
+                                    key=f"sensor-node:{node.slave_address}:sen55-fan-speed",
+                                    code=AlarmCode.SEN55_FAN_SPEED_WARNING,
+                                    source=source,
+                                    severity=AlarmSeverity.WARNING,
+                                    message=f"Czujnik SEN55 {node.slave_address}: prędkość wewnętrznego wentylatora poza zakresem",
+                                    detail="SEN55 Device Status bit 21 SPEED",
+                                )
+                            )
+                        if node.sen55_gas_sensor_error:
+                            signals.append(
+                                AlertSignal(
+                                    key=f"sensor-node:{node.slave_address}:sen55-gas",
+                                    code=AlarmCode.SEN55_GAS_SENSOR_ERROR,
+                                    source=source,
+                                    severity=AlarmSeverity.WARNING,
+                                    message=f"Czujnik SEN55 {node.slave_address}: błąd układu VOC/NOx",
+                                    detail="SEN55 Device Status bit 7 GAS SENSOR",
+                                )
+                            )
+                        if node.sen55_rht_error:
+                            signals.append(
+                                AlertSignal(
+                                    key=f"sensor-node:{node.slave_address}:sen55-rht",
+                                    code=AlarmCode.SEN55_RHT_ERROR,
+                                    source=source,
+                                    severity=AlarmSeverity.WARNING,
+                                    message=f"Czujnik SEN55 {node.slave_address}: błąd wewnętrznego czujnika RH/T",
+                                    detail="SEN55 Device Status bit 6 RHT",
+                                )
+                            )
+                        if node.sen55_laser_error:
+                            signals.append(
+                                AlertSignal(
+                                    key=f"sensor-node:{node.slave_address}:sen55-laser",
+                                    code=AlarmCode.SEN55_LASER_ERROR,
+                                    source=source,
+                                    severity=AlarmSeverity.WARNING,
+                                    message=f"Czujnik SEN55 {node.slave_address}: awaria lasera pomiaru PM",
+                                    detail="SEN55 Device Status bit 5 LASER",
+                                )
+                            )
+                        if node.sen55_fan_error:
+                            signals.append(
+                                AlertSignal(
+                                    key=f"sensor-node:{node.slave_address}:sen55-fan",
+                                    code=AlarmCode.SEN55_FAN_ERROR,
+                                    source=source,
+                                    severity=AlarmSeverity.WARNING,
+                                    message=f"Czujnik SEN55 {node.slave_address}: awaria wewnętrznego wentylatora",
+                                    detail="SEN55 Device Status bit 4 FAN",
+                                )
+                            )
+
                 if node.polls >= 3 and node.online is True and (
                     (node.measurement_stale is True and node.stale_measurements >= 3)
                     or (node.measurement_valid is not True and node.invalid_measurements >= 3)
@@ -168,7 +243,7 @@ class AlertingVentilationService(VentilationService):
                         AlertSignal(
                             key=f"sensor-node:{node.slave_address}:data",
                             code=AlarmCode.SENSOR_DATA_INVALID,
-                            source=f"sensor:{node.slave_address}",
+                            source=source,
                             severity=AlarmSeverity.WARNING,
                             message=f"Czujnik SEN55 {node.slave_address}: dane pomiarowe są nieprawidłowe",
                             detail=node.last_error or "",
