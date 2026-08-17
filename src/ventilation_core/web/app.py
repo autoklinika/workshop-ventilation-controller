@@ -25,7 +25,7 @@ class WebApplication:
     The browser never receives a generic ventilation-core command proxy. Only the
     explicitly listed intents below can cross this boundary. ALERTY remain owned
     by ventilation-core; Web V2 only reads them and forwards operator ACK by id.
-    Zigbee writes are limited to permit-join and normal device removal.
+    Zigbee writes are limited to explicit management intents.
     """
 
     def __init__(
@@ -58,6 +58,10 @@ class WebApplication:
                 return self._zigbee_permit_join(body)
             if method == "POST" and path == "/api/v1/zigbee/remove":
                 return self._zigbee_remove(body)
+            if method == "POST" and path == "/api/v1/zigbee/rename":
+                return self._zigbee_rename(body)
+            if method == "POST" and path == "/api/v1/zigbee/role":
+                return self._zigbee_role(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -122,6 +126,38 @@ class WebApplication:
             raise ValueError("device_id must be a non-empty string")
         return self._command(
             {"command": "zigbee-remove-device", "device_id": device_id.strip()}
+        )
+
+    def _zigbee_rename(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        device_id = data.get("device_id")
+        new_name = data.get("new_name")
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise ValueError("device_id must be a non-empty string")
+        if not isinstance(new_name, str) or not new_name.strip():
+            raise ValueError("new_name must be a non-empty string")
+        return self._command(
+            {
+                "command": "zigbee-rename-device",
+                "device_id": device_id.strip(),
+                "new_name": new_name.strip(),
+            }
+        )
+
+    def _zigbee_role(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        device_id = data.get("device_id")
+        role = data.get("role")
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise ValueError("device_id must be a non-empty string")
+        if role not in (None, "supply", "extract"):
+            raise ValueError("role must be supply, extract or null")
+        return self._command(
+            {
+                "command": "zigbee-assign-role",
+                "device_id": device_id.strip(),
+                "role": role,
+            }
         )
 
     def _weather(self) -> ApiResponse:
