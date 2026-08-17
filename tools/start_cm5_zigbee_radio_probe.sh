@@ -12,6 +12,7 @@ STATE_TOPIC="zigbee2mqtt/bridge/state"
 INFO_TOPIC="zigbee2mqtt/bridge/info"
 PROBE_DROPIN_DIR="/run/systemd/system/zigbee2mqtt.service.d"
 PROBE_DROPIN="${PROBE_DROPIN_DIR}/90-wvc-radio-probe.conf"
+ZSTACK_FAILED_BACKUP="${DATA_DIR}/configuration.zstack-generated-failed.yaml"
 
 state_file=""
 info_file=""
@@ -121,7 +122,96 @@ if cmp -s "${CONFIG_FILE}" "${AUTODETECT_TEMPLATE}"; then
 elif cmp -s "${CONFIG_FILE}" "${ZSTACK_TEMPLATE}"; then
     echo "explicit zstack probe configuration already present: safe retry"
 else
-    fail "Existing ${CONFIG_FILE} is not a recognized WVC probe configuration; refusing to overwrite"
+    # Zigbee2MQTT serializes configuration.yaml before the coordinator has
+    # necessarily answered. After a failed zstack probe this can replace
+    # GENERATE values and fold the long serial path, so byte-for-byte cmp is
+    # no longer sufficient. With persistent Zigbee state absent (checked
+    # above), accept only the exact WVC zstack transport settings and restore
+    # the canonical probe template before retrying.
+    if python3 - "${CONFIG_FILE}" "${SERIAL_BY_ID}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected_port = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+
+required = [
+    (r"(?m)^version:\s*5\s*$", "configuration version is not 5"),
+    (r"(?m)^\s*server:\s*[\"']?mqtt://127\.0\.0\.1:1883[\"']?\s*$", "unexpected MQTT server"),
+    (r"(?m)^\s*adapter:\s*[\"']?zstack[\"']?\s*$", "adapter is not zstack"),
+    (r"(?m)^\s*baudrate:\s*115200\s*$", "baudrate is not 115200"),
+    (r"(?m)^\s*rtscts:\s*false\s*$", "rtscts is not false"),
+]
+for pattern, message in required:
+    if re.search(pattern, text, flags=re.IGNORECASE) is None:
+        raise SystemExit(f"ERROR: {message}")
+
+lines = text.splitlines()
+serial_start = None
+serial_end = None
+for index, line in enumerate(lines):
+    if re.fullmatch(r"serial:\s*", line):
+        serial_start = index
+        break
+if serial_start is None:
+    raise SystemExit("ERROR: serial block missing")
+
+for index in range(serial_start + 1, len(lines)):
+    line = lines[index]
+    if line and not line[0].isspace() and not line.startswith("#"):
+        serial_end = index
+        break
+if serial_end is None:
+    serial_end = len(lines)
+
+block = lines[serial_start + 1:serial_end]
+port_entries = []
+for rel_index, line in enumerate(block):
+    match = re.fullmatch(r"(\s+)port:\s*(.*?)\s*", line)
+    if not match:
+        continue
+    indent = len(match.group(1))
+    raw_value = match.group(2).strip()
+    if raw_value in {">", ">-", ">+", "|", "|-", "|+"}:
+        parts = []
+        for following in block[rel_index + 1:]:
+            if not following.strip():
+                continue
+            following_indent = len(following) - len(following.lstrip())
+            if following_indent <= indent:
+                break
+            parts.append(following.strip())
+        value = "".join(parts)
+        encoding = f"block scalar {raw_value}"
+    else:
+        value = raw_value.strip("\"'")
+        encoding = "inline scalar"
+    port_entries.append((value, encoding))
+
+if len(port_entries) != 1:
+    raise SystemExit(f"ERROR: expected exactly one serial.port, got {port_entries!r}")
+port, encoding = port_entries[0]
+if port != expected_port:
+    raise SystemExit(f"ERROR: unexpected serial port: {port!r}")
+
+print("configuration shape: expected generated zstack probe")
+print(f"serial.port encoding: {encoding}")
+print(f"serial.port: {port}")
+PY
+    then
+        if [[ ! -e "${ZSTACK_FAILED_BACKUP}" ]]; then
+            cp -a "${CONFIG_FILE}" "${ZSTACK_FAILED_BACKUP}"
+            echo "preserved generated failed zstack config: ${ZSTACK_FAILED_BACKUP}"
+        else
+            echo "generated failed zstack backup already present: ${ZSTACK_FAILED_BACKUP}"
+        fi
+        install -m 0600 -o wentylacja -g wentylacja "${ZSTACK_TEMPLATE}" "${CONFIG_FILE}"
+        echo "canonical explicit zstack probe restored: safe retry"
+    else
+        fail "Existing ${CONFIG_FILE} is not a recognized WVC probe configuration; refusing to overwrite"
+    fi
 fi
 
 echo "adapter: zstack"
