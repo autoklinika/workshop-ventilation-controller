@@ -75,13 +75,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def run_core(args: argparse.Namespace) -> None:
-    alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
-    actuator = ProcessIsolatedActuator(bus=args.bus, address=args.address, timeout_seconds=args.command_timeout)
+    alert_registry = None
+    actuator = None
     sensor_bus = None
     aero_bus = None
     tacho = None
     service = None
     try:
+        alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
+        actuator = ProcessIsolatedActuator(
+            bus=args.bus,
+            address=args.address,
+            timeout_seconds=args.command_timeout,
+        )
         if not args.disable_sensor_bus:
             sensor_bus = ProcessSensorBus(SensorBusConfig(port=args.sensor_port, addresses=args.sensor_addresses, baudrate=args.sensor_baud, timeout_seconds=args.sensor_timeout, poll_interval_seconds=args.sensor_poll_interval, inter_node_delay_seconds=args.sensor_inter_node_delay, reconnect_delay_seconds=args.sensor_reconnect_delay))
         if not args.disable_aero_bus:
@@ -117,9 +123,11 @@ async def run_core(args: argparse.Namespace) -> None:
                             sensor_bus.close()
                     finally:
                         try:
-                            actuator.close()
+                            if actuator is not None:
+                                actuator.close()
                         finally:
-                            alert_registry.close()
+                            if alert_registry is not None:
+                                alert_registry.close()
         raise
 
     loop = asyncio.get_running_loop()
