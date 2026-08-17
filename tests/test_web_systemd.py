@@ -15,6 +15,8 @@ class WebSystemdTest(unittest.TestCase):
         self.assertIn("Group=wentylacja", unit)
         self.assertIn("NoNewPrivileges=true", unit)
         self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", unit)
+        self.assertIn("ProtectHome=read-only", unit)
+        self.assertNotIn("ProtectHome=true", unit)
 
     def test_web_env_keeps_core_and_weather_configuration_explicit(self):
         env = (ROOT / "deploy/cm5/web/wvc-web-ui.env.example").read_text(encoding="utf-8")
