@@ -159,7 +159,8 @@ class ShadowOutputTuning:
 
     @property
     def outputs_configured(self) -> bool:
-        return self.fan_outputs_configured and self.aero_outputs_configured
+        # SHADOW can be tuned and observed per actuator family independently.
+        return self.fan_outputs_configured or self.aero_outputs_configured
 
     @property
     def dynamics_configured(self) -> bool:
@@ -176,7 +177,11 @@ class ShadowOutputTuning:
 
     @property
     def complete(self) -> bool:
-        return self.outputs_configured and self.dynamics_configured
+        return (
+            self.fan_outputs_configured
+            and self.aero_outputs_configured
+            and self.dynamics_configured
+        )
 
 
 @dataclass(frozen=True)
