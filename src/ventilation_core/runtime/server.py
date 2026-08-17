@@ -168,11 +168,7 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, seconds)
-            return {
-                "ok": True,
-                "zigbee_management": result,
-                "state": self._service.state().to_dict(),
-            }
+            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
         if command == "zigbee-remove-device":
             device_id = request.get("device_id")
             if not isinstance(device_id, str) or not device_id.strip():
@@ -181,11 +177,31 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, device_id.strip())
-            return {
-                "ok": True,
-                "zigbee_management": result,
-                "state": self._service.state().to_dict(),
-            }
+            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+        if command == "zigbee-rename-device":
+            device_id = request.get("device_id")
+            new_name = request.get("new_name")
+            if not isinstance(device_id, str) or not device_id.strip():
+                raise ValueError("Zigbee device_id must be a non-empty string")
+            if not isinstance(new_name, str) or not new_name.strip():
+                raise ValueError("Zigbee new_name must be a non-empty string")
+            method = getattr(self._service, "zigbee_rename_device", None)
+            if method is None:
+                raise RuntimeError("Zigbee management is not configured")
+            result = await asyncio.to_thread(method, device_id.strip(), new_name.strip())
+            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+        if command == "zigbee-assign-role":
+            device_id = request.get("device_id")
+            role = request.get("role")
+            if not isinstance(device_id, str) or not device_id.strip():
+                raise ValueError("Zigbee device_id must be a non-empty string")
+            if role not in (None, "supply", "extract"):
+                raise ValueError("Zigbee role must be supply, extract or null")
+            method = getattr(self._service, "zigbee_assign_role", None)
+            if method is None:
+                raise RuntimeError("Zigbee management is not configured")
+            result = await asyncio.to_thread(method, device_id.strip(), role)
+            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
         if command == "set":
             state = await asyncio.to_thread(
                 self._service.set_manual,
