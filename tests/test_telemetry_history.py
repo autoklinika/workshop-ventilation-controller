@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -106,6 +107,14 @@ class TelemetryHistoryReaderTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "raw, 1m, 15m"):
             reader.query(resolution="1h")
+
+    def test_read_only_connection_is_closed_after_context_exit(self) -> None:
+        reader = TelemetryHistoryReader(self.path)
+        with reader._connect() as connection:
+            self.assertEqual(connection.execute("SELECT 1").fetchone()[0], 1)
+
+        with self.assertRaises(sqlite3.ProgrammingError):
+            connection.execute("SELECT 1")
 
     def test_missing_database_is_reported_without_creating_it(self) -> None:
         missing = Path(self.tempdir.name) / "missing.sqlite3"
