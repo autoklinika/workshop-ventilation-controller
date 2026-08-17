@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from ventilation_core.application.alert_registry import AlertRegistry
@@ -59,6 +60,39 @@ class SqliteAlertStoreTest(unittest.TestCase):
             two = registry.reconcile([signal])[0]
             self.assertEqual(one.alert_id, two.alert_id)
             self.assertEqual(len(registry.active_records()), 1)
+            registry.close()
+
+    def test_exact_final_occurrences_are_persisted_on_clear(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "alerts.sqlite3"
+            signal = AlertSignal(
+                key="aero-bus:communication",
+                code=AlarmCode.AERO_BUS_UNAVAILABLE,
+                source="aero_bus",
+                severity=AlarmSeverity.WARNING,
+                message="Rekuperator AERO: brak poprawnej komunikacji",
+                detail="timeout",
+                occurrences=3,
+            )
+            registry = AlertRegistry(
+                SqliteAlertStore(path),
+                occurrence_persist_step=30,
+            )
+            registry.reconcile([signal])
+            for occurrences in range(4, 18):
+                active = registry.reconcile(
+                    [replace(signal, occurrences=occurrences)]
+                )
+                self.assertEqual(active[0].occurrences, occurrences)
+
+            registry.reconcile([])
+            registry.close()
+
+            registry = AlertRegistry(SqliteAlertStore(path))
+            history = registry.history()
+            self.assertEqual(history[0].occurrences, 17)
+            self.assertFalse(history[0].active)
+            self.assertIsNotNone(history[0].cleared_at)
             registry.close()
 
 
