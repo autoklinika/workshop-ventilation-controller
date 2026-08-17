@@ -11,9 +11,10 @@ from ventilation_core.application.schedule_controller import (
     CoreScheduleManager,
     UnavailableScheduleManager,
 )
-from ventilation_core.application.shadow_controller import UnconfiguredShadowAutomationEvaluator
+from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.application.shadow_service import ShadowAlertingVentilationService
 from ventilation_core.domain.policy import FanSetpointPolicy
+from ventilation_core.domain.shadow_policy import ShadowPolicyV1
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
 from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActuator
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
@@ -123,7 +124,7 @@ async def run_core(args: argparse.Namespace) -> None:
             schedule_manager=schedule_manager,
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
-            shadow_evaluator=UnconfiguredShadowAutomationEvaluator(),
+            shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
         )
         server = CoreServer(service=service, socket_path=args.socket, health_interval_seconds=args.health_interval)
     except BaseException:
