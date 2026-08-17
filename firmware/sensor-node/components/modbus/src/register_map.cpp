@@ -17,6 +17,13 @@ constexpr std::uint8_t kTemperatureAvailable = 1U << 5;
 constexpr std::uint8_t kVocAvailable = 1U << 6;
 constexpr std::uint8_t kNoxAvailable = 1U << 7;
 
+constexpr std::uint32_t kSen55StatusFanSpeed = 1UL << 21;
+constexpr std::uint32_t kSen55StatusFanCleaning = 1UL << 19;
+constexpr std::uint32_t kSen55StatusGasSensor = 1UL << 7;
+constexpr std::uint32_t kSen55StatusRht = 1UL << 6;
+constexpr std::uint32_t kSen55StatusLaser = 1UL << 5;
+constexpr std::uint32_t kSen55StatusFan = 1UL << 4;
+
 std::uint16_t saturate_u16(const std::uint32_t value)
 {
     return static_cast<std::uint16_t>(std::min<std::uint32_t>(
@@ -121,6 +128,29 @@ InputRegisterBank encode_input_registers(const RegisterSource& source)
     status |= source.initializing ? kInitializing : 0;
     status |= source.sensor_offline ? kSensorOffline : 0;
     status |= source.platform_fault ? kPlatformFault : 0;
+
+    status |= source.sen55_device_status_supported ? kSen55DeviceStatusSupported : 0;
+    status |= source.sen55_device_status_valid ? kSen55DeviceStatusValid : 0;
+    if (source.sen55_device_status_valid) {
+        status |= (source.sen55_device_status & kSen55StatusFanSpeed) != 0
+                      ? kSen55FanSpeedWarning
+                      : 0;
+        status |= (source.sen55_device_status & kSen55StatusFanCleaning) != 0
+                      ? kSen55FanCleaning
+                      : 0;
+        status |= (source.sen55_device_status & kSen55StatusGasSensor) != 0
+                      ? kSen55GasSensorError
+                      : 0;
+        status |= (source.sen55_device_status & kSen55StatusRht) != 0
+                      ? kSen55RhtError
+                      : 0;
+        status |= (source.sen55_device_status & kSen55StatusLaser) != 0
+                      ? kSen55LaserError
+                      : 0;
+        status |= (source.sen55_device_status & kSen55StatusFan) != 0
+                      ? kSen55FanError
+                      : 0;
+    }
     put(registers, InputRegister::kNodeStatus, status);
 
     put(registers,
