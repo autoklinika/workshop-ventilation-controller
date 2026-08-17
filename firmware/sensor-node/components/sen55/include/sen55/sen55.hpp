@@ -19,6 +19,7 @@ public:
     esp_err_t stop_measurement() const;
     esp_err_t data_ready(bool& ready) const;
     esp_err_t read_measurement(Measurement& measurement) const;
+    esp_err_t read_device_status(std::uint32_t& status) const;
 
 private:
     esp_err_t send_command(std::uint16_t command, std::uint32_t post_delay_ms) const;
