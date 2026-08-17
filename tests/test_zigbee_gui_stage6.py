@@ -26,6 +26,8 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn('fetch("/api/v1/zigbee"', script)
         self.assertIn('apiPost("/api/v1/zigbee/permit-join"', script)
         self.assertIn('apiPost("/api/v1/zigbee/remove"', script)
+        self.assertIn('apiPost("/api/v1/zigbee/rename"', script)
+        self.assertIn('apiPost("/api/v1/zigbee/role"', script)
         self.assertNotIn("zigbee2mqtt/", script)
         self.assertNotIn("mosquitto", script.lower())
         self.assertNotIn("/api/v1/zigbee/publish", script)
@@ -36,6 +38,8 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn('return "NAWIEW"', script)
         self.assertIn('role === "extract"', script)
         self.assertIn('return "WYWIEW"', script)
+        self.assertIn("BEZ ROLI", script)
+        self.assertIn("NIEPRZYPISANE", script)
         self.assertIn("temperature_celsius", script)
         self.assertIn("battery_percent", script)
         self.assertIn("linkquality", script)
@@ -45,8 +49,10 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
         self.assertIn("DODAJ URZĄDZENIE · 120 S", script)
         self.assertIn("ZAMKNIJ PAROWANIE", script)
+        self.assertIn("ZMIEŃ NAZWĘ", script)
+        self.assertIn("Rola systemowa", script)
         self.assertIn("USUŃ", script)
-        self.assertIn("GUI nie łączy się bezpośrednio z MQTT ani Zigbee2MQTT", script)
+        self.assertIn("ZARZĄDZANIE PRZEZ VENTILATION-CORE", script)
 
 
 if __name__ == "__main__":
