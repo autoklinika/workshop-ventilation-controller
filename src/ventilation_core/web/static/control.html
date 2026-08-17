@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07101a">
+  <title>Strefy · Wentylacja warsztatu</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/dashboard.css">
+  <link rel="stylesheet" href="/sidebar.css">
+  <script src="/app.js" defer></script>
+  <script src="/tacho.js" defer></script>
+</head>
+<body class="v2-body">
+  <header class="v2-topbar">
+    <div class="v2-system"><span id="controlSystemDot" class="v2-dot neutral"></span><span id="controlSystemText">System —</span></div>
+    <div class="v2-time"><strong id="controlClock">--:--</strong><span id="controlDate">--.--.----</span></div>
+  </header>
+
+  <aside class="v2-sidebar" aria-label="Główna nawigacja">
+    <a class="v2-nav" href="/">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg></span>
+      <span>PULPIT</span>
+    </a>
+    <a class="v2-nav active" href="/control" aria-current="page">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5.5h5V20"/></svg></span>
+      <span>STREFY</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/><circle cx="7" cy="15" r=".7"/><circle cx="11" cy="11" r=".7"/><circle cx="14" cy="13" r=".7"/><circle cx="19" cy="7" r=".7"/></svg></span>
+      <span>HISTORIA</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/><path d="M10 4.2a2 2 0 0 1 4 0"/></svg></span>
+      <span>ALARMY</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.45-2.45 1a7 7 0 0 0-2.25-1.3L13.8 3h-4l-.38 2.4A7 7 0 0 0 7.17 6.7l-2.45-1-2 3.45 2 1.55A7 7 0 0 0 4.6 12c0 .44.04.88.12 1.3l-2 1.55 2 3.45 2.45-1a7 7 0 0 0 2.25 1.3L9.8 21h4l.38-2.4a7 7 0 0 0 2.25-1.3l2.45 1 2-3.45-2-1.55c.08-.42.12-.86.12-1.3Z"/></svg></span>
+      <span>USTAWIENIA</span>
+    </a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true">
+      <span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span>
+      <span>SERWIS</span>
+    </a>
+  </aside>
+
+  <main class="v2-main">
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">STREFY</p>
+          <h1>Sterowanie ręczne</h1>
+        </div>
+      </header>
+
+      <div hidden aria-hidden="true">
+        <span id="connectionChip" class="status-chip status-unknown">Łączenie…</span>
+        <span id="clock" class="clock">--:--</span>
+      </div>
+
+      <section id="messageBar" class="message-bar message-neutral" aria-live="assertive">
+        Odczytuję aktualny stan systemu…
+      </section>
+
+      <div class="dashboard control-dashboard">
+        <section class="zone-card" aria-labelledby="zone1Title">
+          <div class="zone-heading">
+            <div>
+              <p class="zone-label">STREFA 1</p>
+              <h2 id="zone1Title">Mycie i wygrzewanie ECU</h2>
+            </div>
+            <span id="sensor1Chip" class="status-chip status-unknown">Czujnik 1</span>
+          </div>
+
+          <div class="metrics-grid air-metrics">
+            <article class="metric primary-metric"><span class="metric-label">PM2.5</span><strong id="s1Pm25" class="metric-value">—</strong><span class="metric-unit">µg/m³</span></article>
+            <article class="metric"><span class="metric-label">PM10</span><strong id="s1Pm10" class="metric-value">—</strong><span class="metric-unit">µg/m³</span></article>
+            <article class="metric"><span class="metric-label">VOC Index</span><strong id="s1Voc" class="metric-value">—</strong><span class="metric-unit">index</span></article>
+            <article class="metric"><span class="metric-label">NOx Index</span><strong id="s1Nox" class="metric-value">—</strong><span class="metric-unit">index</span></article>
+            <article class="metric"><span class="metric-label">Temperatura</span><strong id="s1Temp" class="metric-value">—</strong><span class="metric-unit">°C</span></article>
+            <article class="metric"><span class="metric-label">Wilgotność</span><strong id="s1Humidity" class="metric-value">—</strong><span class="metric-unit">%</span></article>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <div class="control-heading">
+            <div><p class="zone-label">STEROWANIE RĘCZNE</p><h3>Wentylatory EC 0–10 V</h3></div>
+            <span id="coreMode" class="mode-pill">—</span>
+          </div>
+
+          <div class="channel-card">
+            <div class="channel-row">
+              <span class="channel-name">Nawiew</span>
+              <button id="supplyToggle" class="toggle-button" type="button" aria-pressed="false">WYŁĄCZONY</button>
+            </div>
+            <div class="fan-state-grid" aria-label="Stan wentylatora nawiewnego">
+              <div><span>Sterowanie</span><strong id="supplyCommandPercent">0%</strong></div>
+              <div><span>Napięcie</span><strong id="supplyActual">0,0 V</strong></div>
+              <div><span>Obroty</span><strong id="supplyRpm">—</strong></div>
+            </div>
+            <div class="tacho-status-row">
+              <span id="supplyTachoChip" class="status-chip status-unknown">TACHO: nieaktywne</span>
+              <span id="supplyTachoDetail" class="tacho-detail"></span>
+            </div>
+            <div class="slider-row">
+              <input id="supplySlider" class="voltage-slider" type="range" min="1" max="10" step="0.5" value="1" disabled aria-label="Napięcie nawiewu">
+              <output id="supplyPlanned" class="planned-value">0.0 V</output>
+            </div>
+          </div>
+
+          <div class="channel-card">
+            <div class="channel-row">
+              <span class="channel-name">Wyciąg</span>
+              <button id="extractToggle" class="toggle-button" type="button" aria-pressed="false">WYŁĄCZONY</button>
+            </div>
+            <div class="fan-state-grid" aria-label="Stan wentylatora wyciągowego">
+              <div><span>Sterowanie</span><strong id="extractCommandPercent">0%</strong></div>
+              <div><span>Napięcie</span><strong id="extractActual">0,0 V</strong></div>
+              <div><span>Obroty</span><strong id="extractRpm">—</strong></div>
+            </div>
+            <div class="tacho-status-row">
+              <span id="extractTachoChip" class="status-chip status-unknown">TACHO: nieaktywne</span>
+              <span id="extractTachoDetail" class="tacho-detail"></span>
+            </div>
+            <div class="slider-row">
+              <input id="extractSlider" class="voltage-slider" type="range" min="1" max="10" step="0.5" value="1" disabled aria-label="Napięcie wyciągu">
+              <output id="extractPlanned" class="planned-value">0.0 V</output>
+            </div>
+          </div>
+
+          <div class="button-row two-buttons">
+            <button id="applyFansButton" class="action-button primary-action" type="button">ZASTOSUJ USTAWIENIE</button>
+            <button id="stopFansButton" class="action-button stop-action" type="button">STOP · 0 V / 0 V</button>
+          </div>
+          <p class="control-note">Sterowanie i napięcie pochodzą z autorytatywnego stanu <code>ventilation-core</code>. RPM jest niezależnym, read-only feedbackiem TACHO i nie blokuje ręcznego sterowania.</p>
+        </section>
+
+        <section class="zone-card" aria-labelledby="zone2Title">
+          <div class="zone-heading">
+            <div><p class="zone-label">STREFA 2</p><h2 id="zone2Title">Pomieszczenie lutowania</h2></div>
+            <span id="sensor2Chip" class="status-chip status-unknown">Czujnik 2</span>
+          </div>
+
+          <div class="metrics-grid air-metrics">
+            <article class="metric primary-metric"><span class="metric-label">PM2.5</span><strong id="s2Pm25" class="metric-value">—</strong><span class="metric-unit">µg/m³</span></article>
+            <article class="metric"><span class="metric-label">PM10</span><strong id="s2Pm10" class="metric-value">—</strong><span class="metric-unit">µg/m³</span></article>
+            <article class="metric"><span class="metric-label">VOC Index</span><strong id="s2Voc" class="metric-value">—</strong><span class="metric-unit">index</span></article>
+            <article class="metric"><span class="metric-label">NOx Index</span><strong id="s2Nox" class="metric-value">—</strong><span class="metric-unit">index</span></article>
+            <article class="metric"><span class="metric-label">Temperatura</span><strong id="s2Temp" class="metric-value">—</strong><span class="metric-unit">°C</span></article>
+            <article class="metric"><span class="metric-label">Wilgotność</span><strong id="s2Humidity" class="metric-value">—</strong><span class="metric-unit">%</span></article>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <div class="control-heading">
+            <div><p class="zone-label">REKUPERATOR</p><h3>COMPIT NANO / AERO</h3></div>
+            <span id="aeroChip" class="status-chip status-unknown">AERO</span>
+          </div>
+
+          <div class="aero-telemetry">
+            <div><span>Wentylator 1</span><strong id="aeroFan1">—</strong></div>
+            <div><span>Wentylator 2</span><strong id="aeroFan2">—</strong></div>
+            <div><span>Nawiew</span><strong id="aeroSupplyTemp">—</strong></div>
+            <div><span>Wywiew</span><strong id="aeroExtractTemp">—</strong></div>
+            <div><span>Zewnętrzna</span><strong id="aeroOutdoorTemp">—</strong></div>
+            <div><span>Wilgotność</span><strong id="aeroHumidity">—</strong></div>
+          </div>
+
+          <div class="aero-control-block">
+            <span class="control-caption">Bieg wentylacji</span>
+            <div class="speed-grid" role="group" aria-label="Bieg rekuperatora">
+              <button class="speed-button" type="button" data-aero-speed="0">0</button>
+              <button class="speed-button" type="button" data-aero-speed="1">1</button>
+              <button class="speed-button" type="button" data-aero-speed="2">2</button>
+              <button class="speed-button" type="button" data-aero-speed="3">3</button>
+            </div>
+          </div>
+
+          <div class="aero-control-block">
+            <span class="control-caption">Przewietrzanie</span>
+            <div class="button-row two-buttons">
+              <button id="airingOnButton" class="action-button primary-action" type="button">WŁĄCZ</button>
+              <button id="airingOffButton" class="action-button secondary-action" type="button">WYŁĄCZ</button>
+            </div>
+          </div>
+
+          <div id="aeroCommandState" class="command-state">Brak wykonanego polecenia w tej sesji.</div>
+          <p class="control-note">Potwierdzenie AERO obejmuje FC06, readback FC03 i fizyczną zmianę 2033/2034. Wykonanie może potrwać do 60 s.</p>
+        </section>
+      </div>
+
+      <section class="system-strip" aria-label="Stan systemu">
+        <div class="system-item"><span>Core / DAC</span><strong id="coreHealth">—</strong></div>
+        <div class="system-item"><span>SENSOR BUS</span><strong id="sensorBusHealth">—</strong></div>
+        <div class="system-item"><span>AERO BUS</span><strong id="aeroBusHealth">—</strong></div>
+        <div class="system-item"><span>TACHO</span><strong id="tachoHealth">—</strong></div>
+        <div class="system-item"><span>Ostatni odczyt GUI</span><strong id="lastRefresh">—</strong></div>
+      </section>
+
+      <footer>Sterowanie ręczne · AUTO wyłączone na tym etapie · TACHO read-only · AI advisory-only</footer>
+    </div>
+  </main>
+</body>
+</html>
