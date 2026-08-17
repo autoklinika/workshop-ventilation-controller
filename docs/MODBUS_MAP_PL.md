@@ -1,7 +1,7 @@
 # Mapa Modbus RTU — KAmod ESP32 + SEN55
 
 **Wersja mapy: 1**  
-**Status: zwalidowany kontrakt Stage 2B — tylko odczyt**
+**Status: zwalidowany kontrakt Stage 2B — tylko odczyt; rozszerzenie diagnostyki SEN55 zachowuje kompatybilność mapy v1**
 
 ## Parametry komunikacji
 
@@ -34,13 +34,13 @@ Adresy są adresami protokołu Modbus liczonymi od zera. W programach używając
 | 6 | VOC Index | `uint16` | wartość × 10 |
 | 7 | NOx Index | `uint16` | wartość × 10 |
 | 8 | Maska dostępności pól | `uint16` | dolne 8 bitów |
-| 9 | Status węzła | `uint16` | bitmask opisany niżej |
+| 9 | Status węzła | `uint16` | bitmask opisany niżej; od firmware `0.6` górny bajt zawiera diagnostykę SEN55 |
 | 10 | Wiek pomiaru | `uint16` | sekundy; `0xFFFF` oznacza brak poprawnego pomiaru |
 | 11 | Licznik błędów SEN55 | `uint16` | suma błędów detekcji, komunikacji i CRC, saturacja `0xFFFF` |
 | 12 | Licznik błędów usługi Modbus | `uint16` | błędy inicjalizacji, blokady, kolejki zdarzeń lub aktualizacji mapy, saturacja `0xFFFF` |
 | 13 | Czas pracy — high word | `uint16` | starsze 16 bitów czasu pracy w sekundach |
 | 14 | Czas pracy — low word | `uint16` | młodsze 16 bitów czasu pracy w sekundach |
-| 15 | Wersja firmware | `uint16` | major w starszym bajcie, minor w młodszym; Stage 2B `0x0003`, heartbeat Stage 1 `0x0004` |
+| 15 | Wersja firmware | `uint16` | major w starszym bajcie, minor w młodszym; diagnostyka SEN55 `0x0006` = `0.6` |
 | 16 | Wersja mapy | `uint16` | `1` |
 | 17 | Sekwencja pomiaru — high word | `uint16` | starsze 16 bitów dolnego `uint32` licznika |
 | 18 | Sekwencja pomiaru — low word | `uint16` | młodsze 16 bitów licznika |
@@ -62,6 +62,8 @@ Jeżeli bit pola ma wartość `0`, odpowiadający rejestr liczbowy zawiera `0` i
 
 ## Status węzła — rejestr 9
 
+Dolny bajt zachowuje dotychczasowy kontrakt:
+
 - bit 0 — `MEASUREMENT_VALID`,
 - bit 1 — `SENSOR_PRESENT`,
 - bit 2 — `MEASUREMENT_STALE`,
@@ -71,7 +73,18 @@ Jeżeli bit pola ma wartość `0`, odpowiadający rejestr liczbowy zawiera `0` i
 - bit 6 — `SENSOR_OFFLINE`,
 - bit 7 — `PLATFORM_FAULT`.
 
-Pozostałe bity są zarezerwowane i muszą być ignorowane przez mastera.
+Od firmware KAmod `0.6` górny bajt jest kompatybilnym rozszerzeniem diagnostycznym. Stary master, który używa tylko dolnego bajtu, działa bez zmian. Nowy master rozpoznaje obsługę diagnostyki po bicie 8:
+
+- bit 8 — `SEN55_DEVICE_STATUS_SUPPORTED` — firmware węzła implementuje odczyt `Read Device Status (0xD206)`,
+- bit 9 — `SEN55_DEVICE_STATUS_VALID` — ostatni odczyt Device Status był poprawny,
+- bit 10 — `SEN55_FAN_SPEED_WARNING` — SEN55 Device Status bit 21 `SPEED`,
+- bit 11 — `SEN55_FAN_CLEANING` — SEN55 Device Status bit 19; informacja o czyszczeniu, **nie alarm**,
+- bit 12 — `SEN55_GAS_SENSOR_ERROR` — Device Status bit 7 `GAS SENSOR`,
+- bit 13 — `SEN55_RHT_ERROR` — Device Status bit 6 `RHT`,
+- bit 14 — `SEN55_LASER_ERROR` — Device Status bit 5 `LASER`,
+- bit 15 — `SEN55_FAN_ERROR` — Device Status bit 4 `FAN`.
+
+W firmware ignorowane są wszystkie bity zarezerwowane przez Sensirion. Jeżeli bit 9 jest `0`, bity 10–15 nie mogą być używane do klasyfikacji stanu sensora. Jeżeli bit 8 jest `0`, oznacza to starszy firmware bez transportu Device Status i nie wolno traktować tego jako awarii.
 
 ## Zasady interpretacji
 
@@ -83,7 +96,11 @@ Pozostałe bity są zarezerwowane i muszą być ignorowane przez mastera.
 6. CM5 musi sprawdzić wersję mapy przed dekodowaniem.
 7. Adres slave jest przechowywany w `device_config/modbus_addr` w NVS.
 8. Kanał Wi-Fi nie może modyfikować mapy ani zastępować jej w logice sterowania.
+9. `SEN55_FAN_CLEANING` jest stanem informacyjnym. W czasie automatycznego czyszczenia SEN55 nie aktualizuje wartości pomiarowych; nie wolno klasyfikować samego bitu cleaning jako awarii.
+10. Sticky błędy `LASER` i `FAN` nie są automatycznie czyszczone przez firmware KAmod. System tylko raportuje status SEN55; nie wysyła automatycznie komendy `Clear Device Status (0xD210)`.
 
 ## Walidacja Stage 2B
 
 Na dwóch fizycznych węzłach o adresach `1` i `2` potwierdzono `800/800` poprawnych cykli odczytu, bez timeoutów, błędów protokołu, błędów wersji mapy, próbek invalid/stale i bez utraty stabilności po zastosowaniu 10 ms przerwy między węzłami.
+
+Rozszerzenie diagnostyki SEN55 zostało zaprojektowane bez zmiany liczby rejestrów i bez zmiany `map_version=1`: nowe firmware używa wcześniej zarezerwowanego górnego bajtu rejestru 9, a nowe `ventilation-core` pozostaje kompatybilne ze starszym firmware, dopóki bit `SEN55_DEVICE_STATUS_SUPPORTED` ma wartość `0`.
