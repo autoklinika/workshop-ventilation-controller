@@ -37,6 +37,14 @@ class DecodedSensorSample:
     firmware_version: str
     map_version: int
     sequence: int
+    sen55_device_status_supported: bool
+    sen55_device_status_valid: bool
+    sen55_fan_speed_warning: bool
+    sen55_fan_cleaning: bool
+    sen55_gas_sensor_error: bool
+    sen55_rht_error: bool
+    sen55_laser_error: bool
+    sen55_fan_error: bool
 
 
 def _signed_16(value: int) -> int:
@@ -70,7 +78,7 @@ def decode_sensor_registers(
         raise UnsupportedMapVersion(map_version, expected_map_version)
 
     availability = SensorAvailability(registers[8] & 0xFF)
-    status = SensorNodeStatus(registers[9] & 0xFF)
+    status = SensorNodeStatus(registers[9] & 0xFFFF)
     age = None if registers[10] == 0xFFFF else registers[10]
     firmware = registers[15]
 
@@ -106,4 +114,20 @@ def decode_sensor_registers(
         firmware_version=f"{(firmware >> 8) & 0xFF}.{firmware & 0xFF}",
         map_version=map_version,
         sequence=_combine_u32(registers[17], registers[18]),
+        sen55_device_status_supported=bool(
+            status & SensorNodeStatus.SEN55_DEVICE_STATUS_SUPPORTED
+        ),
+        sen55_device_status_valid=bool(
+            status & SensorNodeStatus.SEN55_DEVICE_STATUS_VALID
+        ),
+        sen55_fan_speed_warning=bool(
+            status & SensorNodeStatus.SEN55_FAN_SPEED_WARNING
+        ),
+        sen55_fan_cleaning=bool(status & SensorNodeStatus.SEN55_FAN_CLEANING),
+        sen55_gas_sensor_error=bool(
+            status & SensorNodeStatus.SEN55_GAS_SENSOR_ERROR
+        ),
+        sen55_rht_error=bool(status & SensorNodeStatus.SEN55_RHT_ERROR),
+        sen55_laser_error=bool(status & SensorNodeStatus.SEN55_LASER_ERROR),
+        sen55_fan_error=bool(status & SensorNodeStatus.SEN55_FAN_ERROR),
     )
