@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -103,12 +104,13 @@ class TelemetryStoreTest(unittest.TestCase):
         self.assertEqual(deleted["raw"], 0)
         self.assertEqual(self.store.total_count(), 2)
 
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection:
             for resolution in ("1m", "15m"):
                 connection.execute(
                     "INSERT INTO telemetry_rollup_state(resolution, processed_until) VALUES (?, ?)",
                     (resolution, now.isoformat()),
                 )
+            connection.commit()
 
         deleted = self.store.prune_history(
             raw_retention_days=7,
