@@ -13,3 +13,5 @@ idf_component_register(
         esp_timer
         espressif__esp-modbus
 )
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE WVC_FORCE_SEN55_FAN_ALERT_TEST=1)
