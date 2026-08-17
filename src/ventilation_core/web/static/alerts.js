@@ -128,14 +128,18 @@ async function acknowledgeModalAlerts() {
 
   alertAckInFlight = true;
   renderCoreAlertModal(coreAlertSnapshot.active);
+  let ackError = "";
   try {
     for (const alert of pending) await acknowledgeAlert(alert.alert_id);
     await pollCoreAlerts();
   } catch (error) {
-    document.getElementById("globalSystemAlertNote").textContent = `Nie udało się zapisać potwierdzenia w core: ${String(error.message || error)}`;
+    ackError = `Nie udało się zapisać potwierdzenia w core: ${String(error.message || error)}`;
   } finally {
     alertAckInFlight = false;
     renderCoreAlertModal(coreAlertSnapshot.active);
+    if (ackError && !document.getElementById("globalSystemAlert").hidden) {
+      document.getElementById("globalSystemAlertNote").textContent = ackError;
+    }
   }
 }
 
