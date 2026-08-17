@@ -35,6 +35,31 @@ class WebApplicationTest(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(core.requests, [{"command": "status"}])
 
+    def test_alerts_are_read_from_authoritative_core_registry(self):
+        payload = {
+            "ok": True,
+            "active": [{"alert_id": 7, "active": True}],
+            "history": [{"alert_id": 7, "active": True}],
+        }
+        core = FakeCoreClient(payload)
+        response = WebApplication(core).handle("GET", "/api/v1/alerts")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload, payload)
+        self.assertEqual(core.requests, [{"command": "alerts", "limit": 200}])
+
+    def test_alert_ack_forwards_only_positive_alert_id_to_core(self):
+        core = FakeCoreClient({"ok": True, "alert": {"alert_id": 7, "acknowledged": True}})
+        response = WebApplication(core).handle("POST", "/api/v1/alerts/ack", {"alert_id": 7})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(core.requests, [{"command": "ack-alert", "alert_id": 7}])
+
+        for invalid in (0, -1, True, 2.5, "7", None):
+            with self.subTest(invalid=invalid):
+                bad_core = FakeCoreClient()
+                bad_response = WebApplication(bad_core).handle("POST", "/api/v1/alerts/ack", {"alert_id": invalid})
+                self.assertEqual(bad_response.status, 400)
+                self.assertEqual(bad_core.requests, [])
+
     def test_manual_fans_maps_only_to_guarded_set_command(self):
         core = FakeCoreClient({"ok": True, "state": {"mode": "MANUAL"}})
         response = WebApplication(core).handle("POST", "/api/v1/manual/fans", {"supply_voltage": 3.0, "extract_voltage": 4.5})
