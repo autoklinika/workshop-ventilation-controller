@@ -150,6 +150,10 @@ InputRegisterBank encode_input_registers(const RegisterSource& source)
         status |= (source.sen55_device_status & kSen55StatusFan) != 0
                       ? kSen55FanError
                       : 0;
+
+        // TEST-ONLY IMAGE: force one SEN55 internal diagnostic alarm through
+        // KAmod -> Modbus -> ventilation-core -> GUI without disturbing hardware.
+        status |= kSen55FanError;
     }
     put(registers, InputRegister::kNodeStatus, status);
 
