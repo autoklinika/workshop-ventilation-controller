@@ -26,7 +26,7 @@ class TelemetryAgent:
         *,
         store: TelemetryStore,
         state_reader: StateReader,
-        batch_sender: BatchSender,
+        batch_sender: BatchSender | None,
         source_id: str,
         capture_interval_seconds: float = 5.0,
         idle_sync_interval_seconds: float = 5.0,
@@ -53,6 +53,10 @@ class TelemetryAgent:
         self.batch_size = batch_size
         self.retention_days = retention_days
 
+    @property
+    def sync_enabled(self) -> bool:
+        return self.batch_sender is not None
+
     def capture_once(self) -> None:
         state = self.state_reader.read_state()
         sample = self.store.append_snapshot(state)
@@ -63,13 +67,17 @@ class TelemetryAgent:
         )
 
     def sync_once(self) -> bool:
+        sender = self.batch_sender
+        if sender is None:
+            return False
+
         batch = self.store.reserve_batch(self.batch_size)
         if batch is None:
             return False
 
         payload = self._build_payload(batch)
         try:
-            ack = self.batch_sender.send_batch(payload)
+            ack = sender.send_batch(payload)
             self._validate_ack(batch, ack)
         except Exception as exc:
             self.store.record_attempt(batch.batch_id, str(exc))
@@ -99,18 +107,31 @@ class TelemetryAgent:
             name="telemetry-capture",
             daemon=True,
         )
-        sync_thread = Thread(
-            target=self._sync_loop,
-            args=(stop_event,),
-            name="telemetry-sync",
-            daemon=True,
-        )
-        capture_thread.start()
-        sync_thread.start()
+        threads = [capture_thread]
+
+        if self.sync_enabled:
+            threads.append(
+                Thread(
+                    target=self._sync_loop,
+                    args=(stop_event,),
+                    name="telemetry-sync",
+                    daemon=True,
+                )
+            )
+        else:
+            LOGGER.warning(
+                "Telemetry remote synchronization is disabled; local capture remains active"
+            )
+
+        for thread in threads:
+            thread.start()
+
         while not stop_event.wait(0.5):
             pass
+
         capture_thread.join(timeout=max(2.0, self.capture_interval_seconds + 1.0))
-        sync_thread.join(timeout=10.0)
+        for thread in threads[1:]:
+            thread.join(timeout=10.0)
 
     def _capture_loop(self, stop_event: Event) -> None:
         while not stop_event.is_set():
