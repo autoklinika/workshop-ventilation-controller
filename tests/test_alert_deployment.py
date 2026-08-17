@@ -1,7 +1,8 @@
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from ventilation_core.main import build_parser
+from ventilation_core.main import build_parser, run_core
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,34 @@ class AlertDeploymentTest(unittest.TestCase):
         )
         self.assertIn("User=wentylacja", unit)
         self.assertIn("Group=wentylacja", unit)
+
+
+class AlertStartupCleanupTest(unittest.IsolatedAsyncioTestCase):
+    async def test_registry_closes_if_actuator_constructor_fails(self) -> None:
+        args = build_parser().parse_args(
+            ["--disable-sensor-bus", "--disable-aero-bus"]
+        )
+        store = Mock()
+        registry = Mock()
+
+        with (
+            patch(
+                "ventilation_core.main.SqliteAlertStore",
+                return_value=store,
+            ),
+            patch(
+                "ventilation_core.main.AlertRegistry",
+                return_value=registry,
+            ),
+            patch(
+                "ventilation_core.main.ProcessIsolatedActuator",
+                side_effect=RuntimeError("DAC init failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "DAC init failed"):
+                await run_core(args)
+
+        registry.close.assert_called_once_with()
 
 
 if __name__ == "__main__":
