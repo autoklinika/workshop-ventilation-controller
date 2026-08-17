@@ -23,16 +23,6 @@ function renderControlTopbarClock() {
   tachoUi.date.textContent = new Intl.DateTimeFormat("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric" }).format(now);
 }
 
-function controlNodeByAddress(sensorBus, address) {
-  return sensorBus && Array.isArray(sensorBus.nodes)
-    ? sensorBus.nodes.find((node) => node.slave_address === address) || null
-    : null;
-}
-
-function controlSensorOk(node) {
-  return Boolean(node && node.online === true && node.usable === true && node.measurement_valid === true && node.measurement_stale !== true);
-}
-
 function dualTachoConfigured(tacho) {
   return Boolean(tacho && tacho.supply && tacho.extract);
 }
@@ -44,22 +34,7 @@ function renderControlTopbarState(state) {
     return;
   }
   const alarms = Array.isArray(state.active_alarms) ? state.active_alarms : [];
-  const config = typeof publicConfig !== "undefined" ? publicConfig : { zone1: { sensor_address: 1 }, zone2: { sensor_address: 2 } };
-  const zone1 = controlNodeByAddress(state.sensor_bus, config.zone1.sensor_address);
-  const zone2 = controlNodeByAddress(state.sensor_bus, config.zone2.sensor_address);
-  const aero = state.aero_bus;
-  const tacho = state.tacho;
-  const coreOk = state.hardware_ready === true && state.output_state_known === true && alarms.length === 0;
-  const sensorsOk = controlSensorOk(zone1) && controlSensorOk(zone2);
-  const aeroOk = Boolean(aero && aero.ready === true && aero.worker_alive === true && aero.online === true && aero.usable === true);
-  const tachoOk = Boolean(
-    tacho &&
-    tacho.ready === true &&
-    tacho.worker_alive === true &&
-    !tacho.last_error &&
-    dualTachoConfigured(tacho)
-  );
-  const allOk = coreOk && sensorsOk && aeroOk && tachoOk;
+  const allOk = alarms.length === 0;
   tachoUi.systemDot.className = `v2-dot ${allOk ? "good" : "warn"}`;
   tachoUi.systemText.textContent = allOk ? "System OK" : "System UWAGA";
 }
