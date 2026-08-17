@@ -1,15 +1,29 @@
 "use strict";
 
+function ensureSettingsView() {
+  const host = document.getElementById("viewHost");
+  if (!host || document.getElementById("settingsView")) return;
+  const section = document.createElement("section");
+  section.id = "settingsView";
+  section.className = "v2-shell-view v2-settings-view";
+  section.dataset.view = "settings";
+  section.hidden = true;
+  section.innerHTML = '<section class="v2-page-heading"><h1>USTAWIENIA</h1><p>Konfiguracja i diagnostyka systemu</p></section><div id="zigbeeSettingsMount"></div>';
+  host.appendChild(section);
+}
+
 function setV2View(path, push = false) {
-  const target = path.startsWith("/control") ? "/control" : path.startsWith("/alerts") ? "/alerts" : "/";
+  const target = path.startsWith("/control") ? "/control" : path.startsWith("/alerts") ? "/alerts" : path.startsWith("/settings") ? "/settings" : "/";
   const dashboardView = document.getElementById("dashboardView");
   const controlView = document.getElementById("controlView");
   const alertsView = document.getElementById("alertsView");
-  if (!dashboardView || !controlView || !alertsView) return;
+  const settingsView = document.getElementById("settingsView");
+  if (!dashboardView || !controlView || !alertsView || !settingsView) return;
 
   dashboardView.hidden = target !== "/";
   controlView.hidden = target !== "/control";
   alertsView.hidden = target !== "/alerts";
+  settingsView.hidden = target !== "/settings";
 
   document.querySelectorAll(".v2-nav[data-route]").forEach((item) => {
     const active = item.dataset.route === target;
@@ -66,15 +80,17 @@ function wireV2Navigation() {
   const nav = [...document.querySelectorAll(".v2-nav")];
   const zones = nav.find((el) => el.textContent.trim() === "STREFY");
   const alerts = nav.find((el) => el.textContent.trim() === "ALERTY");
+  const settings = nav.find((el) => el.textContent.trim() === "USTAWIENIA");
   const service = nav.find((el) => el.textContent.trim() === "SERWIS");
   const dashboard = nav.find((el) => el.textContent.trim() === "PULPIT");
   if (zones) { zones.classList.remove("disabled"); zones.removeAttribute("aria-disabled"); zones.href = "/control"; zones.dataset.route = "/control"; }
   if (alerts) { alerts.classList.remove("disabled"); alerts.removeAttribute("aria-disabled"); alerts.href = "/alerts"; alerts.dataset.route = "/alerts"; }
+  if (settings) { settings.classList.remove("disabled"); settings.removeAttribute("aria-disabled"); settings.href = "/settings"; settings.dataset.route = "/settings"; }
   if (dashboard) dashboard.dataset.route = "/";
   if (service) { service.classList.add("disabled"); service.setAttribute("aria-disabled", "true"); service.href = "#"; }
 
   document.addEventListener("click", (event) => {
-    const link = event.target.closest('a[href="/"],a[href="/control"],a[href="/alerts"]');
+    const link = event.target.closest('a[href="/"],a[href="/control"],a[href="/alerts"],a[href="/settings"]');
     if (!link) return;
     event.preventDefault();
     setV2View(link.getAttribute("href") || "/", true);
@@ -83,8 +99,13 @@ function wireV2Navigation() {
   setV2View(window.location.pathname);
 }
 
+ensureSettingsView();
 wireV2Navigation();
 hydrateControlView();
+loadV2Script("/zigbee-settings.js").catch((error) => {
+  const mount = document.getElementById("zigbeeSettingsMount");
+  if (mount) mount.textContent = `Nie udało się załadować modułu Zigbee: ${String(error.message || error)}`;
+});
 
 const card=document.querySelector('.v2-unit-card');if(card){card.className='v2-weather-card';card.innerHTML='<span class="v2-weather-kicker">POGODA</span><h2>Na zewnątrz</h2><div class="v2-weather-main"><span id="weatherIcon" class="v2-weather-icon">◌</span><strong id="weatherTemp">—</strong></div><p id="weatherCondition" class="v2-weather-condition">Brak danych pogodowych</p><p id="weatherLocation" class="v2-weather-location">Warsztat</p><div class="v2-weather-metrics"><div><span>Opady</span><strong id="weatherRain">—</strong></div><div><span>Wiatr</span><strong id="weatherWind">—</strong></div></div><div class="v2-weather-source">Źródło: MET Norway</div>'}
 const $=id=>document.getElementById(id),u={clock:$('clock'),date:$('date'),systemDot:$('systemDot'),systemText:$('systemText'),z1n:$('zone1Name'),z2n:$('zone2Name'),z1d:$('zone1Dot'),z2d:$('zone2Dot'),z1s:$('zone1AirStatus'),z2s:$('zone2AirStatus'),z1v:$('zone1Voc'),z2v:$('zone2Voc'),z1p:$('zone1Pm25'),z2p:$('zone2Pm25'),vp:$('zone1VentilationPercent'),sp:$('zone1SupplyPercent'),ep:$('zone1ExtractPercent'),mode:$('zone1Mode'),b1:$('zone1Bar'),am:$('zone2AeroMode'),ae:$('zone2AeroExtra'),as:$('zone2AeroSupply'),ax:$('zone2AeroExtract'),b2:$('zone2Bar'),wi:$('weatherIcon'),wt:$('weatherTemp'),wc:$('weatherCondition'),wl:$('weatherLocation'),wr:$('weatherRain'),ww:$('weatherWind')};
