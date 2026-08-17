@@ -13,7 +13,8 @@ class SqliteAlertStore:
 
     Writes occur only on lifecycle transitions or when alert details materially
     change, so normal 1 Hz health supervision does not generate continuous eMMC
-    writes.
+    writes. Occurrence-only growth is batched by AlertRegistry; the final exact
+    count is written together with the CLEARED transition.
     """
 
     def __init__(self, path: Path) -> None:
@@ -136,15 +137,28 @@ class SqliteAlertStore:
                 raise ValueError(f"Alert {alert_id} is not active")
             return self._get(alert_id)
 
-    def clear(self, alert_id: int, cleared_at: str) -> AlertRecord:
+    def clear(
+        self,
+        alert_id: int,
+        cleared_at: str,
+        final_occurrences: int | None = None,
+    ) -> AlertRecord:
         with self._lock:
+            existing = self._find(alert_id)
+            if existing is None:
+                raise ValueError(f"Unknown alert id: {alert_id}")
+            occurrences = max(
+                existing.occurrences,
+                final_occurrences or existing.occurrences,
+            )
             cursor = self._connection.execute(
                 """
                 UPDATE alerts
-                   SET cleared_at = COALESCE(cleared_at, ?)
+                   SET cleared_at = COALESCE(cleared_at, ?),
+                       occurrences = MAX(occurrences, ?)
                  WHERE alert_id = ?
                 """,
-                (cleared_at, alert_id),
+                (cleared_at, occurrences, alert_id),
             )
             self._connection.commit()
             if cursor.rowcount != 1:
