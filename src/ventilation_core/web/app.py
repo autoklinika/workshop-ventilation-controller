@@ -38,9 +38,13 @@ class WebApplication:
     """Narrow application boundary exposed to the browser.
 
     The browser never receives a generic ventilation-core command proxy and never
-    opens SQLite directly. ALERTY remain owned by ventilation-core. Local history
-    is exposed through a bounded read-only adapter only.
+    opens SQLite directly. ALERTY and schedule execution remain owned by
+    ventilation-core. Local history is exposed through a bounded read-only adapter only.
     """
+
+    SCHEDULE_ZONES = ("zone-1", "zone-2")
+    SCHEDULE_EXPECTATIONS = ("OCCUPIED_EXPECTED", "UNOCCUPIED_EXPECTED")
+    MAX_SCHEDULE_WINDOWS_PER_ZONE = 64
 
     def __init__(
         self,
@@ -60,6 +64,8 @@ class WebApplication:
                 return self._state()
             if method == "GET" and path == "/api/v1/alerts":
                 return self._alerts()
+            if method == "GET" and path == "/api/v1/schedule":
+                return self._schedule()
             if method == "GET" and path == "/api/v1/config":
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
@@ -72,6 +78,8 @@ class WebApplication:
                 return self._history_query(body)
             if method == "POST" and path == "/api/v1/alerts/ack":
                 return self._ack_alert(body)
+            if method == "POST" and path == "/api/v1/schedule/zone":
+                return self._schedule_replace(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -103,6 +111,33 @@ class WebApplication:
         ):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _schedule(self) -> ApiResponse:
+        response = self._core.request({"command": "schedule"})
+        if response.get("ok") is not True or not isinstance(response.get("schedule"), dict):
+            return self._core_rejection(response)
+        return ApiResponse(200, response)
+
+    def _schedule_replace(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        zone = data.get("zone")
+        if zone not in self.SCHEDULE_ZONES:
+            raise ValueError("zone must be one of: zone-1, zone-2")
+        windows = data.get("windows")
+        if not isinstance(windows, list):
+            raise ValueError("windows must be a JSON list")
+        if len(windows) > self.MAX_SCHEDULE_WINDOWS_PER_ZONE:
+            raise ValueError(
+                f"windows may contain at most {self.MAX_SCHEDULE_WINDOWS_PER_ZONE} entries"
+            )
+        sanitized = [self._sanitize_schedule_window(window) for window in windows]
+        return self._command(
+            {
+                "command": "schedule-replace",
+                "zone": zone,
+                "windows": sanitized,
+            }
+        )
 
     def _history_status(self) -> ApiResponse:
         provider = self._history_provider
@@ -225,6 +260,39 @@ class WebApplication:
         if response.get("ok") is True:
             return ApiResponse(200, response)
         return self._core_rejection(response)
+
+    @classmethod
+    def _sanitize_schedule_window(cls, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValueError("each schedule window must be a JSON object")
+        allowed = {"weekday", "start_local", "end_local", "expectation", "enabled", "label"}
+        unknown = set(value) - allowed
+        if unknown:
+            raise ValueError(f"unsupported schedule window fields: {sorted(unknown)}")
+        weekday = value.get("weekday")
+        if isinstance(weekday, bool) or not isinstance(weekday, int) or not 1 <= weekday <= 7:
+            raise ValueError("weekday must be an integer in ISO range 1..7")
+        start_local = value.get("start_local")
+        end_local = value.get("end_local")
+        if not isinstance(start_local, str) or not isinstance(end_local, str):
+            raise ValueError("start_local and end_local must be HH:MM text")
+        expectation = value.get("expectation", "OCCUPIED_EXPECTED")
+        if expectation not in cls.SCHEDULE_EXPECTATIONS:
+            raise ValueError("unsupported schedule expectation")
+        enabled = value.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be boolean")
+        label = value.get("label", "")
+        if not isinstance(label, str) or len(label) > 80:
+            raise ValueError("label must be text up to 80 characters")
+        return {
+            "weekday": weekday,
+            "start_local": start_local,
+            "end_local": end_local,
+            "expectation": expectation,
+            "enabled": enabled,
+            "label": label,
+        }
 
     @staticmethod
     def _core_rejection(response: dict[str, Any]) -> ApiResponse:
