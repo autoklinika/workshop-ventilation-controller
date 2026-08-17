@@ -59,7 +59,7 @@ std::uint16_t encode_signed(const float value,
         scaled,
         static_cast<double>(std::numeric_limits<std::int16_t>::min()),
         static_cast<double>(std::numeric_limits<std::int16_t>::max()));
-    const auto signed_value = static_cast<std::int16_t>(clamped);
+    const auto signed_value = static_cast<std::int16_t>(scaled);
     return static_cast<std::uint16_t>(signed_value);
 }
 
@@ -150,10 +150,10 @@ InputRegisterBank encode_input_registers(const RegisterSource& source)
         status |= (source.sen55_device_status & kSen55StatusFan) != 0
                       ? kSen55FanError
                       : 0;
-
-        // TEST-ONLY IMAGE: force one SEN55 internal diagnostic alarm through
-        // KAmod -> Modbus -> ventilation-core -> GUI without disturbing hardware.
+#ifdef WVC_FORCE_SEN55_FAN_ALERT_TEST
+        // TEST-ONLY IMAGE: exercise KAmod -> Modbus -> core -> GUI alert path.
         status |= kSen55FanError;
+#endif
     }
     put(registers, InputRegister::kNodeStatus, status);
 
@@ -179,10 +179,10 @@ InputRegisterBank encode_input_registers(const RegisterSource& source)
     const auto sequence_low_32 = static_cast<std::uint32_t>(source.measurement_sequence);
     put(registers,
         InputRegister::kMeasurementSequenceHigh,
-        static_cast<std::uint16_t>(sequence_low_32 >> 16U));
+        static_cast<std::uint16_t>(source.sequence_low_32 >> 16U));
     put(registers,
         InputRegister::kMeasurementSequenceLow,
-        static_cast<std::uint16_t>(sequence_low_32 & 0xFFFFU));
+        static_cast<std::uint16_t>(source.sequence_low_32 & 0xFFFFU));
 
     return registers;
 }
