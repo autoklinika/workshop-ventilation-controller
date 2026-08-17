@@ -181,7 +181,11 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
                 )
                 continue
 
-            age = _age_seconds(device.last_message_at)
+            age = _age_seconds(device.last_seen)
+            age_source = "last_seen"
+            if age is None:
+                age = _age_seconds(device.last_message_at)
+                age_source = "last_message_at"
             if (
                 device.messages > 0
                 and age is not None
@@ -195,7 +199,7 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
                         severity=AlarmSeverity.WARNING,
                         message=f"Zigbee {device.friendly_name}: brak świeżych danych",
                         detail=(
-                            f"Ostatnia wiadomość core ma {int(age)} s; "
+                            f"Wiek ostatniego pomiaru ({age_source}) {int(age)} s; "
                             f"próg {int(self._zigbee_stale_seconds)} s"
                         ),
                     )
