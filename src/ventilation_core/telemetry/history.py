@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any
+from typing import Any, Iterator
 
 
 class TelemetryHistoryUnavailable(RuntimeError):
@@ -240,7 +241,8 @@ class TelemetryHistoryReader:
         assert row is not None
         return int(row["count"] or 0)
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(
             f"file:{self.path}?mode=ro",
             uri=True,
@@ -249,4 +251,7 @@ class TelemetryHistoryReader:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
+        try:
+            yield connection
+        finally:
+            connection.close()
