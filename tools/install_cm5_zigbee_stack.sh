@@ -117,8 +117,15 @@ if [[ -e "${Z2M_DIR}" && ! -d "${Z2M_DIR}/.git" ]]; then
 fi
 
 if [[ ! -d "${Z2M_DIR}/.git" ]]; then
+    # /opt is root-owned on Debian. Create the empty checkout directory as
+    # root and hand only that directory to the unprivileged service user.
+    # This keeps Git/npm work out of the root account while allowing a clean
+    # first install and a safe retry after an interrupted Stage 2 run.
     rm -rf "${Z2M_DIR}"
-    sudo -u wentylacja git clone --branch "${Z2M_VERSION}" --depth 1 https://github.com/Koenkk/zigbee2mqtt.git "${Z2M_DIR}"
+    install -d -m 0755 -o wentylacja -g wentylacja "${Z2M_DIR}"
+    sudo -u wentylacja env HOME=/home/wentylacja \
+        git clone --branch "${Z2M_VERSION}" --depth 1 \
+        https://github.com/Koenkk/zigbee2mqtt.git "${Z2M_DIR}"
 else
     current_tag="$(sudo -u wentylacja git -C "${Z2M_DIR}" describe --tags --exact-match 2>/dev/null || true)"
     [[ "${current_tag}" == "${Z2M_VERSION}" ]] || fail "${Z2M_DIR} is at '${current_tag:-untagged}', expected ${Z2M_VERSION}"
