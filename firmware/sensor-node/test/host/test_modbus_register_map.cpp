@@ -32,7 +32,7 @@ void test_complete_measurement()
     source.sensor_error_count = 7;
     source.modbus_service_error_count = 3;
     source.uptime_seconds = 0x12345678U;
-    source.firmware_version = 0x0002U;
+    source.firmware_version = 0x0006U;
     source.measurement_sequence = 0xABCDEF0123456789ULL;
 
     const auto bank = modbus::encode_input_registers(source);
@@ -54,7 +54,7 @@ void test_complete_measurement()
     assert(at(bank, modbus::InputRegister::kModbusServiceErrorCount) == 3U);
     assert(at(bank, modbus::InputRegister::kUptimeHigh) == 0x1234U);
     assert(at(bank, modbus::InputRegister::kUptimeLow) == 0x5678U);
-    assert(at(bank, modbus::InputRegister::kFirmwareVersion) == 0x0002U);
+    assert(at(bank, modbus::InputRegister::kFirmwareVersion) == 0x0006U);
     assert(at(bank, modbus::InputRegister::kRegisterMapVersion) == 1U);
     assert(at(bank, modbus::InputRegister::kMeasurementSequenceHigh) == 0x2345U);
     assert(at(bank, modbus::InputRegister::kMeasurementSequenceLow) == 0x6789U);
@@ -92,6 +92,56 @@ void test_unavailable_and_status_fields()
     assert(at(bank, modbus::InputRegister::kModbusServiceErrorCount) == 0xFFFFU);
 }
 
+void test_sen55_device_status_extension()
+{
+    modbus::RegisterSource source{};
+    source.sen55_device_status_supported = true;
+    source.sen55_device_status_valid = true;
+    source.sen55_device_status =
+        (1UL << 21) |  // fan speed warning
+        (1UL << 19) |  // fan cleaning info
+        (1UL << 7)  |  // gas sensor error
+        (1UL << 6)  |  // RHT error
+        (1UL << 5)  |  // laser error
+        (1UL << 4);    // fan error
+
+    const auto bank = modbus::encode_input_registers(source);
+
+    const std::uint16_t expected =
+        modbus::kSen55DeviceStatusSupported |
+        modbus::kSen55DeviceStatusValid |
+        modbus::kSen55FanSpeedWarning |
+        modbus::kSen55FanCleaning |
+        modbus::kSen55GasSensorError |
+        modbus::kSen55RhtError |
+        modbus::kSen55LaserError |
+        modbus::kSen55FanError |
+        modbus::kMeasurementStale |
+        modbus::kInitializing;
+
+    assert(at(bank, modbus::InputRegister::kNodeStatus) == expected);
+}
+
+void test_sen55_status_not_exposed_when_invalid()
+{
+    modbus::RegisterSource source{};
+    source.sen55_device_status_supported = true;
+    source.sen55_device_status_valid = false;
+    source.sen55_device_status = 0xFFFFFFFFUL;
+
+    const auto bank = modbus::encode_input_registers(source);
+    const auto status = at(bank, modbus::InputRegister::kNodeStatus);
+
+    assert((status & modbus::kSen55DeviceStatusSupported) != 0U);
+    assert((status & modbus::kSen55DeviceStatusValid) == 0U);
+    assert((status & modbus::kSen55FanSpeedWarning) == 0U);
+    assert((status & modbus::kSen55FanCleaning) == 0U);
+    assert((status & modbus::kSen55GasSensorError) == 0U);
+    assert((status & modbus::kSen55RhtError) == 0U);
+    assert((status & modbus::kSen55LaserError) == 0U);
+    assert((status & modbus::kSen55FanError) == 0U);
+}
+
 void test_scaling_saturation()
 {
     modbus::RegisterSource source{};
@@ -113,6 +163,8 @@ int main()
 {
     test_complete_measurement();
     test_unavailable_and_status_fields();
+    test_sen55_device_status_extension();
+    test_sen55_status_not_exposed_when_invalid();
     test_scaling_saturation();
     return 0;
 }
