@@ -41,6 +41,8 @@ class WebApplication:
         try:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
+            if method == "GET" and path == "/api/v1/zigbee":
+                return self._zigbee()
             if method == "GET" and path == "/api/v1/alerts":
                 return self._alerts()
             if method == "GET" and path == "/api/v1/config":
@@ -70,6 +72,19 @@ class WebApplication:
         if response.get("ok") is not True or not isinstance(response.get("state"), dict):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _zigbee(self) -> ApiResponse:
+        response = self._core.request({"command": "status"})
+        state = response.get("state")
+        if response.get("ok") is not True or not isinstance(state, dict):
+            return self._core_rejection(response)
+        zigbee = state.get("zigbee")
+        if not isinstance(zigbee, dict):
+            return ApiResponse(
+                503,
+                {"ok": False, "error": "Zigbee telemetry is not available from ventilation-core"},
+            )
+        return ApiResponse(200, {"ok": True, "zigbee": zigbee})
 
     def _alerts(self) -> ApiResponse:
         response = self._core.request({"command": "alerts", "limit": 200})
