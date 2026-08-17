@@ -24,7 +24,7 @@
       </aside>
       <section class="zigbee-settings-content">
         <header class="zigbee-settings-header">
-          <div><span class="zigbee-settings-kicker">ZIGBEE</span><h2>Sieć i urządzenia</h2><p>Stan i operacje pochodzą wyłącznie z ventilation-core. GUI nie łączy się bezpośrednio z MQTT ani Zigbee2MQTT.</p></div>
+          <div><span class="zigbee-settings-kicker">ZIGBEE</span><h2>Sieć i urządzenia</h2><p>Stan i operacje pochodzą wyłącznie z ventilation-core. Role NAWIEW/WYWIEW są zapisywane trwale w core.</p></div>
           <span id="zigbeeSettingsStatus" class="zigbee-status-pill neutral">ŁĄCZENIE…</span>
         </header>
         <section class="zigbee-summary" aria-label="Stan Zigbee">
@@ -54,59 +54,27 @@
 
   const byId = (id) => document.getElementById(id);
   const ui = {
-    status: byId("zigbeeSettingsStatus"),
-    mqtt: byId("zigbeeSummaryMqtt"),
-    broker: byId("zigbeeSummaryBroker"),
-    bridge: byId("zigbeeSummaryBridge"),
-    join: byId("zigbeeSummaryJoin"),
-    devices: byId("zigbeeSummaryDevices"),
-    errors: byId("zigbeeSummaryErrors"),
-    error: byId("zigbeeSettingsError"),
-    updated: byId("zigbeeSettingsUpdated"),
-    inventoryUpdated: byId("zigbeeInventoryUpdated"),
-    grid: byId("zigbeeDeviceGrid"),
-    inventory: byId("zigbeeInventoryGrid"),
-    permit: byId("zigbeePermitJoin"),
-    closeJoin: byId("zigbeeCloseJoin"),
-    managementMessage: byId("zigbeeManagementMessage"),
+    status: byId("zigbeeSettingsStatus"), mqtt: byId("zigbeeSummaryMqtt"), broker: byId("zigbeeSummaryBroker"),
+    bridge: byId("zigbeeSummaryBridge"), join: byId("zigbeeSummaryJoin"), devices: byId("zigbeeSummaryDevices"),
+    errors: byId("zigbeeSummaryErrors"), error: byId("zigbeeSettingsError"), updated: byId("zigbeeSettingsUpdated"),
+    inventoryUpdated: byId("zigbeeInventoryUpdated"), grid: byId("zigbeeDeviceGrid"), inventory: byId("zigbeeInventoryGrid"),
+    permit: byId("zigbeePermitJoin"), closeJoin: byId("zigbeeCloseJoin"), managementMessage: byId("zigbeeManagementMessage"),
   };
   let currentState = null;
   let managementBusy = false;
 
   function esc(value) {
-    return String(value ?? "—")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+    return String(value ?? "—").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
   }
-
-  function finite(value) {
-    return typeof value === "number" && Number.isFinite(value);
-  }
-
-  function number(value, digits = 0) {
-    return finite(value)
-      ? value.toLocaleString("pl-PL", { minimumFractionDigits: digits, maximumFractionDigits: digits })
-      : "—";
-  }
-
+  function finite(value) { return typeof value === "number" && Number.isFinite(value); }
+  function number(value, digits = 0) { return finite(value) ? value.toLocaleString("pl-PL", { minimumFractionDigits: digits, maximumFractionDigits: digits }) : "—"; }
   function dateTime(value) {
     if (typeof value !== "string" || !value) return "—";
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
-    return new Intl.DateTimeFormat("pl-PL", {
-      day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit"
-    }).format(parsed);
+    return new Intl.DateTimeFormat("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(parsed);
   }
-
-  function roleName(role) {
-    if (role === "supply") return "NAWIEW";
-    if (role === "extract") return "WYWIEW";
-    return String(role || "URZĄDZENIE").toUpperCase();
-  }
-
+  function roleName(role) { if (role === "supply") return "NAWIEW"; if (role === "extract") return "WYWIEW"; return "BEZ ROLI"; }
   function availability(device) {
     if (device.available === true) return { text: "ONLINE", cls: "good" };
     if (device.available === false) return { text: "OFFLINE", cls: "bad" };
@@ -120,46 +88,28 @@
     const battery = finite(device.battery_percent) ? `${number(device.battery_percent)} %` : "—";
     const lqi = Number.isInteger(device.linkquality) ? String(device.linkquality) : "—";
     const availabilityRaw = device.available === true ? "online" : device.available === false ? "offline" : "niepublikowane";
-    return `
-      <article class="zigbee-device-card">
-        <header>
-          <div><span class="zigbee-device-role">${esc(roleName(device.role))}</span><h4>${esc(device.friendly_name)}</h4></div>
-          <span class="zigbee-device-state ${state.cls}">${esc(state.text)}</span>
-        </header>
-        <div class="zigbee-device-primary"><span>Temperatura</span><strong>${esc(temp)}</strong></div>
-        <dl class="zigbee-device-data">
-          <div><dt>Bateria</dt><dd>${esc(battery)}</dd></div>
-          <div><dt>Link quality</dt><dd>${esc(lqi)}</dd></div>
-          <div><dt>IEEE</dt><dd class="mono">${esc(device.ieee_address)}</dd></div>
-          <div><dt>Topic</dt><dd class="mono">${esc(device.topic)}</dd></div>
-          <div><dt>Availability</dt><dd>${esc(availabilityRaw)}</dd></div>
-          <div><dt>Ostatni pomiar urządzenia</dt><dd>${esc(dateTime(device.last_seen))}</dd></div>
-          <div><dt>Odebrano przez core</dt><dd>${esc(dateTime(device.last_message_at))}</dd></div>
-          <div><dt>Wiadomości / błędy</dt><dd>${esc(device.messages || 0)} / ${esc(device.parse_errors || 0)}</dd></div>
-        </dl>
-      </article>`;
+    return `<article class="zigbee-device-card"><header><div><span class="zigbee-device-role">${esc(roleName(device.role))}</span><h4>${esc(device.friendly_name)}</h4></div><span class="zigbee-device-state ${state.cls}">${esc(state.text)}</span></header><div class="zigbee-device-primary"><span>Temperatura</span><strong>${esc(temp)}</strong></div><dl class="zigbee-device-data"><div><dt>Bateria</dt><dd>${esc(battery)}</dd></div><div><dt>Link quality</dt><dd>${esc(lqi)}</dd></div><div><dt>IEEE</dt><dd class="mono">${esc(device.ieee_address)}</dd></div><div><dt>Topic</dt><dd class="mono">${esc(device.topic)}</dd></div><div><dt>Availability</dt><dd>${esc(availabilityRaw)}</dd></div><div><dt>Ostatni pomiar urządzenia</dt><dd>${esc(dateTime(device.last_seen))}</dd></div><div><dt>Odebrano przez core</dt><dd>${esc(dateTime(device.last_message_at))}</dd></div><div><dt>Wiadomości / błędy</dt><dd>${esc(device.messages || 0)} / ${esc(device.parse_errors || 0)}</dd></div></dl></article>`;
   }
 
-  function renderInventoryDevice(device) {
+  function renderUnassignedRole(role) {
+    return `<article class="zigbee-device-card unassigned"><header><div><span class="zigbee-device-role">${esc(roleName(role))}</span><h4>NIEPRZYPISANE</h4></div><span class="zigbee-device-state neutral">BRAK URZĄDZENIA</span></header><div class="zigbee-unassigned-role">W inwentarzu wybierz urządzenie i przypisz mu rolę ${esc(roleName(role))}.</div></article>`;
+  }
+
+  function assignedRole(ieee, devices) {
+    const match = devices.find((device) => device.ieee_address === ieee);
+    return match ? match.role : null;
+  }
+
+  function renderInventoryDevice(device, devices) {
     const coordinator = device.is_coordinator === true;
     const model = device.model || device.description || "—";
     const meta = [device.vendor, device.device_type, device.power_source].filter(Boolean).join(" · ") || "—";
-    return `
-      <article class="zigbee-inventory-card ${coordinator ? "coordinator" : ""}">
-        <div class="zigbee-inventory-main">
-          <div><span>${coordinator ? "KOORDYNATOR" : "URZĄDZENIE"}</span><h4>${esc(device.friendly_name)}</h4><p>${esc(model)}</p></div>
-          <span class="zigbee-supported ${device.supported === true || coordinator ? "good" : "warn"}">${coordinator ? "CORE" : device.supported === true ? "OBSŁUGIWANE" : "NIEPOTWIERDZONE"}</span>
-        </div>
-        <div class="zigbee-inventory-meta"><span class="mono">${esc(device.ieee_address)}</span><span>${esc(meta)}</span></div>
-        ${coordinator ? "" : `<button class="zigbee-remove" type="button" data-zigbee-remove="${esc(device.ieee_address)}" data-zigbee-name="${esc(device.friendly_name)}">USUŃ</button>`}
-      </article>`;
+    const role = assignedRole(device.ieee_address, devices);
+    const controls = coordinator ? "" : `<div class="zigbee-device-management"><label>Nazwa<input class="zigbee-rename-input" type="text" maxlength="64" value="${esc(device.friendly_name)}" data-zigbee-name-input="${esc(device.ieee_address)}"></label><button class="zigbee-action" type="button" data-zigbee-rename="${esc(device.ieee_address)}">ZMIEŃ NAZWĘ</button><label>Rola systemowa<select class="zigbee-role-select" data-zigbee-role="${esc(device.ieee_address)}"><option value="" ${role === null ? "selected" : ""}>BEZ ROLI</option><option value="supply" ${role === "supply" ? "selected" : ""}>NAWIEW</option><option value="extract" ${role === "extract" ? "selected" : ""}>WYWIEW</option></select></label><button class="zigbee-remove" type="button" data-zigbee-remove="${esc(device.ieee_address)}" data-zigbee-name="${esc(device.friendly_name)}">USUŃ</button></div>`;
+    return `<article class="zigbee-inventory-card ${coordinator ? "coordinator" : ""}"><div class="zigbee-inventory-main"><div><span>${coordinator ? "KOORDYNATOR" : "URZĄDZENIE"}</span><h4>${esc(device.friendly_name)}</h4><p>${esc(model)}</p></div><span class="zigbee-supported ${device.supported === true || coordinator ? "good" : "warn"}">${coordinator ? "CORE" : role ? roleName(role) : device.supported === true ? "OBSŁUGIWANE" : "NIEPOTWIERDZONE"}</span></div><div class="zigbee-inventory-meta"><span class="mono">${esc(device.ieee_address)}</span><span>${esc(meta)}</span></div>${controls}</article>`;
   }
 
-  function joinText(zigbee) {
-    if (zigbee.permit_join === true) return "parowanie: OTWARTE";
-    if (zigbee.permit_join === false) return "parowanie: zamknięte";
-    return "parowanie: —";
-  }
+  function joinText(zigbee) { if (zigbee.permit_join === true) return "parowanie: OTWARTE"; if (zigbee.permit_join === false) return "parowanie: zamknięte"; return "parowanie: —"; }
 
   function render(zigbee) {
     currentState = zigbee;
@@ -168,7 +118,6 @@
     const connected = zigbee.connected === true;
     const bridgeOnline = zigbee.bridge_online === true;
     const parseErrors = devices.reduce((sum, device) => sum + (Number.isInteger(device.parse_errors) ? device.parse_errors : 0), 0);
-
     ui.status.textContent = connected && bridgeOnline ? "ZIGBEE ONLINE" : connected ? "MQTT ONLINE" : "MQTT ROZŁĄCZONY";
     ui.status.className = `zigbee-status-pill ${connected && bridgeOnline ? "good" : "bad"}`;
     ui.mqtt.textContent = connected ? "ONLINE" : "OFFLINE";
@@ -179,62 +128,63 @@
     ui.errors.textContent = `błędy parsowania: ${parseErrors}`;
     ui.updated.textContent = `Ostatnia wiadomość: ${dateTime(zigbee.last_message_at)}`;
     ui.inventoryUpdated.textContent = `Lista: ${dateTime(zigbee.inventory_updated_at)}`;
-    ui.grid.innerHTML = devices.length ? devices.map(renderDevice).join("") : '<div class="zigbee-loading">Brak ról urządzeń udostępnionych przez ventilation-core.</div>';
-    ui.inventory.innerHTML = inventory.length ? inventory.map(renderInventoryDevice).join("") : '<div class="zigbee-loading">Brak danych bridge/devices.</div>';
+    ui.grid.innerHTML = ["supply", "extract"].map((role) => {
+      const device = devices.find((item) => item.role === role);
+      return device ? renderDevice(device) : renderUnassignedRole(role);
+    }).join("");
+    ui.inventory.innerHTML = inventory.length ? inventory.map((device) => renderInventoryDevice(device, devices)).join("") : '<div class="zigbee-loading">Brak danych bridge/devices.</div>';
     ui.permit.disabled = managementBusy || !connected || !bridgeOnline || zigbee.permit_join === true;
     ui.closeJoin.disabled = managementBusy || !connected || !bridgeOnline || zigbee.permit_join !== true;
+    ui.inventory.querySelectorAll("button,select,input").forEach((element) => { element.disabled = managementBusy || !connected || !bridgeOnline; });
     ui.error.hidden = true;
   }
 
   async function apiPost(path, body) {
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const payload = await response.json();
     if (!response.ok || payload.ok !== true) throw new Error(payload.error || `HTTP ${response.status}`);
     return payload;
   }
+  function message(text, bad = false) { ui.managementMessage.hidden = false; ui.managementMessage.className = `zigbee-management-message ${bad ? "bad" : "good"}`; ui.managementMessage.textContent = text; }
 
-  function message(text, bad = false) {
-    ui.managementMessage.hidden = false;
-    ui.managementMessage.className = `zigbee-management-message ${bad ? "bad" : "good"}`;
-    ui.managementMessage.textContent = text;
+  async function withBusy(action) {
+    if (managementBusy) return;
+    managementBusy = true;
+    if (currentState) render(currentState);
+    try { await action(); } finally { managementBusy = false; if (currentState) render(currentState); }
   }
 
   async function setPermitJoin(seconds) {
-    if (managementBusy) return;
-    managementBusy = true;
-    if (currentState) render(currentState);
-    try {
-      await apiPost("/api/v1/zigbee/permit-join", { seconds });
-      message(seconds > 0 ? `Parowanie otwarte na ${seconds} s. Uruchom teraz tryb parowania urządzenia.` : "Parowanie zamknięte.");
-      await refresh(true);
-    } catch (error) {
-      message(`Operacja Zigbee nie powiodła się: ${String(error.message || error)}`, true);
-    } finally {
-      managementBusy = false;
-      if (currentState) render(currentState);
-    }
+    await withBusy(async () => {
+      try { await apiPost("/api/v1/zigbee/permit-join", { seconds }); message(seconds > 0 ? `Parowanie otwarte na ${seconds} s. Uruchom teraz tryb parowania urządzenia.` : "Parowanie zamknięte."); await refresh(true); }
+      catch (error) { message(`Operacja Zigbee nie powiodła się: ${String(error.message || error)}`, true); }
+    });
+  }
+
+  async function renameDevice(ieee) {
+    const input = ui.inventory.querySelector(`[data-zigbee-name-input="${CSS.escape(ieee)}"]`);
+    const newName = String(input?.value || "").trim();
+    await withBusy(async () => {
+      try { await apiPost("/api/v1/zigbee/rename", { device_id: ieee, new_name: newName }); message(`Nazwa urządzenia zmieniona na ${newName}.`); await refresh(true); }
+      catch (error) { message(`Nie udało się zmienić nazwy: ${String(error.message || error)}`, true); }
+    });
+  }
+
+  async function assignRole(ieee, roleValue) {
+    const role = roleValue || null;
+    await withBusy(async () => {
+      try { await apiPost("/api/v1/zigbee/role", { device_id: ieee, role }); message(role ? `Przypisano rolę ${roleName(role)}.` : "Usunięto rolę systemową urządzenia."); await refresh(true); }
+      catch (error) { message(`Nie udało się zmienić roli: ${String(error.message || error)}`, true); await refresh(true); }
+    });
   }
 
   async function removeDevice(ieee, name) {
-    if (managementBusy) return;
-    const accepted = window.confirm(`Usunąć urządzenie Zigbee „${name}” (${ieee})?\n\nUrządzenie będzie musiało zostać ponownie sparowane, aby wrócić do sieci.`);
+    const accepted = window.confirm(`Usunąć urządzenie Zigbee „${name}” (${ieee})?\n\nJeśli ma rolę systemową, zostanie ona automatycznie zwolniona.`);
     if (!accepted) return;
-    managementBusy = true;
-    if (currentState) render(currentState);
-    try {
-      await apiPost("/api/v1/zigbee/remove", { device_id: ieee });
-      message(`Wysłano polecenie usunięcia: ${name}.`);
-      await refresh(true);
-    } catch (error) {
-      message(`Nie udało się usunąć urządzenia: ${String(error.message || error)}`, true);
-    } finally {
-      managementBusy = false;
-      if (currentState) render(currentState);
-    }
+    await withBusy(async () => {
+      try { await apiPost("/api/v1/zigbee/remove", { device_id: ieee }); message(`Usunięto urządzenie: ${name}.`); await refresh(true); }
+      catch (error) { message(`Nie udało się usunąć urządzenia: ${String(error.message || error)}`, true); }
+    });
   }
 
   async function refresh(force = false) {
@@ -242,14 +192,10 @@
     try {
       const response = await fetch("/api/v1/zigbee", { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok || payload.ok !== true || !payload.zigbee) {
-        throw new Error(payload.error || `HTTP ${response.status}`);
-      }
+      if (!response.ok || payload.ok !== true || !payload.zigbee) throw new Error(payload.error || `HTTP ${response.status}`);
       render(payload.zigbee);
     } catch (error) {
-      ui.status.textContent = "BRAK API";
-      ui.status.className = "zigbee-status-pill bad";
-      ui.error.hidden = false;
+      ui.status.textContent = "BRAK API"; ui.status.className = "zigbee-status-pill bad"; ui.error.hidden = false;
       ui.error.textContent = `Nie udało się odczytać stanu Zigbee: ${String(error.message || error)}`;
     }
   }
@@ -257,9 +203,14 @@
   ui.permit.addEventListener("click", () => setPermitJoin(120));
   ui.closeJoin.addEventListener("click", () => setPermitJoin(0));
   ui.inventory.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-zigbee-remove]");
-    if (!button) return;
-    removeDevice(button.dataset.zigbeeRemove || "", button.dataset.zigbeeName || "urządzenie");
+    const rename = event.target.closest("button[data-zigbee-rename]");
+    if (rename) { renameDevice(rename.dataset.zigbeeRename || ""); return; }
+    const remove = event.target.closest("button[data-zigbee-remove]");
+    if (remove) removeDevice(remove.dataset.zigbeeRemove || "", remove.dataset.zigbeeName || "urządzenie");
+  });
+  ui.inventory.addEventListener("change", (event) => {
+    const select = event.target.closest("select[data-zigbee-role]");
+    if (select) assignRole(select.dataset.zigbeeRole || "", select.value);
   });
 
   refresh();
