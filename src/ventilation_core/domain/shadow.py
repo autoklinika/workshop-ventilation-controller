@@ -37,6 +37,7 @@ class ShadowZoneProposal:
     final_extract_pct: float | None = None
 
     safety_override: bool = False
+    air_quality_override: bool = False
     proposed_supply_voltage: float | None = None
     proposed_extract_voltage: float | None = None
     proposed_aero_speed: int | None = None
@@ -62,6 +63,7 @@ class ShadowZoneProposal:
             "final_supply_pct": self.final_supply_pct,
             "final_extract_pct": self.final_extract_pct,
             "safety_override": self.safety_override,
+            "air_quality_override": self.air_quality_override,
             "proposed_supply_voltage": self.proposed_supply_voltage,
             "proposed_extract_voltage": self.proposed_extract_voltage,
             "proposed_aero_speed": self.proposed_aero_speed,
