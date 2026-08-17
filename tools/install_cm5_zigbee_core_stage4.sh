@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_SOURCE="${ROOT_DIR}/deploy/systemd/ventilation-core.service"
 UNIT_TARGET="/etc/systemd/system/ventilation-core.service"
+ALLOW_HARDWARE_OFFLINE=false
 
 fail() {
     echo "ERROR: $*" >&2
@@ -14,8 +15,40 @@ section() {
     printf '\n===== %s =====\n' "$1"
 }
 
+usage() {
+    cat <<'EOF'
+Usage:
+  sudo bash tools/install_cm5_zigbee_core_stage4.sh
+  sudo bash tools/install_cm5_zigbee_core_stage4.sh --allow-hardware-offline
+
+--allow-hardware-offline
+  Use only when the execution hardware is intentionally disconnected and the
+  CM5 is being validated standalone. The script still requires software
+  setpoints 0 V / 0 V, permit_join=false and a DAC_COMMUNICATION_LOST fault.
+  Normal production deployment remains strict and requires confirmed STOP,
+  hardware_ready=true and output_state_known=true.
+EOF
+}
+
+if [[ "${1:-}" == "--allow-hardware-offline" ]]; then
+    ALLOW_HARDWARE_OFFLINE=true
+    shift
+fi
+if [[ "$#" -ne 0 ]]; then
+    usage >&2
+    exit 2
+fi
+
 if [[ "${EUID}" -ne 0 ]]; then
-    fail "Run as root: sudo bash tools/install_cm5_zigbee_core_stage4.sh"
+    fail "Run as root: sudo bash tools/install_cm5_zigbee_core_stage4.sh [--allow-hardware-offline]"
+fi
+
+section "DEPLOYMENT MODE"
+if [[ "${ALLOW_HARDWARE_OFFLINE}" == true ]]; then
+    echo "hardware mode: intentionally offline / standalone CM5"
+    echo "safety rule: software setpoints must remain 0 V / 0 V"
+else
+    echo "hardware mode: normal strict validation"
 fi
 
 section "PRECHECK SERVICES"
@@ -27,32 +60,48 @@ for unit in ventilation-core.service mosquitto.service zigbee2mqtt.service; do
     fi
 done
 
-section "PRECHECK SAFE STOP / 0 V"
+section "PRECHECK SAFE STATE"
 status_file="$(mktemp)"
 trap 'rm -f "${status_file:-}" "${bridge_file:-}"' EXIT
 if ! PYTHONPATH="${ROOT_DIR}/src" python3 -m ventilation_core.ctl status >"${status_file}"; then
     cat "${status_file}" >&2 || true
     fail "Unable to read ventilation-core status"
 fi
-python3 - "${status_file}" <<'PY'
+python3 - "${status_file}" "${ALLOW_HARDWARE_OFFLINE}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+allow_hardware_offline = sys.argv[2].lower() == "true"
 if payload.get("ok") is not True:
     raise SystemExit("ERROR: ventilation-core status is not OK")
 state = payload["state"]
 setpoints = state["setpoints"]
-if state.get("mode") != "STOP":
-    raise SystemExit(f"ERROR: expected STOP before Stage 4 deployment, got {state.get('mode')!r}")
 if float(setpoints.get("supply_voltage", -1)) != 0.0 or float(setpoints.get("extract_voltage", -1)) != 0.0:
-    raise SystemExit(f"ERROR: expected 0 V / 0 V before Stage 4 deployment, got {setpoints!r}")
-if state.get("hardware_ready") is not True or state.get("output_state_known") is not True:
-    raise SystemExit("ERROR: hardware state is not confirmed safe")
-print("STOP / 0 V: PASS")
-print("hardware_ready: True")
-print("output_state_known: True")
+    raise SystemExit(f"ERROR: expected software setpoints 0 V / 0 V before Stage 4 deployment, got {setpoints!r}")
+
+if state.get("mode") == "STOP" and state.get("hardware_ready") is True and state.get("output_state_known") is True:
+    print("STOP / 0 V: PASS")
+    print("hardware_ready: True")
+    print("output_state_known: True")
+elif allow_hardware_offline:
+    alarms = state.get("active_alarms") or []
+    dac_fault = any(alarm.get("code") == "DAC_COMMUNICATION_LOST" for alarm in alarms)
+    if state.get("mode") != "FAULT":
+        raise SystemExit(f"ERROR: offline-hardware mode expected FAULT from disconnected DAC, got {state.get('mode')!r}")
+    if state.get("hardware_ready") is not False or state.get("output_state_known") is not False:
+        raise SystemExit("ERROR: offline-hardware mode expected hardware_ready=false and output_state_known=false")
+    if not dac_fault:
+        raise SystemExit("ERROR: offline-hardware mode requires active DAC_COMMUNICATION_LOST fault")
+    print("standalone CM5 / hardware intentionally offline: PASS")
+    print("software setpoints: 0 V / 0 V")
+    print("expected DAC_COMMUNICATION_LOST fault: present")
+else:
+    raise SystemExit(
+        "ERROR: hardware state is not confirmed safe; if execution hardware is intentionally disconnected, "
+        "rerun with --allow-hardware-offline"
+    )
 PY
 
 section "PRECHECK ZIGBEE CLOSED"
@@ -136,12 +185,13 @@ if [[ "${connected}" != true ]]; then
 fi
 
 section "CORE ZIGBEE STATE"
-python3 - "${status_file}" <<'PY'
+python3 - "${status_file}" "${ALLOW_HARDWARE_OFFLINE}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+allow_hardware_offline = sys.argv[2].lower() == "true"
 state = payload["state"]
 zigbee = state["zigbee"]
 expected = {
@@ -164,12 +214,25 @@ for device in zigbee["devices"]:
         f"available={device['available']}"
     )
 
-if state.get("mode") != "STOP":
-    raise SystemExit(f"ERROR: core mode changed during deployment: {state.get('mode')!r}")
 setpoints = state["setpoints"]
 if float(setpoints["supply_voltage"]) != 0.0 or float(setpoints["extract_voltage"]) != 0.0:
-    raise SystemExit(f"ERROR: outputs are not 0 V after deployment: {setpoints!r}")
-print("post-deploy STOP / 0 V: PASS")
+    raise SystemExit(f"ERROR: software setpoints are not 0 V after deployment: {setpoints!r}")
+
+if allow_hardware_offline:
+    alarms = state.get("active_alarms") or []
+    dac_fault = any(alarm.get("code") == "DAC_COMMUNICATION_LOST" for alarm in alarms)
+    if state.get("mode") != "FAULT" or not dac_fault:
+        raise SystemExit(
+            f"ERROR: expected disconnected-DAC FAULT after standalone deployment, got mode={state.get('mode')!r}"
+        )
+    print("post-deploy standalone CM5 / hardware offline: PASS")
+    print("software setpoints: 0 V / 0 V")
+else:
+    if state.get("mode") != "STOP":
+        raise SystemExit(f"ERROR: core mode changed during deployment: {state.get('mode')!r}")
+    if state.get("hardware_ready") is not True or state.get("output_state_known") is not True:
+        raise SystemExit("ERROR: hardware state is not confirmed safe after deployment")
+    print("post-deploy STOP / 0 V: PASS")
 PY
 
 section "REGRESSION CHECK"
@@ -179,4 +242,7 @@ done
 
 echo
 echo "Stage 4 PASS: ventilation-core owns read-only Zigbee MQTT telemetry for temp_nawiew and temp_wywiew."
+if [[ "${ALLOW_HARDWARE_OFFLINE}" == true ]]; then
+    echo "Validation mode: standalone CM5 with execution hardware intentionally offline."
+fi
 echo "No Zigbee control, pairing UI or alert changes were introduced."
