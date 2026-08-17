@@ -44,7 +44,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sync-interval", type=float, default=5.0)
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--http-timeout", type=float, default=5.0)
-    parser.add_argument("--retention-days", type=int, default=30)
+    parser.add_argument(
+        "--retention-days",
+        type=int,
+        default=7,
+        help="Retention for synchronized 5-second RAW samples; pending rows are never removed",
+    )
+    parser.add_argument(
+        "--minute-retention-days",
+        type=int,
+        default=90,
+        help="Retention for local one-minute rollups",
+    )
+    parser.add_argument(
+        "--quarter-retention-days",
+        type=int,
+        default=730,
+        help="Retention for local fifteen-minute rollups",
+    )
+    parser.add_argument(
+        "--maintenance-interval",
+        type=float,
+        default=60.0,
+        help="Seconds between bounded local rollup/retention maintenance passes",
+    )
+    parser.add_argument(
+        "--max-rollup-buckets-per-run",
+        type=int,
+        default=240,
+        help="Maximum catch-up buckets per resolution in one maintenance pass",
+    )
     parser.add_argument(
         "--once",
         action="store_true",
@@ -83,6 +112,10 @@ def main() -> int:
         idle_sync_interval_seconds=args.sync_interval,
         batch_size=args.batch_size,
         retention_days=args.retention_days,
+        minute_retention_days=args.minute_retention_days,
+        quarter_retention_days=args.quarter_retention_days,
+        maintenance_interval_seconds=args.maintenance_interval,
+        max_rollup_buckets_per_run=args.max_rollup_buckets_per_run,
     )
 
     stop_event = Event()
@@ -107,11 +140,15 @@ def main() -> int:
 
     logger.info(
         "CM5 telemetry capture started source_id=%s sync_enabled=%s sink=%s "
-        "capture_interval=%.3fs",
+        "capture_interval=%.3fs raw_retention=%dd minute_retention=%dd "
+        "quarter_retention=%dd",
         args.source_id,
         agent.sync_enabled,
         args.ai_bridge_url or "disabled",
         args.capture_interval,
+        args.retention_days,
+        args.minute_retention_days,
+        args.quarter_retention_days,
     )
     agent.run(stop_event)
     return 0
