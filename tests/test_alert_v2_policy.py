@@ -28,6 +28,15 @@ def _mutate_alert(text: str, code: str, old: str, new: str) -> str:
     return text[:start] + section + text[next_table:]
 
 
+def _remove_alert(text: str, code: str) -> str:
+    marker = f"[alerts.{code}]"
+    start = text.index(marker)
+    next_table = text.find("\n[alerts.", start + len(marker))
+    if next_table < 0:
+        next_table = len(text)
+    return text[:start] + text[next_table:]
+
+
 class AlertV2PolicyTests(unittest.TestCase):
     def _write_policy(self, text: str) -> Path:
         directory = tempfile.TemporaryDirectory()
@@ -94,6 +103,22 @@ class AlertV2PolicyTests(unittest.TestCase):
         with self.assertRaises(AlertPolicyError) as ctx:
             load_alert_policy(self._write_policy(text))
         self.assertIn("DAC_COMMUNICATION_LOST.reaction must remain 'safe_state'", str(ctx.exception))
+
+    def test_required_dac_output_mismatch_policy_cannot_be_removed(self) -> None:
+        text = DEFAULT_POLICY.read_text(encoding="utf-8")
+        text = _remove_alert(text, "DAC_OUTPUT_MISMATCH")
+        with self.assertRaises(AlertPolicyError) as ctx:
+            load_alert_policy(self._write_policy(text))
+        self.assertIn("required safety policy DAC_OUTPUT_MISMATCH is missing", str(ctx.exception))
+
+    def test_dac_output_mismatch_weight_cannot_be_downgraded(self) -> None:
+        text = DEFAULT_POLICY.read_text(encoding="utf-8")
+        text = _mutate_alert(text, "DAC_OUTPUT_MISMATCH", "weight = 4", "weight = 3")
+        text = _mutate_alert(text, "DAC_OUTPUT_MISMATCH", 'severity = "critical"', 'severity = "alarm"')
+        text = _mutate_alert(text, "DAC_OUTPUT_MISMATCH", 'hmi_color = "red"', 'hmi_color = "orange"')
+        with self.assertRaises(AlertPolicyError) as ctx:
+            load_alert_policy(self._write_policy(text))
+        self.assertIn("DAC_OUTPUT_MISMATCH.weight must remain 4", str(ctx.exception))
 
     def test_weight_severity_and_hmi_color_must_match(self) -> None:
         text = DEFAULT_POLICY.read_text(encoding="utf-8")
