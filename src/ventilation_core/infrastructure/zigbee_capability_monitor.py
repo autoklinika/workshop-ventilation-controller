@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
@@ -9,8 +10,10 @@ from ventilation_core.domain.zigbee import (
     ZigbeeCapability,
     ZigbeeInventoryDevice,
     ZigbeePairingState,
+    ZigbeeSensorListItem,
 )
 from ventilation_core.infrastructure.zigbee_managed_monitor import ManagedReliableZigbeeMqttMonitor
+from ventilation_core.infrastructure.zigbee_reliable_monitor import parse_availability_payload
 
 
 def _now_iso() -> str:
@@ -24,7 +27,8 @@ def _text(value: Any) -> str | None:
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    result = float(value)
+    return result if math.isfinite(result) else None
 
 
 def parse_published_capabilities(exposes: Any) -> tuple[ZigbeeCapability, ...]:
@@ -47,8 +51,6 @@ def parse_published_capabilities(exposes: Any) -> tuple[ZigbeeCapability, ...]:
         endpoint = _text(item.get("endpoint")) or inherited_endpoint
         features = item.get("features")
         if isinstance(features, list) and features:
-            # Composite exposes are containers. Report their published leaf
-            # values, not the synthetic parent plus the same child values.
             for feature in features:
                 visit(feature, endpoint)
             return
@@ -126,7 +128,34 @@ def parse_bridge_devices_with_capabilities(payload: Any) -> tuple[ZigbeeInventor
 
 
 class CapabilityManagedZigbeeMqttMonitor(ManagedReliableZigbeeMqttMonitor):
-    """Managed Zigbee boundary with core-owned pairing recognition/capabilities."""
+    """Core-owned pairing, capability and generic sensor telemetry boundary."""
+
+    def __init__(self, config, *, role_store) -> None:
+        self._sensor_list_by_ieee: dict[str, ZigbeeSensorListItem] = {}
+        self._generic_topic_to_ieee: dict[str, str] = {}
+        self._generic_availability_to_ieee: dict[str, str] = {}
+        super().__init__(config, role_store=role_store)
+
+    def state(self):
+        state = super().state()
+        with self._lock:
+            inventory_order = {
+                item.ieee_address: index
+                for index, item in enumerate(self._state.inventory)
+                if not item.is_coordinator
+            }
+            items = tuple(self._sensor_list_by_ieee.values())
+        normalized = tuple(
+            replace(item, role=self.role_for_ieee(item.ieee_address))
+            for item in sorted(
+                items,
+                key=lambda item: (
+                    inventory_order.get(item.ieee_address, 10**9),
+                    item.friendly_name.lower(),
+                ),
+            )
+        )
+        return replace(state, sensor_list=normalized)
 
     def acknowledge_pairing(self, ieee_address: str) -> dict[str, Any]:
         if not isinstance(ieee_address, str) or not ieee_address.strip():
@@ -140,6 +169,27 @@ class CapabilityManagedZigbeeMqttMonitor(ManagedReliableZigbeeMqttMonitor):
                 raise ValueError("Zigbee pairing acknowledgement does not match current device")
             self._state = replace(self._state, pairing=replace(pairing, acknowledged=True))
         return {"status": "ok", "data": {"ieee_address": ieee, "acknowledged": True}}
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
+        super()._on_connect(client, userdata, flags, reason_code, properties)
+        with self._lock:
+            connected = self._state.connected is True
+            topics = tuple(
+                sorted(set(self._generic_topic_to_ieee) | set(self._generic_availability_to_ieee))
+            )
+        if connected and topics:
+            client.subscribe([(topic, 0) for topic in topics])
+
+    def _on_message(self, client: Any, userdata: Any, message: Any) -> None:
+        topic = str(message.topic)
+        with self._lock:
+            availability_ieee = self._generic_availability_to_ieee.get(topic)
+            state_ieee = self._generic_topic_to_ieee.get(topic)
+        if availability_ieee is not None:
+            self._handle_generic_availability(availability_ieee, message.payload)
+        elif state_ieee is not None:
+            self._handle_generic_payload(state_ieee, message.payload)
+        super()._on_message(client, userdata, message)
 
     def _handle_bridge_message(self, topic: str, raw_payload: bytes) -> None:
         super()._handle_bridge_message(topic, raw_payload)
@@ -155,6 +205,7 @@ class CapabilityManagedZigbeeMqttMonitor(ManagedReliableZigbeeMqttMonitor):
             inventory = parse_bridge_devices_with_capabilities(payload)
         except Exception:
             return
+
         with self._lock:
             pairing = self._state.pairing
             if pairing is not None:
@@ -172,12 +223,133 @@ class CapabilityManagedZigbeeMqttMonitor(ManagedReliableZigbeeMqttMonitor):
                         description=matched.description or pairing.description,
                         capabilities=matched.capabilities,
                     )
+
+            old_topics = set(self._generic_topic_to_ieee) | set(self._generic_availability_to_ieee)
+            previous = dict(self._sensor_list_by_ieee)
+            sensor_rows: dict[str, ZigbeeSensorListItem] = {}
+            state_topics: dict[str, str] = {}
+            availability_topics: dict[str, str] = {}
+            base = self._state.base_topic
+            for device in inventory:
+                if device.is_coordinator:
+                    continue
+                topic = f"{base}/{device.friendly_name}"
+                old = previous.get(device.ieee_address)
+                if old is None:
+                    row = ZigbeeSensorListItem(
+                        ieee_address=device.ieee_address,
+                        friendly_name=device.friendly_name,
+                        topic=topic,
+                        model=device.model,
+                        vendor=device.vendor,
+                    )
+                else:
+                    row = replace(
+                        old,
+                        friendly_name=device.friendly_name,
+                        topic=topic,
+                        model=device.model,
+                        vendor=device.vendor,
+                    )
+                sensor_rows[device.ieee_address] = row
+                state_topics[topic] = device.ieee_address
+                availability_topics[f"{topic}/availability"] = device.ieee_address
+
+            self._sensor_list_by_ieee = sensor_rows
+            self._generic_topic_to_ieee = state_topics
+            self._generic_availability_to_ieee = availability_topics
+            new_topics = set(state_topics) | set(availability_topics)
+            connected = self._state.connected is True
             self._state = replace(
                 self._state,
                 inventory=inventory,
                 inventory_updated_at=_now_iso(),
                 pairing=pairing,
             )
+
+        if connected:
+            for topic in sorted(old_topics - new_topics):
+                self._client.unsubscribe(topic)
+            additions = sorted(new_topics - old_topics)
+            if additions:
+                self._client.subscribe([(topic, 0) for topic in additions])
+
+    def _handle_generic_payload(self, ieee_address: str, raw_payload: bytes) -> None:
+        received_at = _now_iso()
+        try:
+            payload = json.loads(raw_payload.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("device payload must be a JSON object")
+        except Exception as exc:
+            with self._lock:
+                previous = self._sensor_list_by_ieee.get(ieee_address)
+                if previous is not None:
+                    self._sensor_list_by_ieee[ieee_address] = replace(
+                        previous,
+                        parse_errors=previous.parse_errors + 1,
+                        last_error=f"{type(exc).__name__}: {exc}",
+                    )
+            return
+
+        with self._lock:
+            previous = self._sensor_list_by_ieee.get(ieee_address)
+            if previous is None:
+                return
+            changes: dict[str, Any] = {
+                "last_message_at": received_at,
+                "messages": previous.messages + 1,
+                "last_error": None,
+            }
+            errors: list[str] = []
+
+            def numeric(source: str, target: str, minimum: float | None = None, maximum: float | None = None, integer: bool = False) -> None:
+                if source not in payload:
+                    return
+                value = _number(payload[source])
+                if value is None or (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
+                    errors.append(f"invalid {source}")
+                    return
+                changes[target] = int(value) if integer else value
+
+            numeric("temperature", "temperature_celsius")
+            numeric("humidity", "humidity_percent", 0.0, 100.0)
+            numeric("battery", "battery_percent", 0.0, 100.0)
+            numeric("voltage", "voltage_mv", 0.0)
+            numeric("linkquality", "linkquality", 0.0, 255.0, integer=True)
+            if "last_seen" in payload:
+                last_seen = payload.get("last_seen")
+                if last_seen is None or isinstance(last_seen, str):
+                    changes["last_seen"] = last_seen
+                else:
+                    errors.append("invalid last_seen")
+            if errors:
+                changes["parse_errors"] = previous.parse_errors + 1
+                changes["last_error"] = ", ".join(errors)
+
+            self._sensor_list_by_ieee[ieee_address] = replace(previous, **changes)
+            self._state = replace(self._state, last_message_at=received_at)
+
+    def _handle_generic_availability(self, ieee_address: str, raw_payload: bytes) -> None:
+        with self._lock:
+            previous = self._sensor_list_by_ieee.get(ieee_address)
+        if previous is None:
+            return
+        try:
+            available = parse_availability_payload(raw_payload)
+        except Exception as exc:
+            with self._lock:
+                current = self._sensor_list_by_ieee.get(ieee_address)
+                if current is not None:
+                    self._sensor_list_by_ieee[ieee_address] = replace(
+                        current,
+                        parse_errors=current.parse_errors + 1,
+                        last_error=f"availability: {exc}",
+                    )
+            return
+        with self._lock:
+            current = self._sensor_list_by_ieee.get(ieee_address)
+            if current is not None:
+                self._sensor_list_by_ieee[ieee_address] = replace(current, available=available)
 
     def _handle_pairing_event(self, raw_payload: bytes) -> None:
         try:
@@ -234,8 +406,6 @@ class CapabilityManagedZigbeeMqttMonitor(ManagedReliableZigbeeMqttMonitor):
                 )
             self._state = replace(self._state, pairing=pairing)
 
-        # bridge/devices can arrive before/after interview event. Hydrate from the
-        # authoritative inventory immediately if it is already available.
         with self._lock:
             matched = next(
                 (device for device in self._state.inventory if device.ieee_address == ieee),
