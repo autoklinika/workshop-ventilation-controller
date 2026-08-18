@@ -103,6 +103,14 @@ obecny kontrakt zabrania reakcji `safe_state` i `recover_safe_outputs`.
 
 ### 3.2. DAC
 
+Poniższe polityki są obowiązkowe, nie mogą zostać usunięte ani wyłączone przez TOML:
+
+```text
+DAC_STATE_UNCERTAIN
+DAC_COMMUNICATION_LOST
+DAC_OUTPUT_MISMATCH
+```
+
 `DAC_COMMUNICATION_LOST` musi zachować:
 
 ```text
@@ -114,15 +122,22 @@ affects_control = true
 `DAC_STATE_UNCERTAIN` musi zachować:
 
 ```text
+weight = 3
 reaction = recover_safe_outputs
 affects_control = true
 ```
 
-Jeżeli obecna macierz zawiera `DAC_OUTPUT_MISMATCH`, validator wymaga dla niego `safe_state` i `affects_control=true`.
+`DAC_OUTPUT_MISMATCH` musi zachować:
+
+```text
+weight = 4
+reaction = safe_state
+affects_control = true
+```
 
 ### 3.3. HMI / zewnętrzne warstwy
 
-`HMI_CM5_COMMUNICATION_LOST` pozostaje lokalnym `block_gui` i nie otrzymuje prawa do zatrzymania autonomicznego core.
+`HMI_CM5_COMMUNICATION_LOST` pozostaje lokalnym `block_gui`, ma wagę 4 i nie otrzymuje prawa do zatrzymania autonomicznego core.
 
 Dla pogody, AI/NAS/synchronizacji i service-plane validator nie pozwala ustawić bezpośredniego wpływu na sterowanie wentylacją.
 
@@ -184,7 +199,7 @@ Dodano testy obejmujące:
 - CLI human-readable i JSON,
 - niezerowy kod wyjścia dla błędnej polityki.
 
-GitHub Actions:
+Pierwszy checkpoint implementacji przeszedł:
 
 ```text
 Ventilation Core Tests #1501
@@ -192,6 +207,8 @@ run id: 32185058642
 compileall: PASS
 372/372 tests: PASS
 ```
+
+Po końcowym utwardzeniu reguł DAC należy traktować jako wiążący wynik CI dla aktualnego HEAD najnowszy workflow PR #44.
 
 ## 6. Czego ten krok świadomie NIE robi
 
@@ -225,7 +242,6 @@ loader TOML:               GOTOWY
 validator kontraktu:       GOTOWY
 validator safety rules:    GOTOWY — Stage 1
 wvc-alertctl validate:     GOTOWY
-testy repo:                372/372 PASS
 integracja runtime core:   JESZCZE NIE
 wpływ na produkcję:        BRAK
 merge do main:             NIE
