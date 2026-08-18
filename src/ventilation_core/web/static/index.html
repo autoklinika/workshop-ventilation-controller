@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/sidebar.css">
   <link rel="stylesheet" href="/cm5-watchdog.css">
+  <link rel="stylesheet" href="/alerts-v2.css">
   <script src="/cm5-watchdog.js" defer></script>
   <script src="/dashboard-live.js" defer></script>
   <script src="/alerts.js" defer></script>
@@ -60,19 +61,21 @@
     </section>
 
     <section id="alertsView" class="v2-shell-view v2-alerts-view" data-view="alerts" hidden>
-      <section class="v2-page-heading"><h1>ALERTY</h1><p>Rejestr zdarzeń systemowych ventilation-core</p></section>
-      <div id="alertsConnectionStatus" class="v2-alert-connection">Łączenie z rejestrem alertów…</div>
+      <div class="v2-alerts-hero">
+        <section class="v2-page-heading"><h1>ALERTY</h1><p>Stan systemu i historia zdarzeń ventilation-core</p></section>
+        <div id="alertsConnectionStatus" class="v2-alerts-hero-state">Łączenie z rejestrem alertów…</div>
+      </div>
       <section class="v2-alert-summary" aria-label="Podsumowanie alertów">
-        <article><span>AKTYWNE</span><strong id="alertsActiveCount">—</strong></article>
-        <article><span>NIEPOTWIERDZONE</span><strong id="alertsUnackCount">—</strong></article>
-        <article><span>WPISY W HISTORII</span><strong id="alertsHistoryCount">—</strong></article>
+        <article><span>AKTYWNE</span><strong id="alertsActiveCount">—</strong><small>bieżące problemy systemowe</small></article>
+        <article><span>NIEPOTWIERDZONE</span><strong id="alertsUnackCount">—</strong><small>wymagają uwagi operatora</small></article>
+        <article><span>HISTORIA</span><strong id="alertsHistoryCount">—</strong><small>zapisane w CM5 · SQLite</small></article>
       </section>
       <section class="v2-alert-section">
         <header><div><span class="v2-alert-section-kicker">STAN BIEŻĄCY</span><h2>Aktywne alerty</h2></div></header>
         <div id="alertsActiveList" class="v2-alert-active-list"><div class="v2-alert-empty">Ładowanie…</div></div>
       </section>
       <section class="v2-alert-section">
-        <header><div><span class="v2-alert-section-kicker">CM5 · SQLITE</span><h2>Historia alertów</h2></div></header>
+        <header><div><span class="v2-alert-section-kicker">REJESTR CM5</span><h2>Historia alertów</h2></div></header>
         <div class="v2-alert-table-wrap">
           <table class="v2-alert-table">
             <thead><tr><th>ID</th><th>POZIOM</th><th>ALERT</th><th>ŹRÓDŁO</th><th>WYSTĄPIŁ</th><th>POTWIERDZONO</th><th>ZAKOŃCZONO / STAN</th></tr></thead>
