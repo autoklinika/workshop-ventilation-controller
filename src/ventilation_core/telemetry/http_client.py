@@ -5,6 +5,10 @@ from typing import Any
 from urllib import error, request
 
 
+class AIBridgeRequestTooLarge(RuntimeError):
+    """AI Bridge rejected a telemetry batch because its HTTP body is too large."""
+
+
 class AIBridgeTelemetryClient:
     def __init__(self, base_url: str, timeout_seconds: float = 5.0) -> None:
         self.base_url = base_url.rstrip("/")
@@ -25,6 +29,10 @@ class AIBridgeTelemetryClient:
                 status = response.status
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 413:
+                raise AIBridgeRequestTooLarge(
+                    f"AI Bridge HTTP 413: {detail}"
+                ) from exc
             raise RuntimeError(f"AI Bridge HTTP {exc.code}: {detail}") from exc
         except error.URLError as exc:
             raise RuntimeError(f"AI Bridge unavailable: {exc.reason}") from exc
