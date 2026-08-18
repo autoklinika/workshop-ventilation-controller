@@ -244,12 +244,21 @@ class CoreServer:
 
             role = next(
                 (
-                    semantic.role
-                    for semantic in zigbee.devices
-                    if semantic.ieee_address == device.ieee_address
+                    row.role
+                    for row in zigbee.sensor_list
+                    if row.ieee_address == device.ieee_address
                 ),
                 None,
             )
+            if role is None:
+                role = next(
+                    (
+                        semantic.role
+                        for semantic in zigbee.devices
+                        if semantic.ieee_address == device.ieee_address
+                    ),
+                    None,
+                )
             now = datetime.now(timezone.utc)
             expires = now + timedelta(seconds=120)
             pending = {
@@ -361,8 +370,8 @@ class CoreServer:
             role = request.get("role")
             if not isinstance(device_id, str) or not device_id.strip():
                 raise ValueError("Zigbee device_id must be a non-empty string")
-            if role not in (None, "supply", "extract"):
-                raise ValueError("Zigbee role must be supply, extract or null")
+            if role not in (None, "supply", "extract", "other"):
+                raise ValueError("Zigbee role must be supply, extract, other or null")
             method = getattr(self._service, "zigbee_assign_role", None)
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
