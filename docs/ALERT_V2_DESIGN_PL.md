@@ -2,7 +2,7 @@
 
 **Projekt:** Workshop Ventilation Controller  
 **Data ustaleń:** 2026-08-18  
-**Status:** dokument projektowy / przed implementacją Core AlertV2  
+**Status:** dokument projektowy + zaimplementowany loader/validator polityki Stage 1; bez integracji runtime core  
 **Baza repo podczas utworzenia:** `main` `0f156cc6fe6e7d64df82a7a748108a93783c5fb7`  
 **Plik polityki:** `config/alerts-v2.default.toml`
 
@@ -107,6 +107,16 @@ Dokładne progi zadania, minimalnego RPM i czasu debounce nie zostały jeszcze z
 ### 4.2. DAC zachowuje zwalidowaną politykę bezpieczeństwa
 
 Konfiguracja AlertV2 nie może pozwolić na osłabienie krytycznej reakcji dla stanów, w których core nie ma pewności nad wyjściami 0–10 V. Przykładowo `DAC_COMMUNICATION_LOST` nie może zostać zmienione przez TOML na zwykłe `continue`.
+
+W aktualnym validatorze Stage 1 polityki:
+
+```text
+DAC_STATE_UNCERTAIN
+DAC_COMMUNICATION_LOST
+DAC_OUTPUT_MISMATCH
+```
+
+są obowiązkowe i nie mogą zostać wyłączone ani usunięte. Validator wymusza też uzgodnione minimalne reakcje/wagi dla tych zdarzeń.
 
 ### 4.3. HMI nie jest wymagane do działania core
 
@@ -244,6 +254,31 @@ Semantyka:
 - `correlation_priority` — priorytet przy wyborze bardziej przyczynowego/skorelowanego alertu,
 - `title`, `message` — tekst operatora.
 
+### 7.4. Loader i validator — Stage 1
+
+Zaimplementowano:
+
+```text
+src/ventilation_core/alert_policy.py
+src/ventilation_core/alertctl.py
+```
+
+oraz komendę:
+
+```bash
+wvc-alertctl validate /ścieżka/do/alerts-v2.toml
+```
+
+Validator sprawdza strukturę TOML, mapowanie wag na severity/kolor, enum reakcji oraz twarde niezmienniki bezpieczeństwa. Obliczany jest również SHA-256 dokładnej zawartości polityki.
+
+Na tym etapie `ventilation-core` **nie ładuje jeszcze tej polityki produkcyjnie**. CLI wyłącznie sprawdza plik.
+
+Szczegółowy raport:
+
+```text
+docs/reports/ALERT_V2_POLICY_LOADER_STAGE1_IMPLEMENTATION_PL.md
+```
+
 ## 8. Detektor i polityka są rozdzielone
 
 AlertV2 nie może zmienić TOML w niekontrolowany język programowania automatyki.
@@ -290,6 +325,14 @@ Jeżeli odpowiedni detektor już istnieje, nową politykę lub zmianę wagi/kolo
 
 Jeżeli wymagane jest zupełnie nowe rozpoznanie stanu, np. nowa korelacja kilku sygnałów sprzętowych, trzeba dodać testowalny detektor w kodzie. Sam wpis TOML nie może wykonywać dowolnych wyrażeń na `CoreState`.
 
+Dodatkowe nastawy detektora mogą być przechowywane w kontrolowanej podsekcji:
+
+```toml
+[alerts.CODE.parameters]
+```
+
+ale użycie konkretnego parametru musi być jawnie obsłużone i zwalidowane przez odpowiedni detektor.
+
 ## 9. Korelacja — główna różnica AlertV2
 
 AlertV2 ma preferować **jeden alert przyczynowy** zamiast zasypywać operatora kilkoma objawami tego samego problemu.
@@ -335,199 +378,82 @@ rs485_ready = false
 produkcja Modbus = DEGRADED/OFFLINE
 ```
 
-Preferowany alert:
+Preferowany wynik:
 
 ```text
 KAMOD_RS485_NOT_READY
 ```
 
-### 9.4. Przykład: wentylator
+### 9.4. Korelacja nie może ukrywać danych diagnostycznych
+
+Suppress/aggregation dotyczy prezentacji alertu przyczynowego. Surowe fakty źródłowe nadal mają być dostępne w diagnostyce i historii, aby można było przeprowadzić późniejszą analizę incydentu.
+
+## 10. Zasada HMI i ACK
+
+HMI ma prezentować stan wyliczony przez core/politykę, ale nie definiuje wag alertów produkcyjnych.
+
+Priorytet koloru:
 
 ```text
-realne zadanie 0-10 V > zwalidowany próg
-+ monitor TACHO zdrowy
-+ brak oczekiwanych RPM przez zwalidowany debounce
+BRAK KOMUNIKACJI HMI-CM5
+>
+weight 4 red
+>
+weight 3 orange
+>
+weight 2 yellow
+>
+weight 1 blue
+>
+normal green
 ```
 
-Wynik:
+ACK:
 
-```text
-FAN_NO_ROTATION_FEEDBACK
-weight = 3
-reaction = continue_degraded
-GLOBAL STOP = NIE
-```
+- nie kasuje aktywnego alertu,
+- nie zmienia jego wagi,
+- nie zmienia koloru paska,
+- zapisuje tylko fakt potwierdzenia przez operatora.
 
-## 10. Macierz AlertV2 v0.1
+## 11. Zasada bezpieczeństwa konfiguracji
 
-Pełne wartości runtime znajdują się w `config/alerts-v2.default.toml`. Poniższa tabela służy jako skrócona mapa projektowa.
+Nie ufamy plikowi TOML bez walidacji.
 
-| Obszar | Alert | Waga | Kolor | Reakcja | Sterowanie |
-|---|---|---:|---|---|---|
-| HMI | `HMI_CM5_COMMUNICATION_LOST` | 4 | czerwony | `block_gui` | nie zatrzymuje core |
-| Core | `CORE_PROCESS_RESTARTED` | 3 | pomarańczowy | `continue_degraded` | nie |
-| DAC | `DAC_STATE_UNCERTAIN` | 3 | pomarańczowy | `recover_safe_outputs` | tak |
-| DAC | `DAC_COMMUNICATION_LOST` | 4 | czerwony | `safe_state` | tak |
-| DAC | `DAC_OUTPUT_MISMATCH` | 4 | czerwony | `safe_state` | tak |
-| TACHO | `TACHO_MONITOR_UNAVAILABLE` | 2 | żółty | `continue_degraded` | **nie** |
-| TACHO | `TACHO_CONFIGURATION_INVALID` | 2 | żółty | `continue_degraded` | **nie** |
-| Fan | `FAN_NO_ROTATION_FEEDBACK` | 3 | pomarańczowy | `continue_degraded` | **nie zatrzymuje** |
-| Fan | `FAN_RPM_OUT_OF_RANGE` | 3 | pomarańczowy | `continue_degraded` | nie domyślnie |
-| SENSOR BUS | `SENSOR_BUS_UNAVAILABLE` | 3 | pomarańczowy | `fallback_local` | tak |
-| SEN55 | `SENSOR_NODE_UNAVAILABLE` | 3 | pomarańczowy | `fallback_local` | tak lokalnie |
-| SEN55 | `SENSOR_DATA_INVALID` | 3 | pomarańczowy | `fallback_local` | tak lokalnie |
-| SEN55 | `SEN55_DIAGNOSTICS_UNAVAILABLE` | 2 | żółty | `continue_degraded` | nie |
-| SEN55 | `SEN55_FAN_SPEED_WARNING` | 2 | żółty | `continue_degraded` | nie |
-| SEN55 | `SEN55_GAS_SENSOR_ERROR` | 3 | pomarańczowy | `fallback_local` | dla VOC/NOx |
-| SEN55 | `SEN55_RHT_ERROR` | 3 | pomarańczowy | `fallback_local` | dla RH/T |
-| SEN55 | `SEN55_LASER_ERROR` | 3 | pomarańczowy | `fallback_local` | dla PM |
-| SEN55 | `SEN55_FAN_ERROR` | 3 | pomarańczowy | `fallback_local` | tak lokalnie |
-| KAmod | `KAMOD_HEARTBEAT_SINGLE_GAP` | 1 | niebieski | `continue` | nie |
-| KAmod | `KAMOD_HEARTBEAT_DEGRADED` | 2 | żółty | `continue_degraded` | nie |
-| KAmod | `KAMOD_HEARTBEAT_LOST` | 2 | żółty | `continue_degraded` | nie |
-| KAmod | `KAMOD_UNEXPECTED_RESTART` | 2 | żółty | `continue_degraded` | nie |
-| KAmod | `KAMOD_RS485_NOT_READY` | 3 | pomarańczowy | `fallback_local` | tak lokalnie |
-| KAmod | `KAMOD_SENSOR_STATE_ERROR` | 3 | pomarańczowy | `fallback_local` | tak lokalnie |
-| KAmod | `KAMOD_NODE_UNAVAILABLE` | 3 | pomarańczowy | `fallback_local` | tak lokalnie |
-| Service-plane | `SERVICE_AGENT_UNAVAILABLE` | 2 | żółty | `continue_degraded` | nie |
-| Service-plane | `SERVICE_NETWORK_AP_UNAVAILABLE` | 2 | żółty | `continue_degraded` | nie |
-| Service-plane | `SERVICE_NETWORK_DHCP_UNAVAILABLE` | 2 | żółty | `continue_degraded` | nie |
-| Service-plane | `SERVICE_NETWORK_FIREWALL_INVALID` | 3 | pomarańczowy | `continue_degraded` | nie dla wentylacji |
-| AERO | `AERO_BUS_UNAVAILABLE` | 3 | pomarańczowy | `fallback_local` | lokalnie |
-| AERO | `AERO_COMMAND_NOT_CONFIRMED` | 3 | pomarańczowy | `fallback_local` | lokalnie |
-| Zigbee | `ZIGBEE_MQTT_DISCONNECTED` | 2 | żółty | `continue_degraded` | nie |
-| Zigbee | `ZIGBEE_BRIDGE_OFFLINE` | 2 | żółty | `continue_degraded` | nie |
-| Zigbee | `ZIGBEE_DEVICE_OFFLINE` | 2 | żółty | `fallback_local` | jeśli dane wymagane |
-| Zigbee | `ZIGBEE_DEVICE_DATA_STALE` | 2 | żółty | `fallback_local` | jeśli dane wymagane |
-| Zigbee | `ZIGBEE_LOW_BATTERY` | 1 | niebieski | `continue` | nie |
-| Pogoda | `WEATHER_UNAVAILABLE` | 1 | niebieski | `continue` | obecnie nie |
-| Pogoda | `WEATHER_DATA_STALE` | 1 | niebieski | `continue` | obecnie nie |
-| Harmonogram | `SCHEDULE_INVALID` | 2 | żółty | `fallback_local` | dla AUTO |
-| Harmonogram | `SCHEDULE_STORE_UNAVAILABLE` | 2 | żółty | `fallback_local` | dla AUTO |
-| SHADOW | `SHADOW_ENGINE_UNAVAILABLE` | 1 | niebieski | `continue` | nie |
-| AUTO | `AUTO_INPUTS_UNTRUSTED` | 3 | pomarańczowy | `fallback_local` | tak |
-| Telemetria | `TELEMETRY_STORE_UNAVAILABLE` | 2 | żółty | `continue_degraded` | nie |
-| Alert DB | `ALERT_STORE_UNAVAILABLE` | 3 | pomarańczowy | `continue_degraded` | nie dla sterowania |
-| CM5 storage | `LOCAL_STORAGE_PRESSURE` | 3 | pomarańczowy | `continue_degraded` | nie dla sterowania |
-| AI Bridge | `AI_BRIDGE_SYNC_TEMPORARY_FAILURE` | 1 | niebieski | `continue` | nie |
-| AI Bridge | `AI_BRIDGE_BACKLOG_HIGH` | 2 | żółty | `continue_degraded` | nie |
-| AI | `AI_ADVISORY_UNAVAILABLE` | 1 | niebieski | `continue` | nie |
-| NAS | `NAS_STORAGE_UNAVAILABLE` | 1 | niebieski | `continue` | nie |
+Przed zastosowaniem polityki system musi sprawdzić co najmniej:
 
-## 11. Walidacja pliku konfiguracyjnego
+- `schema_version`,
+- komplet wymaganych pól,
+- zakres `weight = 0..4`,
+- zgodność `weight -> severity -> hmi_color`,
+- dozwolony enum `reaction`,
+- unikalność kodów wynikającą z TOML,
+- twarde ograniczenia DAC/TACHO/HMI,
+- brak nieznanych pól poza jawnie dozwolonym `.parameters`.
 
-Przed zastosowaniem konfiguracji powinno istnieć narzędzie, np.:
+Docelowy workflow serwisowy:
 
 ```bash
 wvc-alertctl validate /etc/workshop-ventilation/alerts-v2.toml
+sudo systemctl restart ventilation-core.service
 ```
 
-Validator ma co najmniej sprawdzać:
+Reload bez restartu może zostać dodany dopiero później, po osobnej walidacji atomowego przełączania polityki.
 
-- `schema_version`,
-- unikalność kodów,
-- `weight` w zakresie 0..4,
-- zgodność `severity` i `hmi_color` z dozwolonym modelem,
-- dozwolone wartości `reaction`,
-- poprawny `scope`,
-- poprawny `owner`,
-- poprawne typy wszystkich pól,
-- brak reakcji zabronionych przez twarde niezmienniki bezpieczeństwa,
-- brak możliwości ustawienia `safe_state` dla alertów TACHO,
-- brak możliwości osłabienia minimalnej polityki bezpieczeństwa krytycznych alertów DAC.
+## 12. Kolejność dalszej implementacji
 
-Przy błędzie nowa konfiguracja nie może zostać aktywowana. Core ma zachować **last-known-good policy** i jednoznacznie zgłosić błąd konfiguracji.
+1. **DONE:** pełna domyślna macierz `alerts-v2.default.toml`.
+2. **DONE:** loader TOML i validator kontraktu/safety invariants.
+3. **DONE:** `wvc-alertctl validate` bez prawa do zmiany runtime.
+4. **NEXT:** runtime policy manager tylko do odczytu, publikacja `policy_version` + SHA-256, bez zmiany reakcji sprzętowych.
+5. Rozszerzenie rekordów/kontraktu AlertV2 o wagę, reaction, scope, color.
+6. Korelacja istniejących źródeł: przede wszystkim service-plane + SENSOR BUS.
+7. Operational TACHO: commanded fan without valid rotation feedback.
+8. Pozostałe nowe detektory systemowe.
+9. Integracja koloru RGB HMI z najwyższą aktywną wagą.
+10. Dopiero na gotowym kontrakcie finalne GUI Alerty V2.
 
-## 12. Zasady instalacji i aktualizacji
+## 13. Stan bieżący
 
-Repo zawiera wzorzec:
+Plik `config/alerts-v2.default.toml` oraz dokumentacja są kontraktem projektowym. Loader i validator istnieją i są objęte testami repo, ale nie są jeszcze częścią produkcyjnej ścieżki `ventilation-core`.
 
-```text
-config/alerts-v2.default.toml
-```
-
-Docelowy instalator powinien:
-
-1. utworzyć `/etc/workshop-ventilation/alerts-v2.toml` z defaultu tylko wtedy, gdy aktywnego pliku jeszcze nie ma,
-2. nie nadpisywać automatycznie lokalnie zmodyfikowanej polityki podczas zwykłego OTA/update,
-3. sprawdzać `schema_version`,
-4. udostępniać jawny diff/migrację przy zmianie schematu,
-5. walidować plik przed restartem/reloadem core.
-
-Pierwsza wersja może stosować konfigurację po kontrolowanym restarcie `ventilation-core`. Hot-reload można dodać później dopiero po osobnej walidacji.
-
-## 13. Stan implementacji względem obecnego repo
-
-### Już istnieje i będzie rozwijane
-
-- trwały Alert Stage 1 / ACK / historia,
-- `DAC_STATE_UNCERTAIN`,
-- `DAC_COMMUNICATION_LOST`,
-- `SENSOR_BUS_UNAVAILABLE`,
-- `SENSOR_NODE_UNAVAILABLE`,
-- `SENSOR_DATA_INVALID`,
-- diagnostyka SEN55,
-- `AERO_BUS_UNAVAILABLE`,
-- podstawowa diagnostyka TACHO,
-- podstawowe alerty Zigbee,
-- CM5 Service Agent i telemetria heartbeat KAmod,
-- lokalny watchdog HMI ↔ CM5.
-
-### Wymaga rozszerzenia / korelacji
-
-- włączenie read-only Service Agent do warstwy diagnostycznej AlertV2,
-- korelacja service-plane z produkcyjnym SENSOR BUS,
-- `FAN_NO_ROTATION_FEEDBACK`,
-- `FAN_RPM_OUT_OF_RANGE`,
-- potwierdzanie wykonania AERO,
-- systemowe alerty usług/persistence/storage,
-- status AI/synchronizacji/pogody,
-- HMI RGB wynikające z najwyższej aktywnej wagi.
-
-### Nowa infrastruktura AlertV2
-
-- loader TOML,
-- validator i `wvc-alertctl`,
-- model `weight/reaction/scope/affects_control/hmi_color`,
-- correlator,
-- last-known-good policy,
-- wersjonowanie polityki,
-- publikacja policy version/checksum w diagnostyce core.
-
-## 14. Proponowana kolejność implementacji
-
-1. **Policy loader + validator** bez zmiany zachowania produkcyjnego.
-2. **Rozszerzenie rekordu AlertV2** z zachowaniem kompatybilności obecnego API.
-3. **Mapowanie istniejących Alert Stage 1** na TOML i test zgodności 1:1.
-4. **Read-only adapter Service Agent** bez uzależniania `ventilation-core` od działania Wi-Fi.
-5. **Correlator SENSOR BUS / KAmod / SEN55**.
-6. **Operational TACHO** z twardym testem regresyjnym: brak TACHO nie zatrzymuje systemu.
-7. **AERO command confirmation**.
-8. **Alerty usług/persistence/storage/AI/weather** zgodnie z ich niekrytycznym charakterem.
-9. **Wyjście HMI severity + sterowanie paskiem RGB**.
-10. **GUI AlertV2** dopiero na stabilnym kontrakcie core.
-11. Pełne fault-injection i walidacja na fizycznym CM5/HMI przed jakimkolwiek merge do `main`.
-
-## 15. Kryteria akceptacji AlertV2
-
-AlertV2 można uznać za gotowy dopiero gdy:
-
-- obecne Alert Stage 1 nie mają regresji,
-- plik TOML jest walidowany przed użyciem,
-- błędny TOML nie może osłabić twardych zasad bezpieczeństwa,
-- brak TACHO nigdy nie wywołuje globalnego STOP,
-- Service Agent pozostaje niezależny od produkcyjnego sterowania,
-- korelacja redukuje duplikaty bez utraty szczegółów diagnostycznych,
-- ACK nie zmienia wagi ani koloru,
-- pasek HMI zawsze odpowiada najwyższej aktywnej wadze, z lokalnym wyjątkiem watchdog CM5,
-- utrata HMI nie zatrzymuje core,
-- utrata AI/NAS/Internetu/pogody nie zatrzymuje core,
-- historia alertów zachowuje źródłowe szczegóły i policy version,
-- wszystkie krytyczne i degradowane ścieżki przechodzą kontrolowany fault-injection na CM5,
-- `main` pozostaje nietknięty do czasu jawnej decyzji o merge.
-
-## 16. Decyzja projektowa
-
-`config/alerts-v2.default.toml` i ten dokument są **punktem bazowym do implementacji Core AlertV2**. Nie oznaczają jeszcze aktywacji nowego zachowania w produkcji.
-
-Najpierw budujemy i walidujemy mechanizm polityki oraz korelacji w osobnej gałęzi. Dopiero po stabilizacji kontraktu AlertV2 wracamy do finalnego wyglądu zakładki ALERTY w Web GUI/HMI.
+Nie wykonywać merge do `main`, wdrożenia runtime ani zmiany polityki produkcyjnego sterowania bez osobnej walidacji i wyraźnej decyzji operatora.
