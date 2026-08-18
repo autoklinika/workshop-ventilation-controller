@@ -43,7 +43,6 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         super.onCreate(savedInstanceState);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        enterImmersiveMode();
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
@@ -113,6 +112,11 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
         setContentView(webView);
 
+        // The iiyama Android 13 firmware may not have a DecorView-backed
+        // WindowInsetsController available at the beginning of onCreate().
+        // Defer immersive-mode setup until the content view is attached.
+        scheduleImmersiveMode();
+
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         webView.loadUrl(HMI_URL);
     }
@@ -130,7 +134,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     @Override
     protected void onResume() {
         super.onResume();
-        enterImmersiveMode();
+        scheduleImmersiveMode();
 
         if (nfcAdapter == null || !nfcAdapter.isEnabled()) {
             return;
@@ -148,6 +152,15 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
         if (nfcAdapter != null) {
             nfcAdapter.disableReaderMode(this);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+
+        if (hasFocus) {
+            scheduleImmersiveMode();
         }
     }
 
@@ -242,9 +255,16 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         return out.toString();
     }
 
+    private void scheduleImmersiveMode() {
+        View decorView = getWindow().getDecorView();
+        decorView.post(this::enterImmersiveMode);
+    }
+
     private void enterImmersiveMode() {
+        View decorView = getWindow().getDecorView();
+
         if (android.os.Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = getWindow().getInsetsController();
+            WindowInsetsController controller = decorView.getWindowInsetsController();
             if (controller != null) {
                 controller.hide(
                         WindowInsets.Type.statusBars()
@@ -257,7 +277,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
             return;
         }
 
-        getWindow().getDecorView().setSystemUiVisibility(
+        decorView.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
