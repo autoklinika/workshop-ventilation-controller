@@ -17,6 +17,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+# SQLite WAL readers need access to the database directory for shared-memory bookkeeping.
+# Application code opens telemetry.sqlite3 read-only; keep the writable sandbox exception scoped
+# to the workshop-ventilation state directory instead of weakening ProtectSystem globally.
+ReadWritePaths=/var/lib/workshop-ventilation
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

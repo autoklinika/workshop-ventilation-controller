@@ -18,6 +18,12 @@ class WebSystemdTest(unittest.TestCase):
         self.assertIn("ProtectHome=read-only", unit)
         self.assertNotIn("ProtectHome=true", unit)
 
+    def test_web_ui_sandbox_allows_sqlite_wal_history_bookkeeping(self):
+        unit = (ROOT / "deploy/systemd/wvc-web-ui.service").read_text(encoding="utf-8")
+        self.assertIn("ProtectSystem=strict", unit)
+        self.assertIn("ReadWritePaths=/var/lib/workshop-ventilation", unit)
+        self.assertNotIn("ProtectSystem=false", unit)
+
     def test_web_env_keeps_core_and_weather_configuration_explicit(self):
         env = (ROOT / "deploy/cm5/web/wvc-web-ui.env.example").read_text(encoding="utf-8")
         self.assertIn("WVC_CORE_SOCKET=/run/workshop-ventilation/ventilation-core.sock", env)
