@@ -5,6 +5,7 @@ from threading import Event, Thread
 from time import monotonic
 from typing import Any, Protocol
 
+from .http_client import AIBridgeRequestTooLarge
 from .store import TelemetryBatchRecord, TelemetryStore
 
 
@@ -96,6 +97,33 @@ class TelemetryAgent:
         try:
             ack = sender.send_batch(payload)
             self._validate_ack(batch, ack)
+        except AIBridgeRequestTooLarge as exc:
+            self.store.record_attempt(batch.batch_id, str(exc))
+            if len(batch.samples) <= 1:
+                LOGGER.error(
+                    "Single telemetry sample exceeds AI Bridge request limit; "
+                    "sample remains pending batch_id=%s",
+                    batch.batch_id,
+                )
+                raise
+
+            released = self.store.release_batch(batch.batch_id)
+            if released != len(batch.samples):
+                raise RuntimeError(
+                    f"Failed to release oversized batch {batch.batch_id}: "
+                    f"expected {len(batch.samples)} rows, released {released}"
+                ) from exc
+
+            previous_size = self.batch_size
+            self.batch_size = max(1, min(self.batch_size, len(batch.samples) // 2))
+            LOGGER.warning(
+                "AI Bridge rejected oversized telemetry batch; released=%d "
+                "batch_size=%d->%d pending samples preserved",
+                released,
+                previous_size,
+                self.batch_size,
+            )
+            return False
         except Exception as exc:
             self.store.record_attempt(batch.batch_id, str(exc))
             raise
