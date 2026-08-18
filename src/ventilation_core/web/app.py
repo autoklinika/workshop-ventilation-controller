@@ -193,8 +193,8 @@ class WebApplication:
         role = data.get("role")
         if not isinstance(device_id, str) or not device_id.strip():
             raise ValueError("device_id must be a non-empty string")
-        if role not in (None, "supply", "extract"):
-            raise ValueError("role must be supply, extract or null")
+        if role not in (None, "supply", "extract", "other"):
+            raise ValueError("role must be supply, extract, other or null")
         return self._command(
             {
                 "command": "zigbee-assign-role",
