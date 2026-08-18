@@ -145,6 +145,46 @@ class TelemetryBatchResizeTest(unittest.TestCase):
             with self.assertRaises(AIBridgeRequestTooLarge):
                 client.send_batch({"samples": []})
 
+    def test_http_client_rejects_oversized_body_before_network_send(self):
+        client = AIBridgeTelemetryClient(
+            "http://127.0.0.1:8080",
+            max_body_bytes=128,
+        )
+        payload = {"samples": [{"metrics": {"blob": "x" * 256}}]}
+        with patch("ventilation_core.telemetry.http_client.request.urlopen") as urlopen:
+            with self.assertRaisesRegex(
+                AIBridgeRequestTooLarge,
+                "before send",
+            ):
+                client.send_batch(payload)
+        urlopen.assert_not_called()
+
+    def test_http_client_allows_body_at_or_under_local_limit(self):
+        client = AIBridgeTelemetryClient(
+            "http://127.0.0.1:8080",
+            max_body_bytes=1024,
+        )
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"ok":true}'
+
+        with patch(
+            "ventilation_core.telemetry.http_client.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
+            response = client.send_batch({"samples": []})
+        self.assertEqual(response, {"ok": True})
+        urlopen.assert_called_once()
+
     def test_production_systemd_batch_cap_is_50(self):
         unit = (ROOT / "deploy/systemd/wvc-telemetry-sync.service").read_text(
             encoding="utf-8"
