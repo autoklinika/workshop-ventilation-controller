@@ -139,6 +139,15 @@
     ui.error.hidden = true;
   }
 
+  function editingControlActive() {
+    const active = document.activeElement;
+    return Boolean(
+      active
+      && ui.inventory.contains(active)
+      && active.matches("input[data-zigbee-name-input],select[data-zigbee-role]")
+    );
+  }
+
   async function apiPost(path, body) {
     const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const payload = await response.json();
@@ -189,10 +198,15 @@
 
   async function refresh(force = false) {
     if (document.hidden && !force) return;
+    if (!force && editingControlActive()) return;
     try {
       const response = await fetch("/api/v1/zigbee", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok || payload.ok !== true || !payload.zigbee) throw new Error(payload.error || `HTTP ${response.status}`);
+      if (!force && editingControlActive()) {
+        currentState = payload.zigbee;
+        return;
+      }
       render(payload.zigbee);
     } catch (error) {
       ui.status.textContent = "BRAK API"; ui.status.className = "zigbee-status-pill bad"; ui.error.hidden = false;
