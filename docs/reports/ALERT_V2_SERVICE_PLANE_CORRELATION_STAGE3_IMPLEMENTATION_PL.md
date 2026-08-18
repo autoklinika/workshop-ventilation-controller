@@ -251,7 +251,7 @@ Nie dodano zależności systemd `Requires=` ani `After=` na `wvc-service-agent.s
 
 ## 10. Projekcja diagnostyczna
 
-`state.alert_v2.service_plane` może publikować stan monitora i wynik ostatniej korelacji, m.in.:
+`state.alert_v2.service_plane` publikuje wyłącznie zsanityzowany stan potrzebny do diagnostyki AlertV2 i wynik ostatniej korelacji, m.in.:
 
 ```text
 mode=read_only
@@ -260,6 +260,8 @@ derived_codes=[...]
 suppressed_legacy_keys=[...]
 control_policy_applied=false
 ```
+
+Do publicznej projekcji nie są przekazywane surowe heartbeat payloady, MAC, `source_ip` ani wewnętrzne struktury `transport`. Dla węzłów publikowane są tylko pola potrzebne do diagnostyki: `node_id`, `online`, czas ostatniego odbioru, adres Modbus, `sensor_state`, `rs485_ready` i `modbus_monitor_ready`.
 
 GUI nie wykonuje żadnej klasyfikacji. Wszystkie decyzje korelacyjne powstają po stronie core.
 
@@ -295,14 +297,15 @@ Pokryte przypadki:
 6. zdrowy service snapshot nie ukrywa niewyjaśnionego błędu Modbus,
 7. initial grace przed pierwszym heartbeat,
 8. debounce niedostępności Service Agent,
-9. TACHO przechodzi przez korelator bez zmiany reakcji sterującej.
+9. sanitizacja publicznej projekcji Service Plane,
+10. TACHO przechodzi przez korelator bez zmiany reakcji sterującej.
 
-GitHub Actions:
+GitHub Actions po finalnym hardeningu Stage 3:
 
 ```text
-Ventilation Core Tests #1541
+Ventilation Core Tests #1547
 compileall: PASS
-390 tests: PASS
+391 tests: PASS
 ```
 
 ## 13. Stan po Stage 3
@@ -317,7 +320,8 @@ Gotowe:
 - trwałe alerty Service Plane poprzez istniejący Alert Registry,
 - podstawowa korelacja Service Agent ↔ SENSOR BUS,
 - tłumienie wtórnego objawu, gdy przyczyna jest wystarczająco potwierdzona,
-- ochrona przed fałszywą korelacją przy awarii samego WVC-SERVICE.
+- ochrona przed fałszywą korelacją przy awarii samego WVC-SERVICE,
+- zsanityzowana projekcja diagnostyczna dla klientów core.
 
 Niezaimplementowane nadal:
 
