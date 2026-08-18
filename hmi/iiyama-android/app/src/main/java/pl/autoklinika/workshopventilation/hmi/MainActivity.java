@@ -46,6 +46,9 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -54,6 +57,9 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         settings.setAllowContentAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
         settings.setUserAgentString(
                 settings.getUserAgentString() + " WorkshopVentilationHmi/0.1"
         );
@@ -83,6 +89,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                     return;
                 }
 
+                HmiWebProfile.apply(view);
                 pageReady = true;
                 flushPendingNfcEvent();
             }
