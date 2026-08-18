@@ -46,9 +46,12 @@ def parse_published_capabilities(exposes: Any) -> tuple[ZigbeeCapability, ...]:
             return
         endpoint = _text(item.get("endpoint")) or inherited_endpoint
         features = item.get("features")
-        if isinstance(features, list):
+        if isinstance(features, list) and features:
+            # Composite exposes are containers. Report their published leaf
+            # values, not the synthetic parent plus the same child values.
             for feature in features:
                 visit(feature, endpoint)
+            return
 
         access = item.get("access")
         if isinstance(access, bool) or not isinstance(access, int) or not access & 0b001:
