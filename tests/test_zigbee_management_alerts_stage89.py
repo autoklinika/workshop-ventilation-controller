@@ -196,11 +196,34 @@ class ZigbeeManagementAndAlertsTests(unittest.TestCase):
 
         response = app.handle("POST", "/api/v1/zigbee/remove", {"device_id": "0xabc"})
         self.assertEqual(response.status, 200)
-        self.assertEqual(core.requests[-1], {"command": "zigbee-remove-device", "device_id": "0xabc"})
+        self.assertEqual(core.requests[-1], {"command": "zigbee-request-remove-device", "device_id": "0xabc"})
+
+        response = app.handle(
+            "POST",
+            "/api/v1/zigbee/remove-confirmation",
+            {"confirmation_id": "confirm-1", "confirmed": False},
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            core.requests[-1],
+            {
+                "command": "zigbee-resolve-remove-device",
+                "confirmation_id": "confirm-1",
+                "confirmed": False,
+            },
+        )
 
         before = len(core.requests)
         self.assertEqual(app.handle("POST", "/api/v1/zigbee/permit-join", {"seconds": 255}).status, 400)
         self.assertEqual(app.handle("POST", "/api/v1/zigbee/remove", {"device_id": ""}).status, 400)
+        self.assertEqual(
+            app.handle(
+                "POST",
+                "/api/v1/zigbee/remove-confirmation",
+                {"confirmation_id": "", "confirmed": True},
+            ).status,
+            400,
+        )
         self.assertEqual(len(core.requests), before)
         self.assertEqual(app.handle("POST", "/api/v1/zigbee/publish", {}).status, 404)
 
