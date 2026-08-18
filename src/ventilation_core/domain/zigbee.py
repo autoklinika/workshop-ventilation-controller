@@ -140,6 +140,50 @@ class ZigbeeTemperatureSensorState:
 
 
 @dataclass(frozen=True)
+class ZigbeeSensorListItem:
+    """Core-normalized telemetry row for every non-coordinator Zigbee device."""
+
+    ieee_address: str
+    friendly_name: str
+    topic: str
+    role: str | None = None
+    model: str | None = None
+    vendor: str | None = None
+    available: bool | None = None
+    temperature_celsius: float | None = None
+    humidity_percent: float | None = None
+    battery_percent: float | None = None
+    voltage_mv: float | None = None
+    linkquality: int | None = None
+    last_seen: str | None = None
+    last_message_at: str | None = None
+    messages: int = 0
+    parse_errors: int = 0
+    last_error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ieee_address": self.ieee_address,
+            "friendly_name": self.friendly_name,
+            "topic": self.topic,
+            "role": self.role,
+            "model": self.model,
+            "vendor": self.vendor,
+            "available": self.available,
+            "temperature_celsius": self.temperature_celsius,
+            "humidity_percent": self.humidity_percent,
+            "battery_percent": self.battery_percent,
+            "voltage_mv": self.voltage_mv,
+            "linkquality": self.linkquality,
+            "last_seen": self.last_seen,
+            "last_message_at": self.last_message_at,
+            "messages": self.messages,
+            "parse_errors": self.parse_errors,
+            "last_error": self.last_error,
+        }
+
+
+@dataclass(frozen=True)
 class ZigbeeMqttState:
     broker_host: str
     broker_port: int
@@ -158,6 +202,7 @@ class ZigbeeMqttState:
     last_event: dict[str, Any] | None = None
     inventory: tuple[ZigbeeInventoryDevice, ...] = ()
     pairing: ZigbeePairingState | None = None
+    sensor_list: tuple[ZigbeeSensorListItem, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -178,4 +223,5 @@ class ZigbeeMqttState:
             "last_event": self.last_event,
             "inventory": [device.to_dict() for device in self.inventory],
             "pairing": None if self.pairing is None else self.pairing.to_dict(),
+            "sensor_list": [item.to_dict() for item in self.sensor_list],
         }
