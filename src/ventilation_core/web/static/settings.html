@@ -25,38 +25,58 @@
   <main class="v2-main schedule-main">
     <section class="v2-page-heading">
       <h1>USTAWIENIA</h1>
-      <p>Zigbee i harmonogram pracy stref</p>
+      <p>Konfiguracja harmonogramów i urządzeń Zigbee</p>
     </section>
 
-    <section id="zigbeeSettingsMount" aria-label="Ustawienia Zigbee"></section>
+    <section class="settings-tabs-shell" aria-label="Podzakładki ustawień">
+      <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabSchedule" checked>
+      <label class="settings-tab-label" for="settingsTabSchedule">
+        <span>HARMONOGRAMY</span>
+        <small>Czas pracy stref</small>
+      </label>
 
-    <section class="schedule-overview" aria-label="Stan harmonogramu">
-      <article><span>STATUS</span><strong id="scheduleAvailability">Łączenie…</strong><small id="scheduleError">—</small></article>
-      <article><span>STREFA CZASOWA</span><strong id="scheduleTimezone">—</strong><small>czas lokalny core</small></article>
-      <article><span>CZAS LOKALNY</span><strong id="scheduleLocalTime">—</strong><small id="scheduleEvaluatedAt">—</small></article>
-    </section>
+      <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabZigbee">
+      <label class="settings-tab-label" for="settingsTabZigbee">
+        <span>ZIGBEE</span>
+        <small>Koordynator i urządzenia</small>
+      </label>
 
-    <section class="schedule-note">
-      <strong>Harmonogram nie steruje bezpośrednio wentylatorami ani AERO.</strong>
-      <span>Określa tylko oczekiwaną obecność dla przyszłej automatyki. Bezpieczeństwo i jakość powietrza pozostają nadrzędne.</span>
-    </section>
+      <div class="settings-tab-panels">
+        <section class="settings-tab-panel" data-settings-panel="schedule" aria-label="Harmonogramy">
+          <section class="schedule-overview" aria-label="Stan harmonogramu">
+            <article><span>STATUS</span><strong id="scheduleAvailability">Łączenie…</strong><small id="scheduleError">—</small></article>
+            <article><span>STREFA CZASOWA</span><strong id="scheduleTimezone">—</strong><small>czas lokalny core</small></article>
+            <article><span>CZAS LOKALNY</span><strong id="scheduleLocalTime">—</strong><small id="scheduleEvaluatedAt">—</small></article>
+          </section>
 
-    <section class="schedule-grid">
-      <article class="schedule-zone" data-zone-editor="zone-1">
-        <header><div><span class="schedule-kicker">STREFA 1</span><h2 id="scheduleZone1Name">Mycie / Wygrzewanie</h2></div><div class="schedule-zone-state"><span>BIEŻĄCY KONTEKST</span><strong id="scheduleZone1State">—</strong></div></header>
-        <div class="schedule-columns" aria-hidden="true"><span>DZIEŃ</span><span>OD</span><span>DO</span><span>KONTEKST</span><span>OPIS</span><span>AKTYWNY</span><span></span></div>
-        <div id="scheduleZone1Rows" class="schedule-rows"></div>
-        <div class="schedule-empty" id="scheduleZone1Empty">Brak przedziałów. Poza przedziałami core przyjmuje brak oczekiwanej obecności.</div>
-        <footer><button type="button" class="schedule-btn secondary" data-add-window="zone-1">+ Dodaj przedział</button><div class="schedule-actions"><span class="schedule-save-status" id="scheduleZone1Message"></span><button type="button" class="schedule-btn ghost" data-reload-zone="zone-1">Wczytaj ponownie</button><button type="button" class="schedule-btn primary" data-save-zone="zone-1">Zapisz strefę</button></div></footer>
-      </article>
+          <section class="schedule-note">
+            <strong>Harmonogram nie steruje bezpośrednio wentylatorami ani AERO.</strong>
+            <span>Określa tylko oczekiwaną obecność dla przyszłej automatyki. Bezpieczeństwo i jakość powietrza pozostają nadrzędne.</span>
+          </section>
 
-      <article class="schedule-zone" data-zone-editor="zone-2">
-        <header><div><span class="schedule-kicker">STREFA 2</span><h2 id="scheduleZone2Name">Lutowanie</h2></div><div class="schedule-zone-state"><span>BIEŻĄCY KONTEKST</span><strong id="scheduleZone2State">—</strong></div></header>
-        <div class="schedule-columns" aria-hidden="true"><span>DZIEŃ</span><span>OD</span><span>DO</span><span>KONTEKST</span><span>OPIS</span><span>AKTYWNY</span><span></span></div>
-        <div id="scheduleZone2Rows" class="schedule-rows"></div>
-        <div class="schedule-empty" id="scheduleZone2Empty">Brak przedziałów. Poza przedziałami core przyjmuje brak oczekiwanej obecności.</div>
-        <footer><button type="button" class="schedule-btn secondary" data-add-window="zone-2">+ Dodaj przedział</button><div class="schedule-actions"><span class="schedule-save-status" id="scheduleZone2Message"></span><button type="button" class="schedule-btn ghost" data-reload-zone="zone-2">Wczytaj ponownie</button><button type="button" class="schedule-btn primary" data-save-zone="zone-2">Zapisz strefę</button></div></footer>
-      </article>
+          <section class="schedule-grid">
+            <article class="schedule-zone" data-zone-editor="zone-1">
+              <header><div><span class="schedule-kicker">STREFA 1</span><h2 id="scheduleZone1Name">Mycie / Wygrzewanie</h2></div><div class="schedule-zone-state"><span>BIEŻĄCY KONTEKST</span><strong id="scheduleZone1State">—</strong></div></header>
+              <div class="schedule-columns" aria-hidden="true"><span>DZIEŃ</span><span>OD</span><span>DO</span><span>KONTEKST</span><span>OPIS</span><span>AKTYWNY</span><span></span></div>
+              <div id="scheduleZone1Rows" class="schedule-rows"></div>
+              <div class="schedule-empty" id="scheduleZone1Empty">Brak przedziałów. Poza przedziałami core przyjmuje brak oczekiwanej obecności.</div>
+              <footer><button type="button" class="schedule-btn secondary" data-add-window="zone-1">+ Dodaj przedział</button><div class="schedule-actions"><span class="schedule-save-status" id="scheduleZone1Message"></span><button type="button" class="schedule-btn ghost" data-reload-zone="zone-1">Wczytaj ponownie</button><button type="button" class="schedule-btn primary" data-save-zone="zone-1">Zapisz strefę</button></div></footer>
+            </article>
+
+            <article class="schedule-zone" data-zone-editor="zone-2">
+              <header><div><span class="schedule-kicker">STREFA 2</span><h2 id="scheduleZone2Name">Lutowanie</h2></div><div class="schedule-zone-state"><span>BIEŻĄCY KONTEKST</span><strong id="scheduleZone2State">—</strong></div></header>
+              <div class="schedule-columns" aria-hidden="true"><span>DZIEŃ</span><span>OD</span><span>DO</span><span>KONTEKST</span><span>OPIS</span><span>AKTYWNY</span><span></span></div>
+              <div id="scheduleZone2Rows" class="schedule-rows"></div>
+              <div class="schedule-empty" id="scheduleZone2Empty">Brak przedziałów. Poza przedziałami core przyjmuje brak oczekiwanej obecności.</div>
+              <footer><button type="button" class="schedule-btn secondary" data-add-window="zone-2">+ Dodaj przedział</button><div class="schedule-actions"><span class="schedule-save-status" id="scheduleZone2Message"></span><button type="button" class="schedule-btn ghost" data-reload-zone="zone-2">Wczytaj ponownie</button><button type="button" class="schedule-btn primary" data-save-zone="zone-2">Zapisz strefę</button></div></footer>
+            </article>
+          </section>
+        </section>
+
+        <section class="settings-tab-panel" data-settings-panel="zigbee" aria-label="Zigbee">
+          <section id="zigbeeSettingsMount" aria-label="Ustawienia Zigbee"></section>
+        </section>
+      </div>
     </section>
   </main>
 </body>
