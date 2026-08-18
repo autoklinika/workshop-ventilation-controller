@@ -236,6 +236,24 @@ class TelemetryStore:
                 (utc_now_iso(), error, batch_id),
             )
 
+    def release_batch(self, batch_id: str) -> int:
+        """Return one unsynced reserved batch to the pending queue.
+
+        Used when the remote side rejects the HTTP body as too large. No sample
+        data, attempt counters or error diagnostics are deleted.
+        """
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE telemetry_samples
+                SET batch_id = NULL,
+                    batch_created_at = NULL
+                WHERE synced_at IS NULL AND batch_id = ?
+                """,
+                (batch_id,),
+            )
+            return int(cursor.rowcount)
+
     def mark_batch_synced(self, batch_id: str) -> int:
         synced_at = utc_now_iso()
         with self._connect() as connection:
@@ -256,7 +274,7 @@ class TelemetryStore:
         max_buckets_per_resolution: int = 240,
     ) -> dict[str, int]:
         if max_buckets_per_resolution < 1:
-            raise ValueError("max_buckets_per_resolution must be at least 1")
+            raise ValueError("max_rollup_buckets_per_run must be at least 1")
         effective_now = now or datetime.now(timezone.utc)
         if effective_now.tzinfo is None or effective_now.utcoffset() is None:
             raise ValueError("rollup time must be timezone-aware")
