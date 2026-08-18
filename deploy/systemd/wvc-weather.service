@@ -1,0 +1,34 @@
+[Unit]
+Description=Workshop Ventilation CM5 Weather Provider
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wentylacja
+Group=wentylacja
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/default/wvc-weather
+StateDirectory=workshop-ventilation
+StateDirectoryMode=0750
+ExecStart=/usr/bin/python3 -m ventilation_core.weather.main --cache /var/lib/workshop-ventilation/weather.json --poll-interval 3600 --http-timeout 5 --log-level INFO
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=15
+KillSignal=SIGTERM
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/workshop-ventilation
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
