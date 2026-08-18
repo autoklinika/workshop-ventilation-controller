@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import unittest
 from pathlib import Path
@@ -183,6 +184,30 @@ class AlertV2ServicePlaneCorrelationTests(unittest.TestCase):
             {record.code for record in third},
             {AlarmCode.SENSOR_NODE_UNAVAILABLE, AlarmCode.SERVICE_AGENT_UNAVAILABLE},
         )
+
+    def test_public_diagnostics_exclude_raw_service_identity_and_heartbeat(self) -> None:
+        response = _snapshot()
+        response["nodes"][0].update(
+            {
+                "mac": "88:13:BF:00:52:D0",
+                "source_ip": "10.55.0.106",
+                "heartbeat": {"secretish_raw": "do-not-publish"},
+                "transport": {"last_boot_id": "0123456789abcdef"},
+            }
+        )
+        registry = self._registry_for(response)
+
+        registry.reconcile([])
+        public = registry.diagnostics()["monitor"]
+        encoded = json.dumps(public, sort_keys=True)
+
+        self.assertNotIn('"mac"', encoded)
+        self.assertNotIn('"source_ip"', encoded)
+        self.assertNotIn('"heartbeat"', encoded)
+        self.assertNotIn('"transport"', encoded)
+        self.assertNotIn("do-not-publish", encoded)
+        self.assertEqual(public["nodes"][0]["node_id"], "sensor-node-1")
+        self.assertEqual(public["nodes"][0]["modbus_address"], 1)
 
     def test_tacho_alert_passes_through_and_cannot_become_control_reaction_here(self) -> None:
         registry = self._registry_for(_snapshot())
