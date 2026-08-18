@@ -5,10 +5,10 @@ function ensureSettingsView() {
   if (!host || document.getElementById("settingsView")) return;
   const section = document.createElement("section");
   section.id = "settingsView";
-  section.className = "v2-shell-view v2-settings-view";
+  section.className = "v2-shell-view v2-settings-view schedule-main";
   section.dataset.view = "settings";
   section.hidden = true;
-  section.innerHTML = '<section class="v2-page-heading"><h1>USTAWIENIA</h1><p>Konfiguracja i diagnostyka systemu</p></section><div id="zigbeeSettingsMount"></div>';
+  section.innerHTML = '<section class="v2-page-heading"><h1>USTAWIENIA</h1><p>Ładowanie ustawień…</p></section>';
   host.appendChild(section);
 }
 
@@ -48,6 +48,15 @@ function loadV2Script(src) {
   });
 }
 
+function loadV2Style(href) {
+  if (document.querySelector(`link[data-v2-loaded-style="${href}"]`)) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = href;
+  link.dataset.v2LoadedStyle = href;
+  document.head.appendChild(link);
+}
+
 async function hydrateControlView() {
   const host = document.getElementById("controlView");
   if (!host) return;
@@ -73,6 +82,26 @@ async function hydrateControlView() {
     await loadV2Script("/tacho.js");
   } catch (error) {
     host.innerHTML = `<section class="v2-page-heading"><h1>STREFY</h1><p>Nie udało się załadować widoku sterowania: ${String(error.message || error)}</p></section>`;
+  }
+}
+
+async function hydrateSettingsView() {
+  const host = document.getElementById("settingsView");
+  if (!host) return;
+  try {
+    const response = await fetch("/settings.html", { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const source = parsed.querySelector("main");
+    if (!source) throw new Error("Brak źródła widoku USTAWIENIA");
+
+    loadV2Style("/schedule.css");
+    host.innerHTML = source.innerHTML;
+    await loadV2Script("/zigbee-settings.js");
+    await loadV2Script("/schedule.js");
+  } catch (error) {
+    host.innerHTML = `<section class="v2-page-heading"><h1>USTAWIENIA</h1><p>Nie udało się załadować ustawień: ${String(error.message || error)}</p></section>`;
   }
 }
 
@@ -102,10 +131,7 @@ function wireV2Navigation() {
 ensureSettingsView();
 wireV2Navigation();
 hydrateControlView();
-loadV2Script("/zigbee-settings.js").catch((error) => {
-  const mount = document.getElementById("zigbeeSettingsMount");
-  if (mount) mount.textContent = `Nie udało się załadować modułu Zigbee: ${String(error.message || error)}`;
-});
+hydrateSettingsView();
 
 const card=document.querySelector('.v2-unit-card');if(card){card.className='v2-weather-card';card.innerHTML='<span class="v2-weather-kicker">POGODA</span><h2>Na zewnątrz</h2><div class="v2-weather-main"><span id="weatherIcon" class="v2-weather-icon">◌</span><strong id="weatherTemp">—</strong></div><p id="weatherCondition" class="v2-weather-condition">Brak danych pogodowych</p><p id="weatherLocation" class="v2-weather-location">Warsztat</p><div class="v2-weather-metrics"><div><span>Opady</span><strong id="weatherRain">—</strong></div><div><span>Wiatr</span><strong id="weatherWind">—</strong></div></div><div class="v2-weather-source">Źródło: MET Norway</div>'}
 const $=id=>document.getElementById(id),u={clock:$('clock'),date:$('date'),systemDot:$('systemDot'),systemText:$('systemText'),z1n:$('zone1Name'),z2n:$('zone2Name'),z1d:$('zone1Dot'),z2d:$('zone2Dot'),z1s:$('zone1AirStatus'),z2s:$('zone2AirStatus'),z1v:$('zone1Voc'),z2v:$('zone2Voc'),z1p:$('zone1Pm25'),z2p:$('zone2Pm25'),vp:$('zone1VentilationPercent'),sp:$('zone1SupplyPercent'),ep:$('zone1ExtractPercent'),mode:$('zone1Mode'),b1:$('zone1Bar'),am:$('zone2AeroMode'),ae:$('zone2AeroExtra'),as:$('zone2AeroSupply'),ax:$('zone2AeroExtract'),b2:$('zone2Bar'),wi:$('weatherIcon'),wt:$('weatherTemp'),wc:$('weatherCondition'),wl:$('weatherLocation'),wr:$('weatherRain'),ww:$('weatherWind')};
