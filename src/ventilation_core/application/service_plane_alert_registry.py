@@ -81,7 +81,7 @@ class ServicePlaneCorrelatingAlertRegistry:
         with self._lock:
             correlation = dict(self._last_correlation)
         return {
-            "monitor": self._monitor.state().to_dict(),
+            "monitor": self._public_monitor_diagnostics(self._monitor.state()),
             "correlation": correlation,
             "control_policy_applied": False,
         }
@@ -312,3 +312,61 @@ class ServicePlaneCorrelatingAlertRegistry:
             "suppressed_legacy_keys": sorted(suppressed),
             "control_policy_applied": False,
         }
+
+    @staticmethod
+    def _public_monitor_diagnostics(state: ServicePlaneMonitorState) -> dict[str, Any]:
+        """Expose only fields useful to AlertV2/HMI diagnostics.
+
+        Raw heartbeat payloads, MAC addresses, source IPs and transport internals
+        stay private to the core-side correlation path.
+        """
+
+        result: dict[str, Any] = {
+            "available": state.available,
+            "consecutive_failures": state.consecutive_failures,
+            "last_error": state.last_error,
+            "last_attempt_unix_ms": state.last_attempt_unix_ms,
+            "last_success_unix_ms": state.last_success_unix_ms,
+            "agent": None,
+            "network": None,
+            "nodes": [],
+        }
+        snapshot = state.snapshot
+        if not isinstance(snapshot, dict):
+            return result
+
+        agent = snapshot.get("agent")
+        if isinstance(agent, dict):
+            result["agent"] = {
+                "ready": agent.get("ready"),
+                "started_unix_ms": agent.get("started_unix_ms"),
+                "registered_nodes": agent.get("registered_nodes"),
+                "online_nodes": agent.get("online_nodes"),
+            }
+
+        network = snapshot.get("network")
+        if isinstance(network, dict):
+            result["network"] = {
+                "ready": network.get("ready"),
+                "ap_active": network.get("ap_active"),
+                "address_present": network.get("address_present"),
+                "dhcp_active": network.get("dhcp_active"),
+                "firewall_active": network.get("firewall_active"),
+            }
+
+        nodes = snapshot.get("nodes")
+        if isinstance(nodes, list):
+            result["nodes"] = [
+                {
+                    "node_id": node.get("node_id"),
+                    "online": node.get("online"),
+                    "received_unix_ms": node.get("received_unix_ms"),
+                    "modbus_address": node.get("modbus_address"),
+                    "sensor_state": node.get("sensor_state"),
+                    "rs485_ready": node.get("rs485_ready"),
+                    "modbus_monitor_ready": node.get("modbus_monitor_ready"),
+                }
+                for node in nodes
+                if isinstance(node, dict)
+            ]
+        return result
