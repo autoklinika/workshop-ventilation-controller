@@ -5,6 +5,72 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class ZigbeeCapability:
+    """A core-normalized value that a Zigbee device can publish in its state."""
+
+    property: str
+    name: str
+    label: str
+    value_type: str
+    unit: str | None = None
+    endpoint: str | None = None
+    category: str | None = None
+    description: str | None = None
+    access: int = 1
+    value_min: float | None = None
+    value_max: float | None = None
+    value_step: float | None = None
+    values: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "property": self.property,
+            "name": self.name,
+            "label": self.label,
+            "value_type": self.value_type,
+            "unit": self.unit,
+            "endpoint": self.endpoint,
+            "category": self.category,
+            "description": self.description,
+            "access": self.access,
+            "value_min": self.value_min,
+            "value_max": self.value_max,
+            "value_step": self.value_step,
+            "values": list(self.values),
+        }
+
+
+@dataclass(frozen=True)
+class ZigbeePairingState:
+    """Core-owned state of the most recent pairing/interview workflow."""
+
+    status: str
+    ieee_address: str
+    friendly_name: str
+    event_at: str
+    supported: bool | None = None
+    model: str | None = None
+    vendor: str | None = None
+    description: str | None = None
+    capabilities: tuple[ZigbeeCapability, ...] = ()
+    acknowledged: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "ieee_address": self.ieee_address,
+            "friendly_name": self.friendly_name,
+            "event_at": self.event_at,
+            "supported": self.supported,
+            "model": self.model,
+            "vendor": self.vendor,
+            "description": self.description,
+            "capabilities": [item.to_dict() for item in self.capabilities],
+            "acknowledged": self.acknowledged,
+        }
+
+
+@dataclass(frozen=True)
 class ZigbeeInventoryDevice:
     ieee_address: str
     friendly_name: str
@@ -16,6 +82,7 @@ class ZigbeeInventoryDevice:
     description: str | None = None
     power_source: str | None = None
     interview_state: str | None = None
+    capabilities: tuple[ZigbeeCapability, ...] = ()
 
     @property
     def is_coordinator(self) -> bool:
@@ -34,6 +101,7 @@ class ZigbeeInventoryDevice:
             "power_source": self.power_source,
             "interview_state": self.interview_state,
             "is_coordinator": self.is_coordinator,
+            "capabilities": [item.to_dict() for item in self.capabilities],
         }
 
 
@@ -89,6 +157,7 @@ class ZigbeeMqttState:
     inventory_updated_at: str | None = None
     last_event: dict[str, Any] | None = None
     inventory: tuple[ZigbeeInventoryDevice, ...] = ()
+    pairing: ZigbeePairingState | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -108,4 +177,5 @@ class ZigbeeMqttState:
             "inventory_updated_at": self.inventory_updated_at,
             "last_event": self.last_event,
             "inventory": [device.to_dict() for device in self.inventory],
+            "pairing": None if self.pairing is None else self.pairing.to_dict(),
         }
