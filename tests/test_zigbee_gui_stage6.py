@@ -13,6 +13,7 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn('"/settings"', server)
         self.assertIn('"zigbee-settings.js"', server)
         self.assertIn('"zigbee-settings.css"', server)
+        self.assertIn('"zigbee-stage13.css"', server)
 
     def test_sidebar_settings_navigation_is_enabled_by_v2_router(self) -> None:
         dashboard = (STATIC / "dashboard-live.js").read_text(encoding="utf-8")
@@ -25,6 +26,7 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
         self.assertIn('fetch("/api/v1/zigbee"', script)
         self.assertIn('apiPost("/api/v1/zigbee/permit-join"', script)
+        self.assertIn('apiPost("/api/v1/zigbee/pairing/ack"', script)
         self.assertIn('apiPost("/api/v1/zigbee/remove"', script)
         self.assertIn('apiPost("/api/v1/zigbee/remove-confirmation"', script)
         self.assertIn('fetch("/api/v1/zigbee/removal-confirmation"', script)
@@ -74,7 +76,18 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn("confirmation.confirmation_id", script)
         self.assertIn("confirmed,", script)
         self.assertIn("pollRemovalConfirmation", script)
+        self.assertIn("currentRemovalConfirmation.last_error", script)
         self.assertNotIn("window.confirm", script)
+
+    def test_pairing_result_is_only_a_client_view_of_core_capabilities(self) -> None:
+        script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
+        self.assertIn("URZĄDZENIE ZIGBEE ROZPOZNANE", script)
+        self.assertIn("DOSTĘPNE DANE", script)
+        self.assertIn("currentState.pairing", script)
+        self.assertIn("currentPairing.capabilities", script)
+        self.assertIn('apiPost("/api/v1/zigbee/pairing/ack"', script)
+        self.assertNotIn("OSTATNIO ODEBRANE", script.upper())
+        self.assertNotIn("ostatnio odebrane", script.lower())
 
 
 if __name__ == "__main__":
