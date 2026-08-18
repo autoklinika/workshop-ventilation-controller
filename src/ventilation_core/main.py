@@ -6,7 +6,10 @@ import logging
 import signal
 from pathlib import Path
 
+from ventilation_core.alert_policy import DEFAULT_RUNTIME_POLICY_PATH
+from ventilation_core.alert_policy_runtime import RuntimeAlertPolicyManager
 from ventilation_core.application.alert_registry import AlertRegistry
+from ventilation_core.application.alert_v2_policy_service import AlertV2ReadOnlyPolicyService
 from ventilation_core.application.schedule_controller import (
     CoreScheduleManager,
     UnavailableScheduleManager,
@@ -53,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", type=Path, default=Path("/run/workshop-ventilation/ventilation-core.sock"))
     parser.add_argument("--alerts-db", type=Path, default=Path("/var/lib/workshop-ventilation/alerts.sqlite3"))
     parser.add_argument("--automation-db", type=Path, default=Path("/var/lib/workshop-ventilation/automation.sqlite3"))
+    parser.add_argument(
+        "--alert-policy",
+        type=Path,
+        default=DEFAULT_RUNTIME_POLICY_PATH,
+        help="Read-only AlertV2 policy path; invalid/missing policy never changes control behavior",
+    )
     parser.add_argument("--minimum-running-voltage", type=float, default=1.0)
     parser.add_argument("--maximum-voltage", type=float, default=10.0)
     parser.add_argument("--command-timeout", type=float, default=3.0)
@@ -198,7 +207,7 @@ async def run_core(args: argparse.Namespace) -> None:
             )
             if enabled
         )
-        service = ShadowAlertingVentilationService(
+        legacy_service = ShadowAlertingVentilationService(
             actuator=actuator,
             policy=FanSetpointPolicy(
                 minimum_running_voltage=args.minimum_running_voltage,
@@ -214,6 +223,20 @@ async def run_core(args: argparse.Namespace) -> None:
             required_tacho_channels=required_tacho_channels,
             shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
         )
+        alert_policy_manager = RuntimeAlertPolicyManager(args.alert_policy)
+        service = AlertV2ReadOnlyPolicyService(legacy_service, alert_policy_manager)
+        if alert_policy_manager.loaded:
+            metadata = alert_policy_manager.metadata()
+            LOGGER.info(
+                "AlertV2 runtime mapping active version=%s sha256=%s; control policy remains disabled",
+                metadata["policy_version"],
+                metadata["sha256"],
+            )
+        else:
+            LOGGER.warning(
+                "AlertV2 runtime policy unavailable; legacy alert behavior continues unchanged: %s",
+                alert_policy_manager.metadata()["last_error"],
+            )
         server = CoreServer(
             service=service,
             socket_path=args.socket,
