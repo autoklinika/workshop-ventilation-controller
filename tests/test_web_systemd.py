@@ -43,7 +43,7 @@ class WebSystemdTest(unittest.TestCase):
         self.assertIn("ExecStart=/usr/bin/python3 -m ventilation_core.weather.main", unit)
         self.assertIn("EnvironmentFile=-/etc/default/wvc-weather", unit)
         self.assertIn("ReadWritePaths=/var/lib/workshop-ventilation", unit)
-        self.assertIn("RestrictAddressFamilies=AF_INET AF_INET6", unit)
+        self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", unit)
         self.assertNotIn("ventilation-core.service", unit)
         self.assertIn("WVC_WEATHER_LATITUDE=", env)
         self.assertIn("WVC_WEATHER_LONGITUDE=", env)
