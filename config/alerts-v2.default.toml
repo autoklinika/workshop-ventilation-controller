@@ -10,6 +10,10 @@ runtime_path = "/etc/workshop-ventilation/alerts-v2.toml"
 # wagę, reakcję, zakres i kolor paska HMI. Nowe detektory wymagające nowej logiki
 # nadal muszą zostać zaimplementowane i zwalidowane w kodzie.
 #
+# Dodatkowe nastawy istniejącego detektora należy dodawać wyłącznie jako:
+# [alerts.CODE.parameters]
+# Sam TOML nie wykonuje logiki i nie jest językiem automatyki.
+#
 # Twarde niezmienniki bezpieczeństwa NIE są konfigurowalne i mają być wymuszane
 # przez kod/validator. W szczególności sam brak TACHO NIGDY nie może zatrzymać
 # wentylacji ani wymusić globalnego safe_state.
