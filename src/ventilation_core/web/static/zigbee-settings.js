@@ -50,6 +50,20 @@
           <div id="zigbeeInventoryGrid" class="zigbee-inventory-grid"><div class="zigbee-loading">Oczekiwanie na listę urządzeń…</div></div>
         </section>
       </section>
+    </div>
+    <div id="zigbeeSystemConfirm" class="zigbee-system-confirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="zigbeeSystemConfirmTitle" aria-describedby="zigbeeSystemConfirmMessage">
+      <section class="zigbee-system-confirm-card">
+        <span class="zigbee-system-confirm-kicker">CM5 · VENTILATION-CORE</span>
+        <h2 id="zigbeeSystemConfirmTitle">POTWIERDZENIE OPERACJI</h2>
+        <p id="zigbeeSystemConfirmMessage"></p>
+        <p id="zigbeeSystemConfirmDetail" class="zigbee-system-confirm-detail"></p>
+        <div class="zigbee-system-confirm-meta"><span id="zigbeeSystemConfirmDevice"></span><span id="zigbeeSystemConfirmExpires"></span></div>
+        <div class="zigbee-system-confirm-actions">
+          <button id="zigbeeSystemConfirmCancel" class="zigbee-action" type="button">ANULUJ</button>
+          <button id="zigbeeSystemConfirmOk" class="zigbee-remove" type="button">POTWIERDŹ USUNIĘCIE</button>
+        </div>
+        <p id="zigbeeSystemConfirmStatus" class="zigbee-system-confirm-status">Decyzja zostanie wykonana przez ventilation-core na CM5.</p>
+      </section>
     </div>`;
 
   const byId = (id) => document.getElementById(id);
@@ -59,9 +73,16 @@
     errors: byId("zigbeeSummaryErrors"), error: byId("zigbeeSettingsError"), updated: byId("zigbeeSettingsUpdated"),
     inventoryUpdated: byId("zigbeeInventoryUpdated"), grid: byId("zigbeeDeviceGrid"), inventory: byId("zigbeeInventoryGrid"),
     permit: byId("zigbeePermitJoin"), closeJoin: byId("zigbeeCloseJoin"), managementMessage: byId("zigbeeManagementMessage"),
+    confirmOverlay: byId("zigbeeSystemConfirm"), confirmTitle: byId("zigbeeSystemConfirmTitle"),
+    confirmMessage: byId("zigbeeSystemConfirmMessage"), confirmDetail: byId("zigbeeSystemConfirmDetail"),
+    confirmDevice: byId("zigbeeSystemConfirmDevice"), confirmExpires: byId("zigbeeSystemConfirmExpires"),
+    confirmCancel: byId("zigbeeSystemConfirmCancel"), confirmOk: byId("zigbeeSystemConfirmOk"),
+    confirmStatus: byId("zigbeeSystemConfirmStatus"),
   };
   let currentState = null;
+  let currentRemovalConfirmation = null;
   let managementBusy = false;
+  let confirmationBusy = false;
 
   function esc(value) {
     return String(value ?? "—").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -148,6 +169,25 @@
     );
   }
 
+  function renderRemovalConfirmation(confirmation) {
+    currentRemovalConfirmation = confirmation && typeof confirmation === "object" ? confirmation : null;
+    if (!currentRemovalConfirmation) {
+      ui.confirmOverlay.hidden = true;
+      return;
+    }
+    ui.confirmTitle.textContent = currentRemovalConfirmation.title || "POTWIERDZENIE OPERACJI";
+    ui.confirmMessage.textContent = currentRemovalConfirmation.message || "Potwierdź operację Zigbee.";
+    ui.confirmDetail.textContent = currentRemovalConfirmation.detail || "";
+    ui.confirmDevice.textContent = `${currentRemovalConfirmation.friendly_name || "urządzenie"} · ${currentRemovalConfirmation.device_id || "—"}`;
+    ui.confirmExpires.textContent = `Wygasa: ${dateTime(currentRemovalConfirmation.expires_at)}`;
+    ui.confirmCancel.disabled = confirmationBusy;
+    ui.confirmOk.disabled = confirmationBusy;
+    ui.confirmStatus.textContent = confirmationBusy ? "VENTILATION-CORE PRZETWARZA DECYZJĘ…" : "Potwierdzenie pochodzi z ventilation-core na CM5.";
+    const wasHidden = ui.confirmOverlay.hidden;
+    ui.confirmOverlay.hidden = false;
+    if (wasHidden) ui.confirmCancel.focus({ preventScroll: true });
+  }
+
   async function apiPost(path, body) {
     const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const payload = await response.json();
@@ -187,13 +227,55 @@
     });
   }
 
-  async function removeDevice(ieee, name) {
-    const accepted = window.confirm(`Usunąć urządzenie Zigbee „${name}” (${ieee})?\n\nJeśli ma rolę systemową, zostanie ona automatycznie zwolniona.`);
-    if (!accepted) return;
+  async function requestRemoveDevice(ieee, name) {
     await withBusy(async () => {
-      try { await apiPost("/api/v1/zigbee/remove", { device_id: ieee }); message(`Usunięto urządzenie: ${name}.`); await refresh(true); }
-      catch (error) { message(`Nie udało się usunąć urządzenia: ${String(error.message || error)}`, true); }
+      try {
+        const payload = await apiPost("/api/v1/zigbee/remove", { device_id: ieee });
+        if (payload.confirmation_required !== true || !payload.confirmation) throw new Error("CM5 nie zwrócił żądania potwierdzenia");
+        renderRemovalConfirmation(payload.confirmation);
+        message(`CM5 oczekuje na potwierdzenie usunięcia: ${name}.`);
+      } catch (error) {
+        message(`Nie udało się utworzyć potwierdzenia w core: ${String(error.message || error)}`, true);
+      }
     });
+  }
+
+  async function resolveRemovalConfirmation(confirmed) {
+    if (confirmationBusy || !currentRemovalConfirmation) return;
+    const confirmation = currentRemovalConfirmation;
+    confirmationBusy = true;
+    renderRemovalConfirmation(confirmation);
+    try {
+      const payload = await apiPost("/api/v1/zigbee/remove-confirmation", {
+        confirmation_id: confirmation.confirmation_id,
+        confirmed,
+      });
+      renderRemovalConfirmation(null);
+      if (confirmed) {
+        message(`Urządzenie ${confirmation.friendly_name || "Zigbee"} zostało usunięte przez ventilation-core.`);
+      } else {
+        message(`Anulowano usunięcie urządzenia ${confirmation.friendly_name || "Zigbee"}.`);
+      }
+      await refresh(true);
+    } catch (error) {
+      ui.confirmStatus.textContent = `Błąd CM5: ${String(error.message || error)}`;
+    } finally {
+      confirmationBusy = false;
+      if (currentRemovalConfirmation) renderRemovalConfirmation(currentRemovalConfirmation);
+    }
+  }
+
+  async function pollRemovalConfirmation() {
+    try {
+      const response = await fetch("/api/v1/zigbee/removal-confirmation", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || payload.ok !== true) throw new Error(payload.error || `HTTP ${response.status}`);
+      if (!confirmationBusy) renderRemovalConfirmation(payload.confirmation || null);
+    } catch (error) {
+      if (currentRemovalConfirmation && !confirmationBusy) {
+        ui.confirmStatus.textContent = `Nie można odczytać potwierdzenia z CM5: ${String(error.message || error)}`;
+      }
+    }
   }
 
   async function refresh(force = false) {
@@ -216,17 +298,27 @@
 
   ui.permit.addEventListener("click", () => setPermitJoin(120));
   ui.closeJoin.addEventListener("click", () => setPermitJoin(0));
+  ui.confirmCancel.addEventListener("click", () => resolveRemovalConfirmation(false));
+  ui.confirmOk.addEventListener("click", () => resolveRemovalConfirmation(true));
   ui.inventory.addEventListener("click", (event) => {
     const rename = event.target.closest("button[data-zigbee-rename]");
     if (rename) { renameDevice(rename.dataset.zigbeeRename || ""); return; }
     const remove = event.target.closest("button[data-zigbee-remove]");
-    if (remove) removeDevice(remove.dataset.zigbeeRemove || "", remove.dataset.zigbeeName || "urządzenie");
+    if (remove) requestRemoveDevice(remove.dataset.zigbeeRemove || "", remove.dataset.zigbeeName || "urządzenie");
   });
   ui.inventory.addEventListener("change", (event) => {
     const select = event.target.closest("select[data-zigbee-role]");
     if (select) assignRole(select.dataset.zigbeeRole || "", select.value);
   });
+  document.addEventListener("keydown", (event) => {
+    if (!ui.confirmOverlay.hidden && event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  });
 
   refresh();
+  pollRemovalConfirmation();
   setInterval(refresh, 3000);
+  setInterval(pollRemovalConfirmation, 2000);
 })();
