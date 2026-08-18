@@ -97,7 +97,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         allowed = {
             "index.html", "control.html", "styles.css", "dashboard.css", "sidebar.css", "v2-weather.css",
             "dashboard.js", "dashboard-live.js", "app.js", "tacho.js", "alerts.js",
-            "zigbee-settings.js", "zigbee-settings.css",
+            "zigbee-settings.js", "zigbee-settings.css", "zigbee-stage13.css",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
