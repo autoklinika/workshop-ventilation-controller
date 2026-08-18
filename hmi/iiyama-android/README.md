@@ -60,41 +60,48 @@ The Android shell does **not** decide whether a card is valid. The target archit
 - Gradle: `9.4.1`
 - JDK: Android Studio JBR
 
-`local.properties` is intentionally not committed.
-
-Create it locally once:
-
-```powershell
-$sdk = "$env:LOCALAPPDATA\Android\Sdk" -replace '\\','/'
-"sdk.dir=$sdk" | Set-Content .\local.properties -Encoding ASCII
-```
+`local.properties` is intentionally not committed. `tools\build-debug.ps1` creates it automatically when missing.
 
 ## Sync branch in VS Code
 
-From the local repository:
+If the local branch does not exist yet:
+
+```powershell
+git fetch origin
+git switch --track origin/agent/iiyama-hmi-stage1
+```
+
+For subsequent updates:
 
 ```powershell
 git fetch origin
 git switch agent/iiyama-hmi-stage1
 git pull --ff-only origin agent/iiyama-hmi-stage1
-cd hmi\iiyama-android
 ```
 
-If the branch does not exist locally yet:
+Then:
 
 ```powershell
-git fetch origin
-git switch --track origin/agent/iiyama-hmi-stage1
 cd hmi\iiyama-android
 ```
 
 ## Build
 
-The project intentionally does not commit a Gradle wrapper JAR at this stage. Use the already installed workshop Gradle distribution:
+The project intentionally does not commit a Gradle wrapper JAR at this stage. The workshop machine already has Gradle 9.4.1 installed.
+
+Preferred build command:
 
 ```powershell
-C:\Android\gradle\gradle-9.4.1\bin\gradle.bat assembleDebug
+.\tools\build-debug.ps1
 ```
+
+The script:
+
+- verifies the known Gradle installation,
+- verifies the Android SDK,
+- creates `local.properties` when needed,
+- runs `assembleDebug`,
+- verifies that the APK was produced.
 
 Expected APK:
 
@@ -102,16 +109,18 @@ Expected APK:
 app\build\outputs\apk\debug\app-debug.apk
 ```
 
-## Install on iiyama
+## Install and launch on iiyama
+
+With the iiyama already visible through ADB:
 
 ```powershell
-C:\Android\platform-tools\adb.exe install -r .\app\build\outputs\apk\debug\app-debug.apk
+.\tools\deploy-debug.ps1
 ```
 
-Launch:
+The script installs the debug APK with `adb install -r` and launches:
 
-```powershell
-C:\Android\platform-tools\adb.exe shell am start -n pl.autoklinika.workshopventilation.hmi/.MainActivity
+```text
+pl.autoklinika.workshopventilation.hmi/.MainActivity
 ```
 
 ## Stage 1 validation
