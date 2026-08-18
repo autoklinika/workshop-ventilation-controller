@@ -25,7 +25,8 @@ class WebApplication:
     The browser never receives a generic ventilation-core command proxy. Only the
     explicitly listed intents below can cross this boundary. ALERTY remain owned
     by ventilation-core; Web V2 only reads them and forwards operator ACK by id.
-    Zigbee writes are limited to explicit management intents.
+    Zigbee writes are limited to explicit management intents. Destructive Zigbee
+    removal uses a two-step confirmation owned by ventilation-core on the CM5.
     """
 
     def __init__(
@@ -44,6 +45,8 @@ class WebApplication:
                 return self._state()
             if method == "GET" and path == "/api/v1/zigbee":
                 return self._zigbee()
+            if method == "GET" and path == "/api/v1/zigbee/removal-confirmation":
+                return self._zigbee_removal_confirmation()
             if method == "GET" and path == "/api/v1/alerts":
                 return self._alerts()
             if method == "GET" and path == "/api/v1/config":
@@ -58,6 +61,8 @@ class WebApplication:
                 return self._zigbee_permit_join(body)
             if method == "POST" and path == "/api/v1/zigbee/remove":
                 return self._zigbee_remove(body)
+            if method == "POST" and path == "/api/v1/zigbee/remove-confirmation":
+                return self._zigbee_remove_confirmation(body)
             if method == "POST" and path == "/api/v1/zigbee/rename":
                 return self._zigbee_rename(body)
             if method == "POST" and path == "/api/v1/zigbee/role":
@@ -95,6 +100,15 @@ class WebApplication:
             )
         return ApiResponse(200, {"ok": True, "zigbee": zigbee})
 
+    def _zigbee_removal_confirmation(self) -> ApiResponse:
+        response = self._core.request({"command": "zigbee-removal-confirmation-state"})
+        if response.get("ok") is not True:
+            return self._core_rejection(response)
+        confirmation = response.get("confirmation")
+        if confirmation is not None and not isinstance(confirmation, dict):
+            return ApiResponse(502, {"ok": False, "error": "Invalid confirmation state from core"})
+        return ApiResponse(200, {"ok": True, "confirmation": confirmation})
+
     def _alerts(self) -> ApiResponse:
         response = self._core.request({"command": "alerts", "limit": 200})
         if (
@@ -125,7 +139,23 @@ class WebApplication:
         if not isinstance(device_id, str) or not device_id.strip():
             raise ValueError("device_id must be a non-empty string")
         return self._command(
-            {"command": "zigbee-remove-device", "device_id": device_id.strip()}
+            {"command": "zigbee-request-remove-device", "device_id": device_id.strip()}
+        )
+
+    def _zigbee_remove_confirmation(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        confirmation_id = data.get("confirmation_id")
+        confirmed = data.get("confirmed")
+        if not isinstance(confirmation_id, str) or not confirmation_id.strip():
+            raise ValueError("confirmation_id must be a non-empty string")
+        if not isinstance(confirmed, bool):
+            raise ValueError("confirmed must be boolean")
+        return self._command(
+            {
+                "command": "zigbee-resolve-remove-device",
+                "confirmation_id": confirmation_id.strip(),
+                "confirmed": confirmed,
+            }
         )
 
     def _zigbee_rename(self, body: Any) -> ApiResponse:
