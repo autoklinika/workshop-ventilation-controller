@@ -4,6 +4,8 @@ import asyncio
 import json
 import logging
 import os
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,7 @@ class CoreServer:
         self._health_interval = health_interval_seconds
         self._shutdown = asyncio.Event()
         self._server: asyncio.AbstractServer | None = None
+        self._zigbee_remove_confirmation: dict[str, Any] | None = None
 
     async def run(self) -> None:
         health_task: asyncio.Task[None] | None = None
@@ -63,6 +66,23 @@ class CoreServer:
             self._socket_path.unlink()
         except FileNotFoundError:
             pass
+
+    def _current_zigbee_remove_confirmation(self) -> dict[str, Any] | None:
+        pending = self._zigbee_remove_confirmation
+        if pending is None:
+            return None
+        expires_at = pending.get("expires_at")
+        try:
+            expires = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        except ValueError:
+            self._zigbee_remove_confirmation = None
+            return None
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= expires.astimezone(timezone.utc):
+            self._zigbee_remove_confirmation = None
+            return None
+        return dict(pending)
 
     async def _health_monitor(self) -> None:
         while True:
@@ -169,6 +189,120 @@ class CoreServer:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, seconds)
             return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+        if command == "zigbee-removal-confirmation-state":
+            return {
+                "ok": True,
+                "confirmation": self._current_zigbee_remove_confirmation(),
+            }
+        if command == "zigbee-request-remove-device":
+            device_id = request.get("device_id")
+            if not isinstance(device_id, str) or not device_id.strip():
+                raise ValueError("Zigbee device_id must be a non-empty string")
+            state = self._service.state()
+            zigbee = state.zigbee
+            if zigbee is None:
+                raise RuntimeError("Zigbee management is not configured")
+            needle = device_id.strip()
+            device = next(
+                (
+                    item
+                    for item in zigbee.inventory
+                    if needle in {item.ieee_address, item.friendly_name}
+                ),
+                None,
+            )
+            if device is None:
+                raise ValueError(f"Unknown Zigbee device: {needle}")
+            if device.is_coordinator:
+                raise ValueError("Zigbee coordinator cannot be removed")
+
+            existing = self._current_zigbee_remove_confirmation()
+            if existing is not None:
+                if existing.get("device_id") != device.ieee_address:
+                    raise RuntimeError(
+                        "Another Zigbee device removal is already awaiting operator confirmation"
+                    )
+                return {
+                    "ok": True,
+                    "confirmation_required": True,
+                    "confirmation": existing,
+                    "state": state.to_dict(),
+                }
+
+            role = next(
+                (
+                    semantic.role
+                    for semantic in zigbee.devices
+                    if semantic.ieee_address == device.ieee_address
+                ),
+                None,
+            )
+            now = datetime.now(timezone.utc)
+            expires = now + timedelta(seconds=120)
+            pending = {
+                "confirmation_id": uuid.uuid4().hex,
+                "type": "zigbee_remove_device",
+                "title": "USUNIĘCIE URZĄDZENIA ZIGBEE",
+                "message": f"Czy na pewno usunąć urządzenie {device.friendly_name}?",
+                "detail": (
+                    "Urządzenie zostanie usunięte z sieci Zigbee i będzie wymagało "
+                    "ponownego parowania. Przypisana rola systemowa zostanie zwolniona."
+                ),
+                "device_id": device.ieee_address,
+                "friendly_name": device.friendly_name,
+                "role": role,
+                "created_at": now.isoformat(),
+                "expires_at": expires.isoformat(),
+                "destructive": True,
+            }
+            self._zigbee_remove_confirmation = pending
+            return {
+                "ok": True,
+                "confirmation_required": True,
+                "confirmation": dict(pending),
+                "state": state.to_dict(),
+            }
+        if command == "zigbee-resolve-remove-device":
+            confirmation_id = request.get("confirmation_id")
+            confirmed = request.get("confirmed")
+            if not isinstance(confirmation_id, str) or not confirmation_id.strip():
+                raise ValueError("confirmation_id must be a non-empty string")
+            if not isinstance(confirmed, bool):
+                raise ValueError("confirmed must be boolean")
+            pending = self._current_zigbee_remove_confirmation()
+            if pending is None:
+                raise RuntimeError("No active Zigbee removal confirmation")
+            if pending.get("confirmation_id") != confirmation_id.strip():
+                raise ValueError("Zigbee removal confirmation id does not match")
+
+            self._zigbee_remove_confirmation = None
+            if not confirmed:
+                return {
+                    "ok": True,
+                    "zigbee_management": {
+                        "status": "cancelled",
+                        "data": {"id": pending.get("device_id")},
+                    },
+                    "confirmation": {
+                        "confirmation_id": confirmation_id.strip(),
+                        "confirmed": False,
+                    },
+                    "state": self._service.state().to_dict(),
+                }
+
+            method = getattr(self._service, "zigbee_remove_device", None)
+            if method is None:
+                raise RuntimeError("Zigbee management is not configured")
+            result = await asyncio.to_thread(method, str(pending["device_id"]))
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "confirmation": {
+                    "confirmation_id": confirmation_id.strip(),
+                    "confirmed": True,
+                },
+                "state": self._service.state().to_dict(),
+            }
         if command == "zigbee-remove-device":
             device_id = request.get("device_id")
             if not isinstance(device_id, str) or not device_id.strip():
