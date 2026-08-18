@@ -13,12 +13,18 @@ class ZigbeePairingHydrationStage13Tests(unittest.TestCase):
     def test_successful_interview_is_hydrated_from_bridge_devices_exposes(self):
         monitor = CapabilityManagedZigbeeMqttMonitor.__new__(CapabilityManagedZigbeeMqttMonitor)
         monitor._lock = RLock()
+        # __new__ deliberately bypasses the live MQTT constructor. Keep this
+        # isolated fixture aligned with the monitor's Stage 14 core-owned
+        # generic sensor telemetry bookkeeping without creating a broker client.
+        monitor._sensor_list_by_ieee = {}
+        monitor._generic_topic_to_ieee = {}
+        monitor._generic_availability_to_ieee = {}
         monitor._state = ZigbeeMqttState(
             broker_host="127.0.0.1",
             broker_port=1883,
             base_topic="zigbee2mqtt",
             running=True,
-            connected=True,
+            connected=False,
             bridge_online=True,
         )
 
@@ -97,6 +103,11 @@ class ZigbeePairingHydrationStage13Tests(unittest.TestCase):
         self.assertNotIn(
             "temperature_units",
             {capability.property for capability in pairing.capabilities},
+        )
+        self.assertIn(IEEE, monitor._sensor_list_by_ieee)
+        self.assertEqual(
+            monitor._generic_topic_to_ieee["zigbee2mqtt/temp_nawiew"],
+            IEEE,
         )
 
 
