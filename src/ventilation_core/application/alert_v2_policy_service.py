@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from ventilation_core.alert_policy_runtime import RuntimeAlertPolicyManager
 
 
 class _AlertV2StateView:
-    def __init__(self, state: Any, manager: RuntimeAlertPolicyManager) -> None:
+    def __init__(
+        self,
+        state: Any,
+        manager: RuntimeAlertPolicyManager,
+        service_plane_diagnostics: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
         self._state = state
         self._manager = manager
+        self._service_plane_diagnostics = service_plane_diagnostics
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._state, name)
@@ -25,7 +31,18 @@ class _AlertV2StateView:
         ]
         payload["active_alarms"] = decorated
         policy_inputs = [item for item in active if isinstance(item, dict)]
-        payload["alert_v2"] = self._manager.active_summary(policy_inputs)
+        summary = self._manager.active_summary(policy_inputs)
+        if self._service_plane_diagnostics is not None:
+            try:
+                summary["service_plane"] = self._service_plane_diagnostics()
+            except Exception as exc:
+                summary["service_plane"] = {
+                    "monitor": None,
+                    "correlation": None,
+                    "control_policy_applied": False,
+                    "diagnostics_error": str(exc),
+                }
+        payload["alert_v2"] = summary
         return payload
 
 
@@ -49,9 +66,16 @@ class AlertV2ReadOnlyPolicyService:
     executed in this stage.
     """
 
-    def __init__(self, delegate: Any, manager: RuntimeAlertPolicyManager) -> None:
+    def __init__(
+        self,
+        delegate: Any,
+        manager: RuntimeAlertPolicyManager,
+        *,
+        service_plane_diagnostics: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
         self._delegate = delegate
         self._manager = manager
+        self._service_plane_diagnostics = service_plane_diagnostics
 
     @property
     def alert_policy_manager(self) -> RuntimeAlertPolicyManager:
@@ -61,7 +85,11 @@ class AlertV2ReadOnlyPolicyService:
         return getattr(self._delegate, name)
 
     def state(self) -> _AlertV2StateView:
-        return _AlertV2StateView(self._delegate.state(), self._manager)
+        return _AlertV2StateView(
+            self._delegate.state(),
+            self._manager,
+            self._service_plane_diagnostics,
+        )
 
     def active_alerts(self) -> tuple[_AlertV2RecordView, ...]:
         return tuple(
