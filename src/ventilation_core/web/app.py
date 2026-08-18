@@ -27,6 +27,8 @@ class WebApplication:
     by ventilation-core; Web V2 only reads them and forwards operator ACK by id.
     Zigbee writes are limited to explicit management intents. Destructive Zigbee
     removal uses a two-step confirmation owned by ventilation-core on the CM5.
+    Pairing recognition/capabilities also originate in ventilation-core; the GUI
+    only renders the authoritative state and acknowledges it explicitly.
     """
 
     def __init__(
@@ -59,6 +61,8 @@ class WebApplication:
                 return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/zigbee/permit-join":
                 return self._zigbee_permit_join(body)
+            if method == "POST" and path == "/api/v1/zigbee/pairing/ack":
+                return self._zigbee_pairing_ack(body)
             if method == "POST" and path == "/api/v1/zigbee/remove":
                 return self._zigbee_remove(body)
             if method == "POST" and path == "/api/v1/zigbee/remove-confirmation":
@@ -132,6 +136,15 @@ class WebApplication:
         if isinstance(seconds, bool) or not isinstance(seconds, int) or not 0 <= seconds <= 254:
             raise ValueError("seconds must be an integer in range 0..254")
         return self._command({"command": "zigbee-permit-join", "seconds": seconds})
+
+    def _zigbee_pairing_ack(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        ieee_address = data.get("ieee_address")
+        if not isinstance(ieee_address, str) or not ieee_address.strip():
+            raise ValueError("ieee_address must be a non-empty string")
+        return self._command(
+            {"command": "zigbee-ack-pairing", "ieee_address": ieee_address.strip()}
+        )
 
     def _zigbee_remove(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
