@@ -14,6 +14,10 @@ from ventilation_core.domain.aero_control import AeroControlCommand
 
 
 LOGGER = logging.getLogger(__name__)
+_REMOVE_SLEEP_HINT = (
+    "Urządzenie nie odpowiedziało. Wybudź je krótkim naciśnięciem przycisku "
+    "i ponów usuwanie."
+)
 
 
 class CoreServer:
@@ -189,6 +193,15 @@ class CoreServer:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, seconds)
             return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+        if command == "zigbee-ack-pairing":
+            ieee_address = request.get("ieee_address")
+            if not isinstance(ieee_address, str) or not ieee_address.strip():
+                raise ValueError("Zigbee pairing ieee_address must be a non-empty string")
+            method = getattr(self._service, "zigbee_acknowledge_pairing", None)
+            if method is None:
+                raise RuntimeError("Zigbee pairing acknowledgement is not configured")
+            result = await asyncio.to_thread(method, ieee_address.strip())
+            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
         if command == "zigbee-removal-confirmation-state":
             return {
                 "ok": True,
@@ -254,6 +267,8 @@ class CoreServer:
                 "created_at": now.isoformat(),
                 "expires_at": expires.isoformat(),
                 "destructive": True,
+                "last_error": None,
+                "last_error_at": None,
             }
             self._zigbee_remove_confirmation = pending
             return {
@@ -275,8 +290,8 @@ class CoreServer:
             if pending.get("confirmation_id") != confirmation_id.strip():
                 raise ValueError("Zigbee removal confirmation id does not match")
 
-            self._zigbee_remove_confirmation = None
             if not confirmed:
+                self._zigbee_remove_confirmation = None
                 return {
                     "ok": True,
                     "zigbee_management": {
@@ -293,7 +308,24 @@ class CoreServer:
             method = getattr(self._service, "zigbee_remove_device", None)
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
-            result = await asyncio.to_thread(method, str(pending["device_id"]))
+            try:
+                result = await asyncio.to_thread(method, str(pending["device_id"]))
+            except Exception as exc:
+                raw_error = str(exc)
+                operator_error = (
+                    _REMOVE_SLEEP_HINT
+                    if "mgmtLeaveRsp" in raw_error or "Failed to remove device" in raw_error
+                    else f"Usunięcie urządzenia Zigbee nie powiodło się: {raw_error}"
+                )
+                self._zigbee_remove_confirmation = {
+                    **pending,
+                    "last_error": operator_error,
+                    "last_error_at": datetime.now(timezone.utc).isoformat(),
+                }
+                LOGGER.warning("Zigbee remove failed for %s: %s", pending.get("device_id"), raw_error)
+                raise RuntimeError(operator_error) from exc
+
+            self._zigbee_remove_confirmation = None
             return {
                 "ok": True,
                 "zigbee_management": result,
