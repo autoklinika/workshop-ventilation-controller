@@ -78,6 +78,7 @@ _REQUIRED_SAFETY_ALERTS = frozenset(
     {
         "DAC_STATE_UNCERTAIN",
         "DAC_COMMUNICATION_LOST",
+        "DAC_OUTPUT_MISMATCH",
         "TACHO_MONITOR_UNAVAILABLE",
         "TACHO_CONFIGURATION_INVALID",
     }
@@ -184,8 +185,6 @@ def _validate_parameters(value: object, *, field: str, errors: list[str]) -> Non
             return
         if isinstance(item, (str, int, float, bool)) or item is None:
             return
-        # datetime/date/time objects produced by tomllib are harmless configuration
-        # values, but detector code must explicitly opt in before using them.
         module = type(item).__module__
         if module == "datetime":
             return
@@ -388,6 +387,8 @@ def validate_alert_policy_document(document: object) -> tuple[str, ...]:
             errors.append("DAC_STATE_UNCERTAIN.reaction must remain 'recover_safe_outputs'")
         if dac_uncertain.get("affects_control") is not True:
             errors.append("DAC_STATE_UNCERTAIN.affects_control must remain true")
+        if dac_uncertain.get("weight") != 3:
+            errors.append("DAC_STATE_UNCERTAIN.weight must remain 3")
 
     dac_mismatch = alerts.get("DAC_OUTPUT_MISMATCH")
     if isinstance(dac_mismatch, dict):
@@ -395,6 +396,8 @@ def validate_alert_policy_document(document: object) -> tuple[str, ...]:
             errors.append("DAC_OUTPUT_MISMATCH.reaction must remain 'safe_state'")
         if dac_mismatch.get("affects_control") is not True:
             errors.append("DAC_OUTPUT_MISMATCH.affects_control must remain true")
+        if dac_mismatch.get("weight") != 4:
+            errors.append("DAC_OUTPUT_MISMATCH.weight must remain 4")
 
     hmi = alerts.get("HMI_CM5_COMMUNICATION_LOST")
     if isinstance(hmi, dict):
@@ -402,6 +405,8 @@ def validate_alert_policy_document(document: object) -> tuple[str, ...]:
             errors.append("HMI_CM5_COMMUNICATION_LOST.reaction must remain 'block_gui'")
         if hmi.get("affects_control") is not False:
             errors.append("HMI_CM5_COMMUNICATION_LOST must not affect autonomous core control")
+        if hmi.get("weight") != 4:
+            errors.append("HMI_CM5_COMMUNICATION_LOST.weight must remain 4")
 
     for code in sorted(_NON_CONTROL_DOMAINS):
         raw = alerts.get(code)
