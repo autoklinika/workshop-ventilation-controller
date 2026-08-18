@@ -14,7 +14,7 @@ from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActu
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
-from ventilation_core.infrastructure.zigbee_managed_monitor import ManagedReliableZigbeeMqttMonitor
+from ventilation_core.infrastructure.zigbee_capability_monitor import CapabilityManagedZigbeeMqttMonitor
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import (
     ZigbeeDeviceConfig,
     ZigbeeMqttConfig,
@@ -164,7 +164,7 @@ async def run_core(args: argparse.Namespace) -> None:
                 )
                 role_store = ZigbeeRoleStore(args.zigbee_roles_file)
                 runtime_devices = role_store.load_or_seed(seed_devices)
-                zigbee = ManagedReliableZigbeeMqttMonitor(
+                zigbee = CapabilityManagedZigbeeMqttMonitor(
                     ZigbeeMqttConfig(
                         broker_host=args.zigbee_mqtt_host,
                         broker_port=args.zigbee_mqtt_port,
