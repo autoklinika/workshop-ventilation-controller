@@ -54,6 +54,15 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn("USUŃ", script)
         self.assertIn("ZARZĄDZANIE PRZEZ VENTILATION-CORE", script)
 
+    def test_periodic_refresh_does_not_replace_active_editor(self) -> None:
+        script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
+        self.assertIn("function editingControlActive()", script)
+        self.assertIn("document.activeElement", script)
+        self.assertIn('active.matches("input[data-zigbee-name-input],select[data-zigbee-role]")', script)
+        self.assertIn("if (!force && editingControlActive()) return;", script)
+        self.assertIn("currentState = payload.zigbee;", script)
+        self.assertIn("setInterval(refresh, 3000)", script)
+
 
 if __name__ == "__main__":
     unittest.main()
