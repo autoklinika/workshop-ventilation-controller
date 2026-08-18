@@ -19,6 +19,7 @@ COORDINATOR_IEEE = "0x00124b0038aaf159"
 class FakeService:
     def __init__(self):
         self.removed = []
+        self.remove_error = None
         self._zigbee = ZigbeeMqttState(
             broker_host="127.0.0.1",
             broker_port=1883,
@@ -77,6 +78,8 @@ class FakeService:
 
     def zigbee_remove_device(self, device_id):
         self.removed.append(device_id)
+        if self.remove_error is not None:
+            raise RuntimeError(self.remove_error)
         return {"status": "ok", "data": {"id": device_id}}
 
 
@@ -136,6 +139,48 @@ class ZigbeeCoreConfirmationStage12Tests(unittest.TestCase):
             )
             self.assertEqual(resolved["zigbee_management"]["status"], "cancelled")
             self.assertEqual(service.removed, [])
+            after = await server._dispatch({"command": "zigbee-removal-confirmation-state"})
+            self.assertIsNone(after["confirmation"])
+
+        asyncio.run(scenario())
+
+    def test_sleeping_battery_device_keeps_core_confirmation_with_operator_hint(self):
+        async def scenario():
+            service = FakeService()
+            service.remove_error = (
+                "Failed to remove device 'temp_nawiew' (block: false, force: false, clear cache: false) "
+                "(Error: AREQ - ZDO - mgmtLeaveRsp after 10000ms)"
+            )
+            server = CoreServer(service, Path("/tmp/unused-zigbee-sleep.sock"), 1.0)
+            requested = await server._dispatch(
+                {"command": "zigbee-request-remove-device", "device_id": SUPPLY_IEEE}
+            )
+            confirmation_id = requested["confirmation"]["confirmation_id"]
+
+            with self.assertRaisesRegex(RuntimeError, "Wybudź je krótkim naciśnięciem"):
+                await server._dispatch(
+                    {
+                        "command": "zigbee-resolve-remove-device",
+                        "confirmation_id": confirmation_id,
+                        "confirmed": True,
+                    }
+                )
+
+            pending = await server._dispatch({"command": "zigbee-removal-confirmation-state"})
+            self.assertEqual(pending["confirmation"]["confirmation_id"], confirmation_id)
+            self.assertIn("Wybudź je krótkim naciśnięciem", pending["confirmation"]["last_error"])
+            self.assertEqual(service.removed, [SUPPLY_IEEE])
+
+            service.remove_error = None
+            retried = await server._dispatch(
+                {
+                    "command": "zigbee-resolve-remove-device",
+                    "confirmation_id": confirmation_id,
+                    "confirmed": True,
+                }
+            )
+            self.assertTrue(retried["ok"])
+            self.assertEqual(service.removed, [SUPPLY_IEEE, SUPPLY_IEEE])
             after = await server._dispatch({"command": "zigbee-removal-confirmation-state"})
             self.assertIsNone(after["confirmation"])
 
