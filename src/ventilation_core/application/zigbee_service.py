@@ -21,6 +21,7 @@ class ZigbeeMonitor(Protocol):
     def remove_device(self, device_id: str) -> dict[str, Any]: ...
     def rename_device(self, device_id: str, new_name: str) -> dict[str, Any]: ...
     def assign_role(self, device_id: str, role: str | None) -> dict[str, Any]: ...
+    def acknowledge_pairing(self, ieee_address: str) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -95,6 +96,11 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
         if self._zigbee is None:
             raise RuntimeError("Zigbee is not configured")
         return self._zigbee.assign_role(device_id, role)
+
+    def zigbee_acknowledge_pairing(self, ieee_address: str) -> dict[str, Any]:
+        if self._zigbee is None:
+            raise RuntimeError("Zigbee is not configured")
+        return self._zigbee.acknowledge_pairing(ieee_address)
 
     def close(self) -> None:
         try:
