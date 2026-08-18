@@ -4,13 +4,16 @@
   const mount = document.getElementById("zigbeeSettingsMount");
   if (!mount) return;
 
-  if (!document.querySelector('link[data-zigbee-settings-css="1"]')) {
+  function ensureCss(href, marker) {
+    if (document.querySelector(`link[${marker}="1"]`)) return;
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "/zigbee-settings.css";
-    link.dataset.zigbeeSettingsCss = "1";
+    link.href = href;
+    link.setAttribute(marker, "1");
     document.head.appendChild(link);
   }
+  ensureCss("/zigbee-settings.css", "data-zigbee-settings-css");
+  ensureCss("/zigbee-stage13.css", "data-zigbee-stage13-css");
 
   mount.innerHTML = `
     <div class="zigbee-settings-layout">
@@ -24,7 +27,7 @@
       </aside>
       <section class="zigbee-settings-content">
         <header class="zigbee-settings-header">
-          <div><span class="zigbee-settings-kicker">ZIGBEE</span><h2>Sieć i urządzenia</h2><p>Stan i operacje pochodzą wyłącznie z ventilation-core. Role NAWIEW/WYWIEW są zapisywane trwale w core.</p></div>
+          <div><span class="zigbee-settings-kicker">ZIGBEE</span><h2>Sieć i urządzenia</h2><p>Stan, rozpoznawanie urządzeń i operacje pochodzą wyłącznie z ventilation-core.</p></div>
           <span id="zigbeeSettingsStatus" class="zigbee-status-pill neutral">ŁĄCZENIE…</span>
         </header>
         <section class="zigbee-summary" aria-label="Stan Zigbee">
@@ -33,7 +36,7 @@
           <article><span>URZĄDZENIA</span><strong id="zigbeeSummaryDevices">—</strong><small id="zigbeeSummaryErrors">błędy parsowania: —</small></article>
         </section>
         <section class="zigbee-management-panel">
-          <div><span class="zigbee-section-kicker">ZARZĄDZANIE</span><h3>Dodawanie urządzeń</h3><p>Otwórz sieć na 120 sekund, a następnie uruchom tryb parowania na dodawanym urządzeniu. Możesz zamknąć parowanie wcześniej.</p></div>
+          <div><span class="zigbee-section-kicker">ZARZĄDZANIE</span><h3>Dodawanie urządzeń</h3><p>Otwórz sieć na 120 sekund, a następnie uruchom tryb parowania na dodawanym urządzeniu. Po poprawnym interview ventilation-core pokaże rozpoznane dane urządzenia.</p></div>
           <div class="zigbee-management-actions">
             <button id="zigbeePermitJoin" class="zigbee-action primary" type="button">DODAJ URZĄDZENIE · 120 S</button>
             <button id="zigbeeCloseJoin" class="zigbee-action" type="button">ZAMKNIJ PAROWANIE</button>
@@ -51,6 +54,7 @@
         </section>
       </section>
     </div>
+
     <div id="zigbeeSystemConfirm" class="zigbee-system-confirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="zigbeeSystemConfirmTitle" aria-describedby="zigbeeSystemConfirmMessage">
       <section class="zigbee-system-confirm-card">
         <span class="zigbee-system-confirm-kicker">CM5 · VENTILATION-CORE</span>
@@ -64,6 +68,24 @@
         </div>
         <p id="zigbeeSystemConfirmStatus" class="zigbee-system-confirm-status">Decyzja zostanie wykonana przez ventilation-core na CM5.</p>
       </section>
+    </div>
+
+    <div id="zigbeePairingResult" class="zigbee-pairing-modal" hidden role="dialog" aria-modal="true" aria-labelledby="zigbeePairingTitle">
+      <section class="zigbee-pairing-card">
+        <span class="zigbee-pairing-kicker">CM5 · VENTILATION-CORE</span>
+        <h2 id="zigbeePairingTitle">URZĄDZENIE ZIGBEE ROZPOZNANE</h2>
+        <div class="zigbee-pairing-device">
+          <strong id="zigbeePairingName">—</strong>
+          <span id="zigbeePairingModel">—</span>
+          <span id="zigbeePairingIeee" class="mono">—</span>
+        </div>
+        <div class="zigbee-pairing-capabilities">
+          <span class="zigbee-pairing-section-label">DOSTĘPNE DANE</span>
+          <div id="zigbeePairingCapabilities" class="zigbee-capability-list"></div>
+        </div>
+        <p id="zigbeePairingNote" class="zigbee-pairing-note">Lista pochodzi z ventilation-core na podstawie danych rozpoznanych przez Zigbee2MQTT.</p>
+        <div class="zigbee-pairing-actions"><button id="zigbeePairingOk" class="zigbee-action primary" type="button">OK</button></div>
+      </section>
     </div>`;
 
   const byId = (id) => document.getElementById(id);
@@ -76,13 +98,17 @@
     confirmOverlay: byId("zigbeeSystemConfirm"), confirmTitle: byId("zigbeeSystemConfirmTitle"),
     confirmMessage: byId("zigbeeSystemConfirmMessage"), confirmDetail: byId("zigbeeSystemConfirmDetail"),
     confirmDevice: byId("zigbeeSystemConfirmDevice"), confirmExpires: byId("zigbeeSystemConfirmExpires"),
-    confirmCancel: byId("zigbeeSystemConfirmCancel"), confirmOk: byId("zigbeeSystemConfirmOk"),
-    confirmStatus: byId("zigbeeSystemConfirmStatus"),
+    confirmCancel: byId("zigbeeSystemConfirmCancel"), confirmOk: byId("zigbeeSystemConfirmOk"), confirmStatus: byId("zigbeeSystemConfirmStatus"),
+    pairingOverlay: byId("zigbeePairingResult"), pairingName: byId("zigbeePairingName"), pairingModel: byId("zigbeePairingModel"),
+    pairingIeee: byId("zigbeePairingIeee"), pairingCapabilities: byId("zigbeePairingCapabilities"), pairingNote: byId("zigbeePairingNote"), pairingOk: byId("zigbeePairingOk"),
   };
+
   let currentState = null;
   let currentRemovalConfirmation = null;
+  let currentPairing = null;
   let managementBusy = false;
   let confirmationBusy = false;
+  let pairingBusy = false;
 
   function esc(value) {
     return String(value ?? "—").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -101,6 +127,22 @@
     if (device.available === false) return { text: "OFFLINE", cls: "bad" };
     if ((device.messages || 0) > 0) return { text: "TELEMETRIA AKTYWNA", cls: "good" };
     return { text: "BRAK DANYCH", cls: "neutral" };
+  }
+
+  function capabilityText(capability) {
+    const unit = capability && capability.unit ? ` · ${capability.unit}` : "";
+    const endpoint = capability && capability.endpoint ? ` · ${capability.endpoint}` : "";
+    return `${capability?.label || capability?.name || capability?.property || "Dane"}${unit}${endpoint}`;
+  }
+
+  function renderCapabilityList(capabilities, compact = false) {
+    if (!Array.isArray(capabilities) || capabilities.length === 0) {
+      return `<span class="zigbee-capability-empty">Brak opisu publikowanych danych.</span>`;
+    }
+    return capabilities.map((capability) => {
+      const property = capability?.property ? `<small>${esc(capability.property)}</small>` : "";
+      return `<span class="zigbee-capability ${compact ? "compact" : ""}"><strong>${esc(capabilityText(capability))}</strong>${property}</span>`;
+    }).join("");
   }
 
   function renderDevice(device) {
@@ -126,11 +168,31 @@
     const model = device.model || device.description || "—";
     const meta = [device.vendor, device.device_type, device.power_source].filter(Boolean).join(" · ") || "—";
     const role = assignedRole(device.ieee_address, devices);
+    const capabilities = coordinator ? "" : `<div class="zigbee-inventory-capabilities"><span>DANE PUBLIKOWANE</span><div class="zigbee-capability-list compact">${renderCapabilityList(device.capabilities, true)}</div></div>`;
     const controls = coordinator ? "" : `<div class="zigbee-device-management"><label>Nazwa<input class="zigbee-rename-input" type="text" maxlength="64" value="${esc(device.friendly_name)}" data-zigbee-name-input="${esc(device.ieee_address)}"></label><button class="zigbee-action" type="button" data-zigbee-rename="${esc(device.ieee_address)}">ZMIEŃ NAZWĘ</button><label>Rola systemowa<select class="zigbee-role-select" data-zigbee-role="${esc(device.ieee_address)}"><option value="" ${role === null ? "selected" : ""}>BEZ ROLI</option><option value="supply" ${role === "supply" ? "selected" : ""}>NAWIEW</option><option value="extract" ${role === "extract" ? "selected" : ""}>WYWIEW</option></select></label><button class="zigbee-remove" type="button" data-zigbee-remove="${esc(device.ieee_address)}" data-zigbee-name="${esc(device.friendly_name)}">USUŃ</button></div>`;
-    return `<article class="zigbee-inventory-card ${coordinator ? "coordinator" : ""}"><div class="zigbee-inventory-main"><div><span>${coordinator ? "KOORDYNATOR" : "URZĄDZENIE"}</span><h4>${esc(device.friendly_name)}</h4><p>${esc(model)}</p></div><span class="zigbee-supported ${device.supported === true || coordinator ? "good" : "warn"}">${coordinator ? "CORE" : role ? roleName(role) : device.supported === true ? "OBSŁUGIWANE" : "NIEPOTWIERDZONE"}</span></div><div class="zigbee-inventory-meta"><span class="mono">${esc(device.ieee_address)}</span><span>${esc(meta)}</span></div>${controls}</article>`;
+    return `<article class="zigbee-inventory-card ${coordinator ? "coordinator" : ""}"><div class="zigbee-inventory-main"><div><span>${coordinator ? "KOORDYNATOR" : "URZĄDZENIE"}</span><h4>${esc(device.friendly_name)}</h4><p>${esc(model)}</p></div><span class="zigbee-supported ${device.supported === true || coordinator ? "good" : "warn"}">${coordinator ? "CORE" : role ? roleName(role) : device.supported === true ? "OBSŁUGIWANE" : "NIEPOTWIERDZONE"}</span></div><div class="zigbee-inventory-meta"><span class="mono">${esc(device.ieee_address)}</span><span>${esc(meta)}</span></div>${capabilities}${controls}</article>`;
   }
 
   function joinText(zigbee) { if (zigbee.permit_join === true) return "parowanie: OTWARTE"; if (zigbee.permit_join === false) return "parowanie: zamknięte"; return "parowanie: —"; }
+
+  function renderPairing(pairing) {
+    currentPairing = pairing && typeof pairing === "object" ? pairing : null;
+    if (!currentPairing || currentPairing.status !== "successful" || currentPairing.acknowledged === true) {
+      ui.pairingOverlay.hidden = true;
+      return;
+    }
+    ui.pairingName.textContent = currentPairing.friendly_name || "Urządzenie Zigbee";
+    const identity = [currentPairing.vendor, currentPairing.model].filter(Boolean).join(" · ") || currentPairing.description || "Rozpoznane przez Zigbee2MQTT";
+    ui.pairingModel.textContent = identity;
+    ui.pairingIeee.textContent = currentPairing.ieee_address || "—";
+    ui.pairingCapabilities.innerHTML = renderCapabilityList(currentPairing.capabilities);
+    ui.pairingNote.textContent = currentPairing.supported === false
+      ? "Urządzenie zakończyło interview, ale Zigbee2MQTT nie ma pełnej definicji tego modelu."
+      : "Lista danych pochodzi z ventilation-core na podstawie definicji rozpoznanej przez Zigbee2MQTT.";
+    ui.pairingOk.disabled = pairingBusy;
+    ui.pairingOk.textContent = pairingBusy ? "ZAPISYWANIE…" : "OK";
+    ui.pairingOverlay.hidden = false;
+  }
 
   function render(zigbee) {
     currentState = zigbee;
@@ -158,6 +220,7 @@
     ui.closeJoin.disabled = managementBusy || !connected || !bridgeOnline || zigbee.permit_join !== true;
     ui.inventory.querySelectorAll("button,select,input").forEach((element) => { element.disabled = managementBusy || !connected || !bridgeOnline; });
     ui.error.hidden = true;
+    renderPairing(zigbee.pairing);
   }
 
   function editingControlActive() {
@@ -175,17 +238,17 @@
       ui.confirmOverlay.hidden = true;
       return;
     }
-    ui.confirmTitle.textContent = currentRemovalConfirmation.title || "POTWIERDZENIE OPERACJI";
-    ui.confirmMessage.textContent = currentRemovalConfirmation.message || "Potwierdź operację Zigbee.";
+    ui.confirmTitle.textContent = currentRemovalConfirmation.title || "USUNIĘCIE URZĄDZENIA ZIGBEE";
+    ui.confirmMessage.textContent = currentRemovalConfirmation.message || "Potwierdź operację.";
     ui.confirmDetail.textContent = currentRemovalConfirmation.detail || "";
     ui.confirmDevice.textContent = `${currentRemovalConfirmation.friendly_name || "urządzenie"} · ${currentRemovalConfirmation.device_id || "—"}`;
     ui.confirmExpires.textContent = `Wygasa: ${dateTime(currentRemovalConfirmation.expires_at)}`;
+    const coreError = typeof currentRemovalConfirmation.last_error === "string" ? currentRemovalConfirmation.last_error.trim() : "";
+    ui.confirmStatus.textContent = coreError || (confirmationBusy ? "VENTILATION-CORE PRZETWARZA DECYZJĘ…" : "Potwierdzenie pochodzi z ventilation-core na CM5.");
+    ui.confirmStatus.classList.toggle("bad", Boolean(coreError));
     ui.confirmCancel.disabled = confirmationBusy;
     ui.confirmOk.disabled = confirmationBusy;
-    ui.confirmStatus.textContent = confirmationBusy ? "VENTILATION-CORE PRZETWARZA DECYZJĘ…" : "Potwierdzenie pochodzi z ventilation-core na CM5.";
-    const wasHidden = ui.confirmOverlay.hidden;
     ui.confirmOverlay.hidden = false;
-    if (wasHidden) ui.confirmCancel.focus({ preventScroll: true });
   }
 
   async function apiPost(path, body) {
@@ -246,19 +309,17 @@
     confirmationBusy = true;
     renderRemovalConfirmation(confirmation);
     try {
-      const payload = await apiPost("/api/v1/zigbee/remove-confirmation", {
+      await apiPost("/api/v1/zigbee/remove-confirmation", {
         confirmation_id: confirmation.confirmation_id,
         confirmed,
       });
+      if (confirmed) message(`Urządzenie ${confirmation.friendly_name || "Zigbee"} zostało usunięte przez ventilation-core.`);
+      else message(`Anulowano usunięcie urządzenia ${confirmation.friendly_name || "Zigbee"}.`);
       renderRemovalConfirmation(null);
-      if (confirmed) {
-        message(`Urządzenie ${confirmation.friendly_name || "Zigbee"} zostało usunięte przez ventilation-core.`);
-      } else {
-        message(`Anulowano usunięcie urządzenia ${confirmation.friendly_name || "Zigbee"}.`);
-      }
       await refresh(true);
     } catch (error) {
-      ui.confirmStatus.textContent = `Błąd CM5: ${String(error.message || error)}`;
+      await pollRemovalConfirmation();
+      if (!currentRemovalConfirmation) message(`Nie udało się usunąć urządzenia: ${String(error.message || error)}`, true);
     } finally {
       confirmationBusy = false;
       if (currentRemovalConfirmation) renderRemovalConfirmation(currentRemovalConfirmation);
@@ -271,10 +332,24 @@
       const payload = await response.json();
       if (!response.ok || payload.ok !== true) throw new Error(payload.error || `HTTP ${response.status}`);
       if (!confirmationBusy) renderRemovalConfirmation(payload.confirmation || null);
+      else if (payload.confirmation) currentRemovalConfirmation = payload.confirmation;
     } catch (error) {
-      if (currentRemovalConfirmation && !confirmationBusy) {
-        ui.confirmStatus.textContent = `Nie można odczytać potwierdzenia z CM5: ${String(error.message || error)}`;
-      }
+      if (currentRemovalConfirmation && !confirmationBusy) ui.confirmStatus.textContent = `Nie można odczytać potwierdzenia z CM5: ${String(error.message || error)}`;
+    }
+  }
+
+  async function acknowledgePairing() {
+    if (pairingBusy || !currentPairing || !currentPairing.ieee_address) return;
+    pairingBusy = true;
+    renderPairing(currentPairing);
+    try {
+      await apiPost("/api/v1/zigbee/pairing/ack", { ieee_address: currentPairing.ieee_address });
+      await refresh(true);
+    } catch (error) {
+      ui.pairingNote.textContent = `Nie udało się zapisać potwierdzenia w CM5: ${String(error.message || error)}`;
+    } finally {
+      pairingBusy = false;
+      if (currentState) renderPairing(currentState.pairing);
     }
   }
 
@@ -300,6 +375,7 @@
   ui.closeJoin.addEventListener("click", () => setPermitJoin(0));
   ui.confirmCancel.addEventListener("click", () => resolveRemovalConfirmation(false));
   ui.confirmOk.addEventListener("click", () => resolveRemovalConfirmation(true));
+  ui.pairingOk.addEventListener("click", acknowledgePairing);
   ui.inventory.addEventListener("click", (event) => {
     const rename = event.target.closest("button[data-zigbee-rename]");
     if (rename) { renameDevice(rename.dataset.zigbeeRename || ""); return; }
@@ -311,7 +387,7 @@
     if (select) assignRole(select.dataset.zigbeeRole || "", select.value);
   });
   document.addEventListener("keydown", (event) => {
-    if (!ui.confirmOverlay.hidden && event.key === "Escape") {
+    if ((!ui.confirmOverlay.hidden || !ui.pairingOverlay.hidden) && event.key === "Escape") {
       event.preventDefault();
       event.stopImmediatePropagation();
     }
