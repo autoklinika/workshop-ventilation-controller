@@ -185,12 +185,14 @@ CLI **tylko waliduje**. Nie zapisuje pliku do `/etc`, nie przeładowuje core i n
 
 ## 5. Walidacja programowa
 
-Dodano testy obejmujące:
+Testy obejmują:
 
 - załadowanie pełnej domyślnej macierzy 49 alertów,
 - TACHO -> zakaz `safe_state`,
 - TACHO -> zakaz `affects_control=true`,
 - DAC -> zakaz osłabienia `DAC_COMMUNICATION_LOST`,
+- DAC -> zakaz usunięcia `DAC_OUTPUT_MISMATCH`,
+- DAC -> zakaz obniżenia wagi `DAC_OUTPUT_MISMATCH`,
 - zgodność wagi, severity i koloru HMI,
 - zakaz nadania pogodzie prawa do sterowania,
 - kontrolowaną podsekcję `.parameters`,
@@ -199,7 +201,7 @@ Dodano testy obejmujące:
 - CLI human-readable i JSON,
 - niezerowy kod wyjścia dla błędnej polityki.
 
-Pierwszy checkpoint implementacji przeszedł:
+Checkpoint przed końcowym utwardzeniem przeszedł:
 
 ```text
 Ventilation Core Tests #1501
@@ -208,7 +210,7 @@ compileall: PASS
 372/372 tests: PASS
 ```
 
-Po końcowym utwardzeniu reguł DAC należy traktować jako wiążący wynik CI dla aktualnego HEAD najnowszy workflow PR #44.
+Wiążący wynik zakończenia Stage 1 to najnowszy workflow `Ventilation Core Tests` dla końcowego HEAD PR #44 po wszystkich zmianach validatora i testów.
 
 ## 6. Czego ten krok świadomie NIE robi
 
