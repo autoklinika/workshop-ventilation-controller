@@ -14,6 +14,9 @@ from ventilation_core.application.schedule_controller import (
     CoreScheduleManager,
     UnavailableScheduleManager,
 )
+from ventilation_core.application.service_plane_alert_registry import (
+    ServicePlaneCorrelatingAlertRegistry,
+)
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.application.shadow_service import ShadowAlertingVentilationService
 from ventilation_core.domain.policy import FanSetpointPolicy
@@ -28,6 +31,10 @@ from ventilation_core.infrastructure.zigbee_capability_monitor import Capability
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import ZigbeeDeviceConfig, ZigbeeMqttConfig
 from ventilation_core.infrastructure.zigbee_role_store import ZigbeeRoleStore
 from ventilation_core.runtime.server import CoreServer
+from ventilation_core.service_plane_monitor import (
+    DEFAULT_SERVICE_AGENT_SOCKET,
+    ServicePlaneMonitor,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -62,6 +69,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RUNTIME_POLICY_PATH,
         help="Read-only AlertV2 policy path; invalid/missing policy never changes control behavior",
     )
+    parser.add_argument(
+        "--service-agent-socket",
+        type=Path,
+        default=DEFAULT_SERVICE_AGENT_SOCKET,
+        help="Read-only local WVC-SERVICE status socket used only for AlertV2 diagnostics",
+    )
+    parser.add_argument("--service-agent-timeout", type=float, default=0.35)
+    parser.add_argument("--service-agent-failure-threshold", type=int, default=3)
+    parser.add_argument("--service-node-initial-grace", type=float, default=40.0)
+    parser.add_argument("--disable-service-plane-correlation", action="store_true")
     parser.add_argument("--minimum-running-voltage", type=float, default=1.0)
     parser.add_argument("--maximum-voltage", type=float, default=10.0)
     parser.add_argument("--command-timeout", type=float, default=3.0)
@@ -113,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def run_core(args: argparse.Namespace) -> None:
     alert_registry = None
+    service_plane_registry = None
     schedule_manager = None
     actuator = None
     sensor_bus = None
@@ -122,6 +140,19 @@ async def run_core(args: argparse.Namespace) -> None:
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
+        if not args.disable_service_plane_correlation:
+            service_plane_monitor = ServicePlaneMonitor(
+                args.service_agent_socket,
+                timeout_seconds=args.service_agent_timeout,
+            )
+            service_plane_registry = ServicePlaneCorrelatingAlertRegistry(
+                alert_registry,
+                service_plane_monitor,
+                agent_failure_threshold=args.service_agent_failure_threshold,
+                node_initial_grace_seconds=args.service_node_initial_grace,
+            )
+            alert_registry = service_plane_registry
+
         try:
             schedule_manager = CoreScheduleManager(SqliteScheduleStore(args.automation_db))
         except Exception as exc:
@@ -224,7 +255,13 @@ async def run_core(args: argparse.Namespace) -> None:
             shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
         )
         alert_policy_manager = RuntimeAlertPolicyManager(args.alert_policy)
-        service = AlertV2ReadOnlyPolicyService(legacy_service, alert_policy_manager)
+        service = AlertV2ReadOnlyPolicyService(
+            legacy_service,
+            alert_policy_manager,
+            service_plane_diagnostics=(
+                None if service_plane_registry is None else service_plane_registry.diagnostics
+            ),
+        )
         if alert_policy_manager.loaded:
             metadata = alert_policy_manager.metadata()
             LOGGER.info(
@@ -236,6 +273,11 @@ async def run_core(args: argparse.Namespace) -> None:
             LOGGER.warning(
                 "AlertV2 runtime policy unavailable; legacy alert behavior continues unchanged: %s",
                 alert_policy_manager.metadata()["last_error"],
+            )
+        if service_plane_registry is not None:
+            LOGGER.info(
+                "AlertV2 Service Plane correlation enabled read-only socket=%s; control policy remains disabled",
+                args.service_agent_socket,
             )
         server = CoreServer(
             service=service,
