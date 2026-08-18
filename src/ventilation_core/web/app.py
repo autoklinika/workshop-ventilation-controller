@@ -35,11 +35,12 @@ class HistoryProvider(Protocol):
 
 
 class WebApplication:
-    """Narrow application boundary exposed to the browser.
+    """Narrow browser boundary for manual control, alerts, schedule, history and Zigbee.
 
     The browser never receives a generic ventilation-core command proxy and never
-    opens SQLite directly. ALERTY and schedule execution remain owned by
-    ventilation-core. Local history is exposed through a bounded read-only adapter only.
+    opens SQLite or MQTT directly. Schedule evaluation, SHADOW and Zigbee state are
+    authoritative in ventilation-core. Destructive Zigbee removal uses core-owned
+    two-step confirmation.
     """
 
     SCHEDULE_ZONES = ("zone-1", "zone-2")
@@ -62,6 +63,10 @@ class WebApplication:
         try:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
+            if method == "GET" and path == "/api/v1/zigbee":
+                return self._zigbee()
+            if method == "GET" and path == "/api/v1/zigbee/removal-confirmation":
+                return self._zigbee_removal_confirmation()
             if method == "GET" and path == "/api/v1/alerts":
                 return self._alerts()
             if method == "GET" and path == "/api/v1/schedule":
@@ -80,6 +85,18 @@ class WebApplication:
                 return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/schedule/zone":
                 return self._schedule_replace(body)
+            if method == "POST" and path == "/api/v1/zigbee/permit-join":
+                return self._zigbee_permit_join(body)
+            if method == "POST" and path == "/api/v1/zigbee/pairing/ack":
+                return self._zigbee_pairing_ack(body)
+            if method == "POST" and path == "/api/v1/zigbee/remove":
+                return self._zigbee_remove(body)
+            if method == "POST" and path == "/api/v1/zigbee/remove-confirmation":
+                return self._zigbee_remove_confirmation(body)
+            if method == "POST" and path == "/api/v1/zigbee/rename":
+                return self._zigbee_rename(body)
+            if method == "POST" and path == "/api/v1/zigbee/role":
+                return self._zigbee_role(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -102,13 +119,28 @@ class WebApplication:
             return self._core_rejection(response)
         return ApiResponse(200, response)
 
+    def _zigbee(self) -> ApiResponse:
+        response = self._core.request({"command": "status"})
+        state = response.get("state")
+        if response.get("ok") is not True or not isinstance(state, dict):
+            return self._core_rejection(response)
+        zigbee = state.get("zigbee")
+        if not isinstance(zigbee, dict):
+            return ApiResponse(503, {"ok": False, "error": "Zigbee telemetry is not available from ventilation-core"})
+        return ApiResponse(200, {"ok": True, "zigbee": zigbee})
+
+    def _zigbee_removal_confirmation(self) -> ApiResponse:
+        response = self._core.request({"command": "zigbee-removal-confirmation-state"})
+        if response.get("ok") is not True:
+            return self._core_rejection(response)
+        confirmation = response.get("confirmation")
+        if confirmation is not None and not isinstance(confirmation, dict):
+            return ApiResponse(502, {"ok": False, "error": "Invalid confirmation state from core"})
+        return ApiResponse(200, {"ok": True, "confirmation": confirmation})
+
     def _alerts(self) -> ApiResponse:
         response = self._core.request({"command": "alerts", "limit": 200})
-        if (
-            response.get("ok") is not True
-            or not isinstance(response.get("active"), list)
-            or not isinstance(response.get("history"), list)
-        ):
+        if response.get("ok") is not True or not isinstance(response.get("active"), list) or not isinstance(response.get("history"), list):
             return self._core_rejection(response)
         return ApiResponse(200, response)
 
@@ -127,31 +159,14 @@ class WebApplication:
         if not isinstance(windows, list):
             raise ValueError("windows must be a JSON list")
         if len(windows) > self.MAX_SCHEDULE_WINDOWS_PER_ZONE:
-            raise ValueError(
-                f"windows may contain at most {self.MAX_SCHEDULE_WINDOWS_PER_ZONE} entries"
-            )
+            raise ValueError(f"windows may contain at most {self.MAX_SCHEDULE_WINDOWS_PER_ZONE} entries")
         sanitized = [self._sanitize_schedule_window(window) for window in windows]
-        return self._command(
-            {
-                "command": "schedule-replace",
-                "zone": zone,
-                "windows": sanitized,
-            }
-        )
+        return self._command({"command": "schedule-replace", "zone": zone, "windows": sanitized})
 
     def _history_status(self) -> ApiResponse:
         provider = self._history_provider
         if provider is None:
-            return ApiResponse(
-                200,
-                {
-                    "ok": True,
-                    "history": {
-                        "available": False,
-                        "configured": False,
-                    },
-                },
-            )
+            return ApiResponse(200, {"ok": True, "history": {"available": False, "configured": False}})
         status = provider.status()
         payload = status.to_dict() if hasattr(status, "to_dict") else dict(status)
         payload["configured"] = True
@@ -166,21 +181,8 @@ class WebApplication:
         end_at = data.get("end_at")
         limit = data.get("limit", 720)
         resolution = data.get("resolution", "raw")
-        samples = provider.query(
-            start_at=start_at,
-            end_at=end_at,
-            limit=limit,
-            resolution=resolution,
-        )
-        return ApiResponse(
-            200,
-            {
-                "ok": True,
-                "resolution": resolution,
-                "count": len(samples),
-                "samples": samples,
-            },
-        )
+        samples = provider.query(start_at=start_at, end_at=end_at, limit=limit, resolution=resolution)
+        return ApiResponse(200, {"ok": True, "resolution": resolution, "count": len(samples), "samples": samples})
 
     def _ack_alert(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
@@ -189,57 +191,78 @@ class WebApplication:
             raise ValueError("alert_id must be a positive integer")
         return self._command({"command": "ack-alert", "alert_id": alert_id})
 
+    def _zigbee_permit_join(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        seconds = data.get("seconds")
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or not 0 <= seconds <= 254:
+            raise ValueError("seconds must be an integer in range 0..254")
+        return self._command({"command": "zigbee-permit-join", "seconds": seconds})
+
+    def _zigbee_pairing_ack(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        ieee_address = data.get("ieee_address")
+        if not isinstance(ieee_address, str) or not ieee_address.strip():
+            raise ValueError("ieee_address must be a non-empty string")
+        return self._command({"command": "zigbee-ack-pairing", "ieee_address": ieee_address.strip()})
+
+    def _zigbee_remove(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        device_id = data.get("device_id")
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise ValueError("device_id must be a non-empty string")
+        return self._command({"command": "zigbee-request-remove-device", "device_id": device_id.strip()})
+
+    def _zigbee_remove_confirmation(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        confirmation_id = data.get("confirmation_id")
+        confirmed = data.get("confirmed")
+        if not isinstance(confirmation_id, str) or not confirmation_id.strip():
+            raise ValueError("confirmation_id must be a non-empty string")
+        if not isinstance(confirmed, bool):
+            raise ValueError("confirmed must be boolean")
+        return self._command({"command": "zigbee-resolve-remove-device", "confirmation_id": confirmation_id.strip(), "confirmed": confirmed})
+
+    def _zigbee_rename(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        device_id = data.get("device_id")
+        new_name = data.get("new_name")
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise ValueError("device_id must be a non-empty string")
+        if not isinstance(new_name, str) or not new_name.strip():
+            raise ValueError("new_name must be a non-empty string")
+        return self._command({"command": "zigbee-rename-device", "device_id": device_id.strip(), "new_name": new_name.strip()})
+
+    def _zigbee_role(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        device_id = data.get("device_id")
+        role = data.get("role")
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise ValueError("device_id must be a non-empty string")
+        if role not in (None, "supply", "extract", "other"):
+            raise ValueError("role must be supply, extract, other or null")
+        return self._command({"command": "zigbee-assign-role", "device_id": device_id.strip(), "role": role})
+
     def _weather(self) -> ApiResponse:
         if self._weather_provider is None:
-            return ApiResponse(
-                200,
-                {
-                    "ok": True,
-                    "weather": {
-                        "available": False,
-                        "configured": False,
-                        "error": "weather provider is not configured",
-                    },
-                },
-            )
+            return ApiResponse(200, {"ok": True, "weather": {"available": False, "configured": False, "error": "weather provider is not configured"}})
         try:
             snapshot = self._weather_provider.get_snapshot()
         except WeatherError as exc:
-            snapshot = {
-                "available": False,
-                "configured": True,
-                "error": str(exc),
-            }
+            snapshot = {"available": False, "configured": True, "error": str(exc)}
         return ApiResponse(200, {"ok": True, "weather": snapshot})
 
     def _health(self) -> ApiResponse:
         try:
             response = self._core.request({"command": "status"})
         except CoreClientError as exc:
-            return ApiResponse(
-                200,
-                {"ok": True, "web": "ok", "core_available": False, "core_error": str(exc)},
-            )
-        return ApiResponse(
-            200,
-            {
-                "ok": True,
-                "web": "ok",
-                "core_available": response.get("ok") is True,
-            },
-        )
+            return ApiResponse(200, {"ok": True, "web": "ok", "core_available": False, "core_error": str(exc)})
+        return ApiResponse(200, {"ok": True, "web": "ok", "core_available": response.get("ok") is True})
 
     def _fans(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
         supply = self._require_voltage(data, "supply_voltage")
         extract = self._require_voltage(data, "extract_voltage")
-        return self._command(
-            {
-                "command": "set",
-                "supply_voltage": supply,
-                "extract_voltage": extract,
-            }
-        )
+        return self._command({"command": "set", "supply_voltage": supply, "extract_voltage": extract})
 
     def _aero_speed(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
@@ -285,14 +308,7 @@ class WebApplication:
         label = value.get("label", "")
         if not isinstance(label, str) or len(label) > 80:
             raise ValueError("label must be text up to 80 characters")
-        return {
-            "weekday": weekday,
-            "start_local": start_local,
-            "end_local": end_local,
-            "expectation": expectation,
-            "enabled": enabled,
-            "label": label,
-        }
+        return {"weekday": weekday, "start_local": start_local, "end_local": end_local, "expectation": expectation, "enabled": enabled, "label": label}
 
     @staticmethod
     def _core_rejection(response: dict[str, Any]) -> ApiResponse:

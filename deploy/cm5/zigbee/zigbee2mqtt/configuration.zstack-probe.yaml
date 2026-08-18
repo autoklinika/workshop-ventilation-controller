@@ -1,0 +1,29 @@
+version: 5
+
+homeassistant:
+  enabled: false
+
+frontend:
+  enabled: false
+
+mqtt:
+  base_topic: zigbee2mqtt
+  server: "mqtt://127.0.0.1:1883"
+
+serial:
+  port: "/dev/serial/by-id/usb-Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_822f54682ed0f01198f6423758f97c40-if00-port0"
+  adapter: zstack
+  baudrate: 115200
+  rtscts: false
+
+availability:
+  enabled: true
+
+advanced:
+  log_level: debug
+  log_output:
+    - console
+  last_seen: ISO_8601
+  network_key: GENERATE
+  pan_id: GENERATE
+  ext_pan_id: GENERATE

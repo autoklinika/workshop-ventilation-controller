@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ventilation_core.application.alerting_service import AlertingVentilationService
 from ventilation_core.application.shadow_controller import ShadowAutomationEvaluator
+from ventilation_core.application.zigbee_service import ZigbeeAlertingVentilationService
 from ventilation_core.domain.models import CoreState
 
 
-class ShadowAlertingVentilationService(AlertingVentilationService):
-    """Alerting core decorated with deterministic, strictly non-actuating SHADOW state."""
+class ShadowAlertingVentilationService(ZigbeeAlertingVentilationService):
+    """Alerting + Zigbee core decorated with deterministic, strictly non-actuating SHADOW state."""
 
     def __init__(
         self,
