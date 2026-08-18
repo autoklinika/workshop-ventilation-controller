@@ -18,6 +18,7 @@ ventilationctl = "ventilation_core.ctl:main"
 wvc-service-heartbeat = "ventilation_core.service_heartbeat:main"
 ventilation-telemetry-sync = "ventilation_core.telemetry.main:main"
 ventilation-ai-advisory = "ventilation_core.advisory.main:main"
+ventilation-weather = "ventilation_core.weather.main:main"
 ventilation-web-ui = "ventilation_core.web.main:main"
 
 [tool.setuptools.packages.find]
