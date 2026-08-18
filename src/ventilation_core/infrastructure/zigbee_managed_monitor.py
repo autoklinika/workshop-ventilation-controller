@@ -7,7 +7,12 @@ from typing import Any
 from ventilation_core.domain.zigbee import ZigbeeInventoryDevice, ZigbeeMqttState, ZigbeeTemperatureSensorState
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import ZigbeeDeviceConfig
 from ventilation_core.infrastructure.zigbee_reliable_monitor import ReliableZigbeeMqttMonitor
-from ventilation_core.infrastructure.zigbee_role_store import SYSTEM_ROLES, ZigbeeRoleStore
+from ventilation_core.infrastructure.zigbee_role_store import (
+    MULTI_ROLE,
+    SYSTEM_ROLES,
+    ZigbeeRoleRecord,
+    ZigbeeRoleStore,
+)
 
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
@@ -23,10 +28,19 @@ def _is_assigned_config(config: ZigbeeDeviceConfig) -> bool:
 
 
 class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
-    """Reliable monitor with narrow rename and persistent semantic role management."""
+    """Reliable monitor with rename and persistent core-owned role management."""
 
     def __init__(self, config, *, role_store: ZigbeeRoleStore) -> None:
         self._role_store = role_store
+        try:
+            other_records = role_store.load_other_records()
+        except FileNotFoundError:
+            other_records = ()
+        self._other_roles: dict[str, ZigbeeRoleRecord] = {
+            record.ieee_address or "": record
+            for record in other_records
+            if record.assigned
+        }
         super().__init__(config)
 
     def state(self) -> ZigbeeMqttState:
@@ -37,6 +51,15 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
             if not device.friendly_name.startswith(_UNASSIGNED_PREFIX)
         )
         return replace(state, devices=public_devices)
+
+    def role_for_ieee(self, ieee_address: str) -> str | None:
+        with self._lock:
+            for config in self._config.devices:
+                if _is_assigned_config(config) and config.ieee_address == ieee_address:
+                    return config.role
+            if ieee_address in getattr(self, "_other_roles", {}):
+                return MULTI_ROLE
+        return None
 
     def rename_device(self, device_id: str, new_name: str) -> dict[str, Any]:
         device = self._resolve_inventory_device(device_id)
@@ -68,14 +91,23 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
                 changed = True
         if changed:
             self._apply_role_configs(tuple(configs), persist=True)
+
+        other_roles = getattr(self, "_other_roles", {})
+        if device.ieee_address in other_roles:
+            other_roles[device.ieee_address] = ZigbeeRoleRecord(
+                MULTI_ROLE,
+                device.ieee_address,
+                new_name,
+            )
+            self._save_other_roles()
         return response
 
     def assign_role(self, device_id: str, role: str | None) -> dict[str, Any]:
         device = self._resolve_inventory_device(device_id)
         if device.is_coordinator:
             raise ValueError("Zigbee coordinator cannot receive a system role")
-        if role is not None and role not in SYSTEM_ROLES:
-            raise ValueError("Zigbee role must be supply, extract or null")
+        if role is not None and role not in (*SYSTEM_ROLES, MULTI_ROLE):
+            raise ValueError("Zigbee role must be supply, extract, other or null")
 
         configs = list(self._config.devices)
         current_index = next(
@@ -86,6 +118,8 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
             ),
             None,
         )
+        other_roles = getattr(self, "_other_roles", {})
+        current_other = device.ieee_address in other_roles
 
         if role is None:
             if current_index is not None:
@@ -96,9 +130,44 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
                     ieee_address=None,
                 )
                 self._apply_role_configs(tuple(configs), persist=True)
+            if current_other:
+                other_roles.pop(device.ieee_address, None)
+                self._save_other_roles()
             return {
                 "status": "ok",
                 "data": {"id": device.ieee_address, "role": None},
+            }
+
+        # All assigned sensors retain their most recent state so a core restart
+        # does not blank the compact sensor list while a battery device sleeps.
+        self._bridge_request(
+            "device/options",
+            {"id": device.ieee_address, "options": {"retain": True}},
+        )
+
+        if role == MULTI_ROLE:
+            if current_index is not None:
+                old_role = configs[current_index].role
+                configs[current_index] = ZigbeeDeviceConfig(
+                    role=old_role,
+                    friendly_name=f"__unassigned_{old_role}__",
+                    ieee_address=None,
+                )
+                self._apply_role_configs(tuple(configs), persist=True)
+            other_roles[device.ieee_address] = ZigbeeRoleRecord(
+                MULTI_ROLE,
+                device.ieee_address,
+                device.friendly_name,
+            )
+            self._save_other_roles()
+            return {
+                "status": "ok",
+                "data": {
+                    "id": device.ieee_address,
+                    "friendly_name": device.friendly_name,
+                    "role": MULTI_ROLE,
+                    "retain": True,
+                },
             }
 
         target_index = next(index for index, config in enumerate(configs) if config.role == role)
@@ -109,12 +178,9 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
                 "set that device to no role first"
             )
 
-        # Ensure future telemetry for a system-role device survives core restarts.
-        self._bridge_request(
-            "device/options",
-            {"id": device.ieee_address, "options": {"retain": True}},
-        )
-
+        if current_other:
+            other_roles.pop(device.ieee_address, None)
+            self._save_other_roles()
         if current_index is not None and current_index != target_index:
             old_role = configs[current_index].role
             configs[current_index] = ZigbeeDeviceConfig(
@@ -153,7 +219,20 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
                 changed = True
         if changed:
             self._apply_role_configs(tuple(configs), persist=True)
+        other_roles = getattr(self, "_other_roles", {})
+        if device.ieee_address in other_roles:
+            other_roles.pop(device.ieee_address, None)
+            self._save_other_roles()
         return response
+
+    def _save_other_roles(self) -> None:
+        method = getattr(self._role_store, "save_other_records", None)
+        if method is None:
+            return
+        records = tuple(
+            getattr(self, "_other_roles", {}).values()
+        )
+        method(records)
 
     def _handle_bridge_message(self, topic: str, raw_payload: bytes) -> None:
         super()._handle_bridge_message(topic, raw_payload)
@@ -179,6 +258,16 @@ class ManagedReliableZigbeeMqttMonitor(ReliableZigbeeMqttMonitor):
                 updated.append(config)
         if changed:
             self._apply_role_configs(tuple(updated), persist=True)
+
+        other_roles = getattr(self, "_other_roles", {})
+        other_changed = False
+        for ieee, record in tuple(other_roles.items()):
+            item = by_ieee.get(ieee)
+            if item is not None and item.friendly_name != record.friendly_name:
+                other_roles[ieee] = ZigbeeRoleRecord(MULTI_ROLE, ieee, item.friendly_name)
+                other_changed = True
+        if other_changed:
+            self._save_other_roles()
 
     def _apply_role_configs(
         self,
