@@ -1,10 +1,10 @@
 .v2-alerts-view{padding-bottom:28px}
 .v2-alerts-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:end;margin:0 16px 18px}
 .v2-alerts-hero .v2-page-heading{margin:0}
-.v2-alerts-hero-state{min-width:250px;display:flex;align-items:center;justify-content:flex-end;gap:10px;color:#aeb9c4;font-size:.78rem}
-.v2-alerts-hero-state::before{content:"";width:10px;height:10px;border-radius:50%;background:#6f7c87;box-shadow:0 0 0 4px rgba(111,124,135,.08)}
-.v2-alerts-hero-state.good{color:#9bdc98}.v2-alerts-hero-state.good::before{background:#55c84f;box-shadow:0 0 15px rgba(85,200,79,.38)}
-.v2-alerts-hero-state.bad{color:#ff9e98}.v2-alerts-hero-state.bad::before{background:#ff665e;box-shadow:0 0 15px rgba(255,102,94,.38)}
+.v2-alerts-hero-state,.v2-alerts-hero .v2-alert-connection{min-width:250px;display:flex;align-items:center;justify-content:flex-end;gap:10px;color:#aeb9c4;font-size:.78rem}
+.v2-alerts-hero-state::before,.v2-alerts-hero .v2-alert-connection::before{content:"";width:10px;height:10px;border-radius:50%;background:#6f7c87;box-shadow:0 0 0 4px rgba(111,124,135,.08)}
+.v2-alerts-hero-state.good,.v2-alerts-hero .v2-alert-connection.good{color:#9bdc98}.v2-alerts-hero-state.good::before,.v2-alerts-hero .v2-alert-connection.good::before{background:#55c84f;box-shadow:0 0 15px rgba(85,200,79,.38)}
+.v2-alerts-hero-state.bad,.v2-alerts-hero .v2-alert-connection.bad{color:#ff9e98}.v2-alerts-hero-state.bad::before,.v2-alerts-hero .v2-alert-connection.bad::before{background:#ff665e;box-shadow:0 0 15px rgba(255,102,94,.38)}
 .v2-alert-summary{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:0 16px 18px!important}
 .v2-alert-summary article{min-height:104px;padding:17px 20px;border:1px solid #223746;border-radius:14px;background:linear-gradient(180deg,rgba(16,29,41,.98),rgba(9,18,27,.98));box-shadow:0 16px 38px rgba(0,0,0,.18)}
 .v2-alert-summary article:nth-child(1){border-top:2px solid #ff665e}.v2-alert-summary article:nth-child(2){border-top:2px solid #ffc400}.v2-alert-summary article:nth-child(3){border-top:2px solid #43b9ff}
