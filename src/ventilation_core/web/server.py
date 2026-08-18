@@ -88,10 +88,10 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _serve_static(self, request_path: str) -> None:
-        if request_path in ("", "/", "/control", "/control/", "/alerts", "/alerts/"):
+        if request_path in (
+            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/"
+        ):
             relative = "index.html"
-        elif request_path in ("/settings", "/settings/"):
-            relative = "settings.html"
         else:
             relative = request_path.lstrip("/")
         allowed = {
