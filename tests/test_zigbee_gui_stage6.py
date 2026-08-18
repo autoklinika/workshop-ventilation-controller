@@ -26,8 +26,11 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn('fetch("/api/v1/zigbee"', script)
         self.assertIn('apiPost("/api/v1/zigbee/permit-join"', script)
         self.assertIn('apiPost("/api/v1/zigbee/remove"', script)
+        self.assertIn('apiPost("/api/v1/zigbee/remove-confirmation"', script)
+        self.assertIn('fetch("/api/v1/zigbee/removal-confirmation"', script)
         self.assertIn('apiPost("/api/v1/zigbee/rename"', script)
         self.assertIn('apiPost("/api/v1/zigbee/role"', script)
+        self.assertNotIn("window.confirm", script)
         self.assertNotIn("zigbee2mqtt/", script)
         self.assertNotIn("mosquitto", script.lower())
         self.assertNotIn("/api/v1/zigbee/publish", script)
@@ -52,6 +55,8 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn("ZMIEŃ NAZWĘ", script)
         self.assertIn("Rola systemowa", script)
         self.assertIn("USUŃ", script)
+        self.assertIn("POTWIERDŹ USUNIĘCIE", script)
+        self.assertIn("CM5 · VENTILATION-CORE", script)
         self.assertIn("ZARZĄDZANIE PRZEZ VENTILATION-CORE", script)
 
     def test_periodic_refresh_does_not_replace_active_editor(self) -> None:
@@ -62,6 +67,14 @@ class ZigbeeGuiStage6Tests(unittest.TestCase):
         self.assertIn("if (!force && editingControlActive()) return;", script)
         self.assertIn("currentState = payload.zigbee;", script)
         self.assertIn("setInterval(refresh, 3000)", script)
+
+    def test_removal_confirmation_is_core_owned_not_browser_native(self) -> None:
+        script = (STATIC / "zigbee-settings.js").read_text(encoding="utf-8")
+        self.assertIn("confirmation_required", script)
+        self.assertIn("confirmation.confirmation_id", script)
+        self.assertIn("confirmed,", script)
+        self.assertIn("pollRemovalConfirmation", script)
+        self.assertNotIn("window.confirm", script)
 
 
 if __name__ == "__main__":
