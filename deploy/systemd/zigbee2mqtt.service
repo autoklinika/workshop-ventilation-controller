@@ -1,0 +1,34 @@
+[Unit]
+Description=Zigbee2MQTT for Workshop Ventilation Controller
+Documentation=https://www.zigbee2mqtt.io/
+Wants=network-online.target
+After=network-online.target mosquitto.service
+Requires=mosquitto.service
+ConditionPathExists=/var/lib/zigbee2mqtt/configuration.yaml
+
+[Service]
+Type=notify
+User=wentylacja
+Group=wentylacja
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/zigbee2mqtt
+Environment=NODE_ENV=production
+Environment=ZIGBEE2MQTT_DATA=/var/lib/zigbee2mqtt
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+WatchdogSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+ReadWritePaths=/var/lib/zigbee2mqtt
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

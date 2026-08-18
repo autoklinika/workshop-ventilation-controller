@@ -80,6 +80,21 @@ class TelemetryAgentTest(unittest.TestCase):
         self.assertEqual(payload["samples"][0]["sequence"], 1)
         self.assertEqual(payload["samples"][0]["metrics"]["mode"], "STOP")
 
+    def test_capture_only_mode_keeps_local_history_pending(self) -> None:
+        store = self.make_store()
+        agent = self.make_agent(store, None)
+
+        self.assertFalse(agent.sync_enabled)
+        agent.capture_once()
+        self.assertEqual(store.total_count(), 1)
+        self.assertEqual(store.pending_count(), 1)
+        self.assertFalse(agent.sync_once())
+
+        batch = store.reserve_batch(100)
+        assert batch is not None
+        self.assertEqual(len(batch.samples), 1)
+        self.assertEqual(batch.samples[0].sequence, 1)
+
     def test_failed_sync_keeps_same_batch_for_retry(self) -> None:
         store = self.make_store()
         agent = self.make_agent(store, FailingSender())

@@ -1,5 +1,5 @@
 [Unit]
-Description=Workshop Ventilation CM5 Telemetry Sync
+Description=Workshop Ventilation CM5 Telemetry Capture and Sync
 After=ventilation-core.service network-online.target
 Wants=network-online.target
 
@@ -10,10 +10,10 @@ Group=wentylacja
 WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
 Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=/etc/default/wvc-telemetry-sync
+EnvironmentFile=-/etc/default/wvc-telemetry-sync
 StateDirectory=workshop-ventilation
 StateDirectoryMode=0750
-ExecStart=/usr/bin/python3 -m ventilation_core.telemetry.main --socket /run/workshop-ventilation/ventilation-core.sock --database /var/lib/workshop-ventilation/telemetry.sqlite3 --capture-interval 5 --sync-interval 5 --batch-size 100 --http-timeout 5 --retention-days 30 --log-level INFO
+ExecStart=/usr/bin/python3 -m ventilation_core.telemetry.main --socket /run/workshop-ventilation/ventilation-core.sock --database /var/lib/workshop-ventilation/telemetry.sqlite3 --capture-interval 5 --sync-interval 5 --batch-size 100 --http-timeout 5 --retention-days 7 --minute-retention-days 90 --quarter-retention-days 730 --maintenance-interval 60 --max-rollup-buckets-per-run 240 --log-level INFO
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

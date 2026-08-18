@@ -87,6 +87,10 @@ class AlertingVentilationService(VentilationService):
                 )
             )
 
+    def _extra_alert_signals(self, state: CoreState) -> list[AlertSignal]:
+        """Extension hook for subsystem-specific alerts owned by core."""
+        return []
+
     def _sync_alerts(self, state: CoreState) -> None:
         signals: list[AlertSignal] = []
         for alarm in state.active_alarms:
@@ -310,4 +314,5 @@ class AlertingVentilationService(VentilationService):
                     )
                 )
 
+        signals.extend(self._extra_alert_signals(state))
         self._system_alerts.reconcile(signals)

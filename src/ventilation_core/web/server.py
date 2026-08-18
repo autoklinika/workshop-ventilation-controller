@@ -90,11 +90,14 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
     def _serve_static(self, request_path: str) -> None:
         if request_path in ("", "/", "/control", "/control/", "/alerts", "/alerts/"):
             relative = "index.html"
+        elif request_path in ("/settings", "/settings/"):
+            relative = "settings.html"
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "styles.css", "dashboard.css", "sidebar.css", "v2-weather.css",
-            "dashboard.js", "dashboard-live.js", "app.js", "tacho.js", "alerts.js",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "sidebar.css", "v2-weather.css",
+            "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
+            "dashboard.js", "dashboard-live.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)

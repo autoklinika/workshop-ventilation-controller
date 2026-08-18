@@ -5,6 +5,8 @@ import logging
 import os
 from pathlib import Path
 
+from ventilation_core.telemetry.history import TelemetryHistoryReader
+
 from .app import WebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
@@ -13,6 +15,7 @@ from .weather import MetNoWeatherProvider, WeatherConfig
 
 
 DEFAULT_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
+DEFAULT_TELEMETRY_DATABASE = Path("/var/lib/workshop-ventilation/telemetry.sqlite3")
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8088
 
@@ -23,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=int(os.getenv("WVC_WEB_PORT", str(DEFAULT_PORT))))
     parser.add_argument("--socket", type=Path, default=Path(os.getenv("WVC_CORE_SOCKET", str(DEFAULT_SOCKET))))
     parser.add_argument("--core-timeout", type=float, default=float(os.getenv("WVC_WEB_CORE_TIMEOUT", "70")))
+    parser.add_argument(
+        "--telemetry-database",
+        type=Path,
+        default=Path(os.getenv("WVC_WEB_TELEMETRY_DATABASE", str(DEFAULT_TELEMETRY_DATABASE))),
+        help="Read-only local telemetry history database",
+    )
     parser.add_argument(
         "--weather-latitude",
         type=float,
@@ -66,6 +75,7 @@ def main() -> int:
     )
     static_root = Path(__file__).with_name("static")
     core = CoreUnixClient(args.socket, timeout_seconds=args.core_timeout)
+    history = TelemetryHistoryReader(args.telemetry_database)
     weather = MetNoWeatherProvider(
         WeatherConfig(
             latitude=args.weather_latitude,
@@ -76,14 +86,15 @@ def main() -> int:
             timeout_seconds=args.weather_timeout,
         )
     )
-    app = WebApplication(core, WebUiConfig.from_environment(), weather)
+    app = WebApplication(core, WebUiConfig.from_environment(), weather, history)
     server = WebUiHttpServer((args.host, args.port), app, static_root)
 
     logging.getLogger(__name__).info(
-        "web UI listening on http://%s:%d using core socket %s; weather=%s",
+        "web UI listening on http://%s:%d using core socket %s; history=%s; weather=%s",
         args.host,
         args.port,
         args.socket,
+        args.telemetry_database,
         args.weather_label or "disabled",
     )
     try:
