@@ -1,16 +1,21 @@
-.zigbee-inventory-card{grid-template-columns:minmax(230px,.8fr) minmax(280px,1.2fr)}
-.zigbee-inventory-capabilities,.zigbee-device-management{grid-column:1/-1}
-.zigbee-inventory-capabilities{padding-top:12px;border-top:1px solid rgba(34,53,66,.7)}
-.zigbee-inventory-capabilities>span,.zigbee-pairing-section-label{display:block;margin-bottom:8px;color:#6f8492;font-size:.62rem;font-weight:900;letter-spacing:.1em}
+.zigbee-inventory-card.compact-row{grid-template-columns:minmax(220px,.75fr) minmax(220px,.75fr) minmax(620px,2.4fr);gap:12px;align-items:center;padding:12px 14px;border-radius:12px}
+.zigbee-inventory-card.coordinator.compact-row{grid-template-columns:minmax(220px,.75fr) minmax(300px,1.25fr)}
+.zigbee-inventory-card.compact-row .zigbee-inventory-main h4{font-size:.96rem}.zigbee-inventory-card.compact-row .zigbee-inventory-main p{margin-top:3px;font-size:.68rem}
+.zigbee-inventory-card.compact-row .zigbee-inventory-meta{font-size:.66rem}
+.zigbee-sensor-values{display:grid;grid-template-columns:repeat(6,minmax(78px,1fr));gap:6px;min-width:0}
+.zigbee-sensor-reading{min-width:0;padding:7px 8px;border:1px solid #263c4a;border-radius:8px;background:#0a161f}
+.zigbee-sensor-reading span{display:block;color:#6f8492;font-size:.56rem;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+.zigbee-sensor-reading strong{display:block;margin-top:3px;color:#dbe8ee;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zigbee-sensor-reading.good strong{color:#9ee3c3}.zigbee-sensor-reading.bad strong{color:#ff9b9b}.zigbee-sensor-reading.wide{grid-column:span 2}
+.zigbee-inventory-card.compact-row .zigbee-device-management{grid-column:1/-1;display:grid;grid-template-columns:minmax(180px,1fr) auto minmax(170px,.7fr) auto;gap:8px;align-items:end;padding-top:9px;border-top:1px solid rgba(34,53,66,.65)}
+.zigbee-inventory-card.compact-row .zigbee-device-management label{font-size:.58rem}.zigbee-inventory-card.compact-row .zigbee-rename-input,.zigbee-inventory-card.compact-row .zigbee-role-select{height:36px}.zigbee-inventory-card.compact-row .zigbee-action,.zigbee-inventory-card.compact-row .zigbee-remove{min-height:36px}
+.zigbee-pairing-section-label{display:block;margin-bottom:8px;color:#6f8492;font-size:.62rem;font-weight:900;letter-spacing:.1em}
 .zigbee-capability-list{display:flex;flex-wrap:wrap;gap:8px}
 .zigbee-capability{display:grid;gap:2px;min-width:150px;padding:9px 11px;border:1px solid #294150;border-radius:10px;background:#0b1720;color:#d7e7ef}
-.zigbee-capability strong{font-size:.72rem;font-weight:800}.zigbee-capability small{color:#708794;font-size:.6rem;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
-.zigbee-capability.compact{min-width:128px;padding:7px 9px}.zigbee-capability.compact strong{font-size:.67rem}.zigbee-capability-empty{color:#708794;font-size:.72rem}
+.zigbee-capability strong{font-size:.72rem;font-weight:800}.zigbee-capability small{color:#708794;font-size:.6rem;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.zigbee-capability-empty{color:#708794;font-size:.72rem}
 .zigbee-pairing-modal{position:fixed;inset:0;z-index:132;display:grid;place-items:center;padding:32px;background:rgba(1,7,11,.86);backdrop-filter:blur(5px)}
-.zigbee-pairing-modal[hidden]{display:none}
-.zigbee-pairing-card{width:min(760px,calc(100vw - 64px));padding:32px;border:1px solid rgba(67,185,255,.55);border-radius:22px;background:linear-gradient(180deg,#11212d,#0a1720);box-shadow:0 28px 90px rgba(0,0,0,.55)}
-.zigbee-pairing-kicker{display:block;margin-bottom:9px;color:#66caff;font-size:.72rem;font-weight:900;letter-spacing:.12em}.zigbee-pairing-card h2{margin:0;color:#eef7fb;font-size:1.55rem}
-.zigbee-pairing-device{display:grid;gap:5px;margin-top:22px;padding:16px 18px;border:1px solid #294150;border-radius:13px;background:#09151e}.zigbee-pairing-device strong{color:#f0f7fa;font-size:1.2rem}.zigbee-pairing-device span{color:#93a7b4;font-size:.76rem}
-.zigbee-pairing-capabilities{margin-top:22px}.zigbee-pairing-note{margin:20px 0 0;color:#7f94a1;font-size:.76rem;line-height:1.45}.zigbee-pairing-actions{display:flex;justify-content:flex-end;margin-top:20px}.zigbee-pairing-actions .zigbee-action{min-width:170px}
-.zigbee-system-confirm-status.bad{color:#ff9b9b;font-weight:800}
-@media(max-width:760px){.zigbee-inventory-card{grid-template-columns:1fr}.zigbee-pairing-modal{padding:16px}.zigbee-pairing-card{width:calc(100vw - 32px);padding:22px}.zigbee-pairing-actions .zigbee-action{width:100%}}
+.zigbee-pairing-modal[hidden]{display:none}.zigbee-pairing-card{width:min(760px,calc(100vw - 64px));padding:32px;border:1px solid rgba(67,185,255,.55);border-radius:22px;background:linear-gradient(180deg,#11212d,#0a1720);box-shadow:0 28px 90px rgba(0,0,0,.55)}
+.zigbee-pairing-kicker{display:block;margin-bottom:9px;color:#66caff;font-size:.72rem;font-weight:900;letter-spacing:.12em}.zigbee-pairing-card h2{margin:0;color:#eef7fb;font-size:1.55rem}.zigbee-pairing-device{display:grid;gap:5px;margin-top:22px;padding:16px 18px;border:1px solid #294150;border-radius:13px;background:#09151e}.zigbee-pairing-device strong{color:#f0f7fa;font-size:1.2rem}.zigbee-pairing-device span{color:#93a7b4;font-size:.76rem}.zigbee-pairing-capabilities{margin-top:22px}.zigbee-pairing-note{margin:20px 0 0;color:#7f94a1;font-size:.76rem;line-height:1.45}.zigbee-pairing-actions{display:flex;justify-content:flex-end;margin-top:20px}.zigbee-pairing-actions .zigbee-action{min-width:170px}.zigbee-system-confirm-status.bad{color:#ff9b9b;font-weight:800}
+@media(max-width:1700px){.zigbee-inventory-card.compact-row{grid-template-columns:minmax(210px,.8fr) minmax(210px,.8fr) minmax(460px,2fr)}.zigbee-sensor-values{grid-template-columns:repeat(4,minmax(82px,1fr))}}
+@media(max-width:1200px){.zigbee-inventory-card.compact-row,.zigbee-inventory-card.coordinator.compact-row{grid-template-columns:1fr}.zigbee-sensor-values{grid-template-columns:repeat(4,minmax(90px,1fr))}.zigbee-inventory-card.compact-row .zigbee-device-management{grid-template-columns:minmax(180px,1fr) auto minmax(160px,.8fr) auto}}
+@media(max-width:760px){.zigbee-sensor-values{grid-template-columns:repeat(2,minmax(90px,1fr))}.zigbee-sensor-reading.wide{grid-column:1/-1}.zigbee-inventory-card.compact-row .zigbee-device-management{grid-template-columns:1fr}.zigbee-pairing-modal{padding:16px}.zigbee-pairing-card{width:calc(100vw - 32px);padding:22px}.zigbee-pairing-actions .zigbee-action{width:100%}}
