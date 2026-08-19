@@ -95,9 +95,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "sidebar.css", "v2-weather.css",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -128,6 +128,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h3_js = (self.server.static_root / "history-h3.js").resolve()
             if h3_js.parent == self.server.static_root and h3_js.is_file():
                 content += b"\n\n" + h3_js.read_bytes()
+            h4_js = (self.server.static_root / "history-h4.js").resolve()
+            if h4_js.parent == self.server.static_root and h4_js.is_file():
+                content += b"\n\n" + h4_js.read_bytes()
         elif relative == "ai-detail.css":
             for name in ("zone-detail.css", "history.css"):
                 module = (self.server.static_root / name).resolve()
@@ -139,6 +142,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h22_css = (self.server.static_root / "history-h22.css").resolve()
             if h22_css.parent == self.server.static_root and h22_css.is_file():
                 content += b"\n\n" + h22_css.read_bytes()
+            h4_css = (self.server.static_root / "history-h4.css").resolve()
+            if h4_css.parent == self.server.static_root and h4_css.is_file():
+                content += b"\n\n" + h4_css.read_bytes()
 
         content_type, _ = mimetypes.guess_type(candidate.name)
         if content_type is None:
