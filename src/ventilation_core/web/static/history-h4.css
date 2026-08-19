@@ -21,6 +21,32 @@
 }
 #historyStorageState.is-storage-warning{color:#dca43f}
 #historyStorageState.is-storage-critical{color:#e66b6b}
+.v2-history-global-storage-alert{
+  position:fixed;
+  top:12px;
+  right:16px;
+  z-index:930;
+  min-height:42px;
+  padding:0 15px;
+  border-radius:11px;
+  border:1px solid rgba(255,255,255,.14);
+  color:#f3f7fa;
+  font:inherit;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.045em;
+  box-shadow:0 10px 28px rgba(0,0,0,.28);
+  cursor:pointer;
+}
+.v2-history-global-storage-alert[hidden]{display:none!important}
+.v2-history-global-storage-alert.is-warning{
+  background:#6f4c13;
+  border-color:#b9842f;
+}
+.v2-history-global-storage-alert.is-critical{
+  background:#741f26;
+  border-color:#c3525d;
+}
 .v2-history-custom-range{white-space:nowrap}
 .v2-history-custom-overlay{
   position:fixed;
@@ -142,6 +168,7 @@ body.v2-history-custom-open{overflow:hidden}
   .v2-history-ranges{flex-wrap:wrap;justify-content:flex-end}
   .v2-history-custom-panel{width:min(680px,92vw);padding:18px}
   .v2-history-custom-fields{gap:10px}
+  .v2-history-global-storage-alert{top:8px;right:10px;min-height:38px;font-size:11px}
 }
 @media(max-width:720px){
   .v2-history-custom-fields{grid-template-columns:1fr}
