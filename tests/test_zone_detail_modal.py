@@ -104,8 +104,9 @@ class ZoneDetailModalTest(unittest.TestCase):
         self.assertIn('"zone-detail.css"', self.server)
         self.assertIn('relative == "ai-operator-view.js"', self.server)
         self.assertIn('relative == "ai-detail.css"', self.server)
-        self.assertIn('zone_js.read_bytes()', self.server)
-        self.assertIn('zone_css.read_bytes()', self.server)
+        self.assertIn('for name in ("zone-detail.js", "history.js")', self.server)
+        self.assertIn('for name in ("zone-detail.css", "history.css")', self.server)
+        self.assertIn('module.read_bytes()', self.server)
 
 
 if __name__ == "__main__":
