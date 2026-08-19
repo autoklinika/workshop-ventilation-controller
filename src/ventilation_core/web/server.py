@@ -89,15 +89,15 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, request_path: str) -> None:
         if request_path in (
-            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/"
+            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/", "/history", "/history/"
         ):
             relative = "index.html"
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "sidebar.css", "v2-weather.css",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -108,18 +108,19 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             return
         content = candidate.read_bytes()
 
-        # The dashboard already loads the Stage 2 AI assets. Keep the zone-detail
-        # implementation in separate source files, but append those presentation-only
-        # modules to the existing dashboard asset responses so no legacy HTML shell
-        # rewrite is required while the V2 GUI remains under staged development.
+        # The dashboard already loads the Stage 2 AI assets. Keep staged presentation
+        # modules in separate source files, but append them to the existing dashboard
+        # asset responses so the shell stays stable while GUI work is validated.
         if relative == "ai-operator-view.js":
-            zone_js = (self.server.static_root / "zone-detail.js").resolve()
-            if zone_js.parent == self.server.static_root and zone_js.is_file():
-                content += b"\n\n" + zone_js.read_bytes()
+            for name in ("zone-detail.js", "history.js"):
+                module = (self.server.static_root / name).resolve()
+                if module.parent == self.server.static_root and module.is_file():
+                    content += b"\n\n" + module.read_bytes()
         elif relative == "ai-detail.css":
-            zone_css = (self.server.static_root / "zone-detail.css").resolve()
-            if zone_css.parent == self.server.static_root and zone_css.is_file():
-                content += b"\n\n" + zone_css.read_bytes()
+            for name in ("zone-detail.css", "history.css"):
+                module = (self.server.static_root / name).resolve()
+                if module.parent == self.server.static_root and module.is_file():
+                    content += b"\n\n" + module.read_bytes()
 
         content_type, _ = mimetypes.guess_type(candidate.name)
         if content_type is None:
