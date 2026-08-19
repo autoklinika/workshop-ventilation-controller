@@ -97,7 +97,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         allowed = {
             "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -122,6 +122,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h22_js = (self.server.static_root / "history-h22.js").resolve()
             if h22_js.parent == self.server.static_root and h22_js.is_file():
                 content += b"\n\n" + h22_js.read_bytes()
+            h23_js = (self.server.static_root / "history-h23.js").resolve()
+            if h23_js.parent == self.server.static_root and h23_js.is_file():
+                content += b"\n\n" + h23_js.read_bytes()
         elif relative == "ai-detail.css":
             for name in ("zone-detail.css", "history.css"):
                 module = (self.server.static_root / name).resolve()
