@@ -6,6 +6,7 @@ from typing import Any, Protocol
 
 from ventilation_core.telemetry.history import TelemetryHistoryUnavailable
 
+from .advisory import AdvisoryError
 from .client import CoreClient, CoreClientError
 from .config import WebUiConfig
 from .weather import WeatherError
@@ -18,6 +19,10 @@ class ApiResponse:
 
 
 class WeatherProvider(Protocol):
+    def get_snapshot(self) -> dict[str, Any]: ...
+
+
+class AdvisoryProvider(Protocol):
     def get_snapshot(self) -> dict[str, Any]: ...
 
 
@@ -53,11 +58,13 @@ class WebApplication:
         config: WebUiConfig | None = None,
         weather: WeatherProvider | None = None,
         history: HistoryProvider | None = None,
+        advisory: AdvisoryProvider | None = None,
     ) -> None:
         self._core = core
         self._config = config or WebUiConfig()
         self._weather_provider = weather
         self._history_provider = history
+        self._advisory_provider = advisory
 
     def handle(self, method: str, path: str, body: Any = None) -> ApiResponse:
         try:
@@ -75,6 +82,8 @@ class WebApplication:
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
                 return self._weather()
+            if method == "GET" and path == "/api/v1/ai/advisory":
+                return self._advisory()
             if method == "GET" and path == "/api/v1/history/status":
                 return self._history_status()
             if method == "GET" and path == "/api/v1/health":
@@ -250,6 +259,36 @@ class WebApplication:
         except WeatherError as exc:
             snapshot = {"available": False, "configured": True, "error": str(exc)}
         return ApiResponse(200, {"ok": True, "weather": snapshot})
+
+    def _advisory(self) -> ApiResponse:
+        if self._advisory_provider is None:
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "advisory": {
+                        "available": False,
+                        "configured": False,
+                        "source": "local-cache",
+                        "stale": True,
+                        "fresh": False,
+                    },
+                },
+            )
+
+        try:
+            snapshot = self._advisory_provider.get_snapshot()
+        except AdvisoryError as exc:
+            snapshot = {
+                "available": False,
+                "configured": True,
+                "source": "local-cache",
+                "stale": True,
+                "fresh": False,
+                "error": str(exc),
+            }
+
+        return ApiResponse(200, {"ok": True, "advisory": snapshot})
 
     def _health(self) -> ApiResponse:
         try:
