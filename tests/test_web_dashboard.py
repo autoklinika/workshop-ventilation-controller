@@ -135,14 +135,12 @@ class WebDashboardV2StructureTest(unittest.TestCase):
         self.assertIn(".v2-shell-view[hidden]", css)
         self.assertIn("margin-left:118px", css)
 
-    def test_dashboard_ai_placeholder_is_explicit(self):
+    def test_dashboard_ai_placeholder_remains_explicit(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
         self.assertIn("AI · ANALIZA SYSTEMU", html)
+        self.assertIn("OCZEKIWANIE NA AI", html)
         self.assertIn("Brak analizy AI", html)
-        self.assertIn("Oczekiwanie na pierwszą rekomendację modelu", html)
-        self.assertIn('id="aiUpdatedAt"', html)
-        self.assertNotIn("TRENDY – OSTATNIE 24H", html)
-        self.assertNotIn("Brak historii zdarzeń", html)
+        self.assertIn("Po uruchomieniu integracji będą tutaj prezentowane bieżące wnioski z telemetrii wentylacji.", html)
 
 
 if __name__ == "__main__":
