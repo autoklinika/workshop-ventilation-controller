@@ -95,11 +95,15 @@ class HistorySeriesStage1Test(unittest.TestCase):
         )
         self.now = lambda: datetime(2026, 8, 19, 20, 0, tzinfo=timezone.utc)
 
-    def test_catalog_exposes_stable_series_and_current_safe_ranges(self) -> None:
+    def test_catalog_exposes_stable_series_and_supported_ranges(self) -> None:
         service = HistorySeriesService(FakeHistory({}), self.config, now=self.now)
         catalog = service.catalog()
         self.assertEqual(catalog["schema_version"], 1)
-        self.assertEqual([item["id"] for item in catalog["ranges"]], ["1h", "24h", "7d"])
+        self.assertEqual(
+            [item["id"] for item in catalog["ranges"]],
+            ["1h", "24h", "7d", "30d", "90d", "1y"],
+        )
+        self.assertTrue(catalog["long_range_rollups_ready"])
         ids = {item["id"] for item in catalog["series"]}
         self.assertIn("zone1.air.pm2_5", ids)
         self.assertIn("zone1.air.voc_index", ids)
@@ -110,15 +114,28 @@ class HistorySeriesStage1Test(unittest.TestCase):
         self.assertIn("zone2.aero.supply_temperature", ids)
         self.assertIn("zone2.aero.fan2_percent", ids)
 
-    def test_auto_resolution_uses_raw_for_hour_minute_for_day_and_15m_for_week(self) -> None:
-        history = FakeHistory({"raw": [], "1m": [], "15m": []})
+    def test_auto_resolution_uses_persistent_rollups_for_long_ranges(self) -> None:
+        history = FakeHistory({"raw": [], "1m": [], "15m": [], "1h": [], "1d": []})
         service = HistorySeriesService(history, self.config, now=self.now)
         series = ["zone1.air.pm2_5"]
 
-        self.assertEqual(service.query({"range": "1h", "series": series})["resolution"], "raw")
-        self.assertEqual(service.query({"range": "24h", "series": series})["resolution"], "1m")
-        self.assertEqual(service.query({"range": "7d", "series": series})["resolution"], "15m")
-        self.assertEqual([call["resolution"] for call in history.calls], ["raw", "1m", "15m"])
+        expected = (
+            ("1h", "raw"),
+            ("24h", "1m"),
+            ("7d", "15m"),
+            ("30d", "1h"),
+            ("90d", "1h"),
+            ("1y", "1d"),
+        )
+        for range_id, resolution in expected:
+            self.assertEqual(
+                service.query({"range": range_id, "series": series})["resolution"],
+                resolution,
+            )
+        self.assertEqual(
+            [call["resolution"] for call in history.calls],
+            [resolution for _range_id, resolution in expected],
+        )
 
     def test_raw_projection_uses_configured_zone_address_and_keeps_missing_point(self) -> None:
         samples = [
