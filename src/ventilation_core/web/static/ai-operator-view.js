@@ -9,8 +9,8 @@
  *
  * Dashboard presentation rule:
  * - the compact AI card is a fixed-size HMI client view with CSS-only clipping;
- * - tapping the card opens a full-screen modal that shows the same DOM text in full;
- * - the transition is presentation-only: the card visually morphs to/from fullscreen;
+ * - tapping the card opens a large centered modal that shows the same DOM text in full;
+ * - the transition is presentation-only: the card visually morphs to/from the modal;
  * - no summarization, trend calculation or other AI interpretation happens here.
  */
 
@@ -127,13 +127,16 @@ function cancelAiDetailAnimations(overlay) {
   overlay.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
 }
 
-function aiDetailTransformFromCard(card) {
-  const rect = card.getBoundingClientRect();
-  const width = Math.max(1, window.innerWidth);
-  const height = Math.max(1, window.innerHeight);
-  const scaleX = Math.max(0.001, rect.width / width);
-  const scaleY = Math.max(0.001, rect.height / height);
-  return `translate(${rect.left}px, ${rect.top}px) scale(${scaleX}, ${scaleY})`;
+function aiDetailTransformFromCard(card, detailCard) {
+  const source = card.getBoundingClientRect();
+  const target = detailCard.getBoundingClientRect();
+  const targetWidth = Math.max(1, target.width);
+  const targetHeight = Math.max(1, target.height);
+  const scaleX = Math.max(0.001, source.width / targetWidth);
+  const scaleY = Math.max(0.001, source.height / targetHeight);
+  const translateX = source.left - target.left;
+  const translateY = source.top - target.top;
+  return `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
 }
 
 function finalizeAiDetailOpen(serial) {
@@ -185,7 +188,7 @@ function openAiDetailModal() {
     return;
   }
 
-  const fromTransform = aiDetailTransformFromCard(card);
+  const fromTransform = aiDetailTransformFromCard(card, detailCard);
   overlay.animate(
     [{ opacity: 0 }, { opacity: 1 }],
     { duration: AI_DETAIL_OPEN_MS, easing: "linear", fill: "both" }
@@ -207,7 +210,7 @@ function openAiDetailModal() {
   const morph = detailCard.animate(
     [
       { transform: fromTransform, borderRadius: "14px" },
-      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "0px" }
+      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "18px" }
     ],
     {
       duration: AI_DETAIL_OPEN_MS,
@@ -236,7 +239,7 @@ function closeAiDetailModal() {
     return;
   }
 
-  const toTransform = aiDetailTransformFromCard(card);
+  const toTransform = aiDetailTransformFromCard(card, detailCard);
   overlay.animate(
     [{ opacity: 1 }, { opacity: 0 }],
     { duration: AI_DETAIL_CLOSE_MS, easing: "linear", fill: "both" }
@@ -257,7 +260,7 @@ function closeAiDetailModal() {
 
   const morph = detailCard.animate(
     [
-      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "0px" },
+      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "18px" },
       { transform: toTransform, borderRadius: "14px" }
     ],
     {
