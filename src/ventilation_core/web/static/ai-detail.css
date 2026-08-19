@@ -103,6 +103,11 @@ body.v2-ai-detail-open{
   height:100vh;
   background:#07101a;
   color:#f2f5f8;
+  will-change:opacity;
+}
+
+.v2-ai-detail.is-transitioning{
+  pointer-events:none;
 }
 
 .v2-ai-detail-card{
@@ -114,6 +119,8 @@ body.v2-ai-detail-open{
   grid-template-rows:auto minmax(0,1fr);
   box-sizing:border-box;
   overflow:hidden;
+  transform-origin:0 0;
+  will-change:transform,border-radius;
   background:radial-gradient(circle at 18% 0%,rgba(31,68,102,.24),transparent 34rem),linear-gradient(180deg,#101b26,#07101a 72%);
 }
 
@@ -246,5 +253,15 @@ body.v2-ai-detail-open{
 
   .v2-ai-detail-scroll{
     padding:18px 22px 28px;
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .v2-ai-detail,
+  .v2-ai-detail-card,
+  .v2-ai-detail-header,
+  .v2-ai-detail-scroll{
+    animation:none!important;
+    transition:none!important;
   }
 }
