@@ -87,9 +87,9 @@ function historyH41FormatTime(value) {
 
 function historyH41SeverityLabel(value) {
   const normalized = String(value || "").toLowerCase();
-  if (normalized === "critical") return "KRYTYCZNE";
-  if (normalized === "warning") return "OSTRZEŻENIA";
-  return "POZOSTAŁE";
+  if (normalized === "critical") return "KRYTYCZNY";
+  if (normalized === "warning") return "OSTRZEŻENIE";
+  return "ALERT";
 }
 
 function historyH41SeverityClass(value) {
@@ -135,7 +135,7 @@ function historyH41AlertCard(alert) {
 
   const severity = document.createElement("span");
   severity.className = "v2-history-alert-severity";
-  severity.textContent = historyH41SeverityLabel(alert.severity).replace(/E$/, "Y");
+  severity.textContent = historyH41SeverityLabel(alert.severity);
 
   const state = document.createElement("span");
   state.className = "v2-history-alert-cleared";
