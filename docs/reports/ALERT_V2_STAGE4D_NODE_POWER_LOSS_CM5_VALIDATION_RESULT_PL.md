@@ -218,7 +218,7 @@ hardware_owned_by_shadow = false
 
 Stage 4D nie wykonał żadnej reakcji sterującej z TOML.
 
-## 9. TACHO — potwierdzenie niezmiennika bezpieczeństwa
+## 9. TACHO — zgodność z niezmiennikiem bezpieczeństwa
 
 W końcowym stanie oba kanały TACHO miały:
 
@@ -228,15 +228,9 @@ rpm = 0.0
 valid = false
 ```
 
-Jednocześnie core pozostał:
+Jednocześnie nie pojawił się aktywny alert TACHO ani żadna reakcja sterująca. To jest zgodne z twardym założeniem AlertV2, że utrata lub brak prawidłowego TACHO nie może powodować globalnego `STOP`/`safe_state` ani blokować dalszego działania sterowania 0–10 V.
 
-```text
-mode = STOP
-hardware_ready = true
-output_state_known = true
-```
-
-Nie wystąpił żaden efekt sterujący wynikający z braku prawidłowego TACHO. Jest to zgodne z twardym założeniem AlertV2, że utrata TACHO nie może powodować globalnego STOP/safe_state.
+W tej konkretnej walidacji system przez cały czas był już celowo utrzymywany w `STOP / 0 V / 0 V`, więc test potwierdza brak dodatkowej reakcji od TACHO, a nie aktywne zachowanie wentylatorów przy utracie TACHO podczas pracy.
 
 ## 10. Niezależne aktywne alerty
 
