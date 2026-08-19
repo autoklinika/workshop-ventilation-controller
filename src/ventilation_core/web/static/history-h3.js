@@ -21,6 +21,15 @@ historyResolutionText = function historyH3ResolutionText(resolution) {
   return labels[resolution] || historyH3BaseResolutionText(resolution);
 };
 
+const historyH3BaseCursorKind = historyH21CursorKind;
+historyH21CursorKind = function historyH3CursorKind(resolution) {
+  const labels = {
+    "1h": "1 GODZ. · ŚREDNIA",
+    "1d": "1 DZIEŃ · ŚREDNIA",
+  };
+  return labels[resolution] || historyH3BaseCursorKind(resolution);
+};
+
 const historyH3BaseTimeLabel = historyTimeLabel;
 historyTimeLabel = function historyH3TimeLabel(timestamp, rangeId) {
   const date = new Date(timestamp);
