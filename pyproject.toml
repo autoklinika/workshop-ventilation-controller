@@ -19,6 +19,7 @@ wvc-service-heartbeat = "ventilation_core.service_heartbeat:main"
 ventilation-telemetry-sync = "ventilation_core.telemetry.main:main"
 ventilation-ai-advisory = "ventilation_core.advisory.main:main"
 ventilation-web-ui = "ventilation_core.web.main:main"
+wvc-alertctl = "ventilation_core.alertctl:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

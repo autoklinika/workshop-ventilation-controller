@@ -6,10 +6,16 @@ import logging
 import signal
 from pathlib import Path
 
+from ventilation_core.alert_policy import DEFAULT_RUNTIME_POLICY_PATH
+from ventilation_core.alert_policy_runtime import RuntimeAlertPolicyManager
 from ventilation_core.application.alert_registry import AlertRegistry
+from ventilation_core.application.alert_v2_policy_service import AlertV2ReadOnlyPolicyService
 from ventilation_core.application.schedule_controller import (
     CoreScheduleManager,
     UnavailableScheduleManager,
+)
+from ventilation_core.application.service_plane_alert_registry import (
+    ServicePlaneCorrelatingAlertRegistry,
 )
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.application.shadow_service import ShadowAlertingVentilationService
@@ -25,6 +31,10 @@ from ventilation_core.infrastructure.zigbee_capability_monitor import Capability
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import ZigbeeDeviceConfig, ZigbeeMqttConfig
 from ventilation_core.infrastructure.zigbee_role_store import ZigbeeRoleStore
 from ventilation_core.runtime.server import CoreServer
+from ventilation_core.service_plane_monitor import (
+    DEFAULT_SERVICE_AGENT_SOCKET,
+    ServicePlaneMonitor,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -53,6 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", type=Path, default=Path("/run/workshop-ventilation/ventilation-core.sock"))
     parser.add_argument("--alerts-db", type=Path, default=Path("/var/lib/workshop-ventilation/alerts.sqlite3"))
     parser.add_argument("--automation-db", type=Path, default=Path("/var/lib/workshop-ventilation/automation.sqlite3"))
+    parser.add_argument(
+        "--alert-policy",
+        type=Path,
+        default=DEFAULT_RUNTIME_POLICY_PATH,
+        help="Read-only AlertV2 policy path; invalid/missing policy never changes control behavior",
+    )
+    parser.add_argument(
+        "--service-agent-socket",
+        type=Path,
+        default=DEFAULT_SERVICE_AGENT_SOCKET,
+        help="Read-only local WVC-SERVICE status socket used only for AlertV2 diagnostics",
+    )
+    parser.add_argument("--service-agent-timeout", type=float, default=0.35)
+    parser.add_argument("--service-agent-failure-threshold", type=int, default=3)
+    parser.add_argument("--service-node-initial-grace", type=float, default=40.0)
+    parser.add_argument("--disable-service-plane-correlation", action="store_true")
     parser.add_argument("--minimum-running-voltage", type=float, default=1.0)
     parser.add_argument("--maximum-voltage", type=float, default=10.0)
     parser.add_argument("--command-timeout", type=float, default=3.0)
@@ -104,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def run_core(args: argparse.Namespace) -> None:
     alert_registry = None
+    service_plane_registry = None
     schedule_manager = None
     actuator = None
     sensor_bus = None
@@ -113,6 +140,19 @@ async def run_core(args: argparse.Namespace) -> None:
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
+        if not args.disable_service_plane_correlation:
+            service_plane_monitor = ServicePlaneMonitor(
+                args.service_agent_socket,
+                timeout_seconds=args.service_agent_timeout,
+            )
+            service_plane_registry = ServicePlaneCorrelatingAlertRegistry(
+                alert_registry,
+                service_plane_monitor,
+                agent_failure_threshold=args.service_agent_failure_threshold,
+                node_initial_grace_seconds=args.service_node_initial_grace,
+            )
+            alert_registry = service_plane_registry
+
         try:
             schedule_manager = CoreScheduleManager(SqliteScheduleStore(args.automation_db))
         except Exception as exc:
@@ -198,7 +238,7 @@ async def run_core(args: argparse.Namespace) -> None:
             )
             if enabled
         )
-        service = ShadowAlertingVentilationService(
+        legacy_service = ShadowAlertingVentilationService(
             actuator=actuator,
             policy=FanSetpointPolicy(
                 minimum_running_voltage=args.minimum_running_voltage,
@@ -214,6 +254,31 @@ async def run_core(args: argparse.Namespace) -> None:
             required_tacho_channels=required_tacho_channels,
             shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
         )
+        alert_policy_manager = RuntimeAlertPolicyManager(args.alert_policy)
+        service = AlertV2ReadOnlyPolicyService(
+            legacy_service,
+            alert_policy_manager,
+            service_plane_diagnostics=(
+                None if service_plane_registry is None else service_plane_registry.diagnostics
+            ),
+        )
+        if alert_policy_manager.loaded:
+            metadata = alert_policy_manager.metadata()
+            LOGGER.info(
+                "AlertV2 runtime mapping active version=%s sha256=%s; control policy remains disabled",
+                metadata["policy_version"],
+                metadata["sha256"],
+            )
+        else:
+            LOGGER.warning(
+                "AlertV2 runtime policy unavailable; legacy alert behavior continues unchanged: %s",
+                alert_policy_manager.metadata()["last_error"],
+            )
+        if service_plane_registry is not None:
+            LOGGER.info(
+                "AlertV2 Service Plane correlation enabled read-only socket=%s; control policy remains disabled",
+                args.service_agent_socket,
+            )
         server = CoreServer(
             service=service,
             socket_path=args.socket,

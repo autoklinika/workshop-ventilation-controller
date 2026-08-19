@@ -1,0 +1,842 @@
+schema_version = 1
+policy_version = "2026-08-18.1"
+policy_name = "Workshop Ventilation Controller - AlertV2 default policy"
+description = "Domyślna, deklaratywna macierz wag, reakcji i kolorów HMI dla AlertV2."
+runtime_path = "/etc/workshop-ventilation/alerts-v2.toml"
+
+# Ten plik jest projektem docelowej polityki AlertV2.
+# Na tym etapie ventilation-core NIE ładuje go jeszcze produkcyjnie.
+# Detekcja pozostaje w testowalnym kodzie core/system/HMI, a ten plik ma określać
+# wagę, reakcję, zakres i kolor paska HMI. Nowe detektory wymagające nowej logiki
+# nadal muszą zostać zaimplementowane i zwalidowane w kodzie.
+#
+# Dodatkowe nastawy istniejącego detektora należy dodawać wyłącznie jako:
+# [alerts.CODE.parameters]
+# Sam TOML nie wykonuje logiki i nie jest językiem automatyki.
+#
+# Twarde niezmienniki bezpieczeństwa NIE są konfigurowalne i mają być wymuszane
+# przez kod/validator. W szczególności sam brak TACHO NIGDY nie może zatrzymać
+# wentylacji ani wymusić globalnego safe_state.
+
+[behavior]
+highest_active_weight_controls_hmi = true
+acknowledgement_changes_weight = false
+acknowledgement_changes_hmi_color = false
+cleared_alerts_affect_hmi = false
+unknown_alert_policy = "reject"
+invalid_configuration_policy = "reject_keep_last_known_good"
+
+[weight.normal]
+value = 0
+severity = "normal"
+hmi_color = "green"
+
+[weight.info]
+value = 1
+severity = "info"
+hmi_color = "blue"
+
+[weight.warning]
+value = 2
+severity = "warning"
+hmi_color = "yellow"
+
+[weight.alarm]
+value = 3
+severity = "alarm"
+hmi_color = "orange"
+
+[weight.critical]
+value = 4
+severity = "critical"
+hmi_color = "red"
+
+# -----------------------------------------------------------------------------
+# HMI / komunikacja HMI <-> CM5
+# -----------------------------------------------------------------------------
+
+[alerts.HMI_CM5_COMMUNICATION_LOST]
+enabled = true
+owner = "hmi"
+category = "communication"
+weight = 4
+severity = "critical"
+reaction = "block_gui"
+scope = "hmi"
+affects_control = false
+hmi_color = "red"
+correlation_group = "hmi_connectivity"
+correlation_priority = 100
+title = "Brak komunikacji z CM5"
+message = "Panel HMI nie otrzymuje poprawnych danych z CM5. Sterowanie z GUI jest zablokowane do czasu odzyskania komunikacji."
+
+# -----------------------------------------------------------------------------
+# CM5 / core
+# -----------------------------------------------------------------------------
+
+[alerts.CORE_PROCESS_RESTARTED]
+enabled = true
+owner = "system"
+category = "core"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "global"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "core_health"
+correlation_priority = 70
+title = "Ventilation Core został ponownie uruchomiony"
+message = "Wykryto nieoczekiwany restart procesu ventilation-core. System kontynuuje pracę po odzyskaniu usługi."
+
+# -----------------------------------------------------------------------------
+# DAC / wyjścia 0-10 V
+# -----------------------------------------------------------------------------
+
+[alerts.DAC_STATE_UNCERTAIN]
+enabled = true
+owner = "core"
+category = "dac"
+weight = 3
+severity = "alarm"
+reaction = "recover_safe_outputs"
+scope = "global"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "dac_health"
+correlation_priority = 80
+title = "Stan wyjść DAC nie jest potwierdzony"
+message = "Sterownik nie ma pewnego potwierdzenia stanu wyjść 0-10 V i stosuje bezpieczną politykę odzyskiwania."
+
+[alerts.DAC_COMMUNICATION_LOST]
+enabled = true
+owner = "core"
+category = "dac"
+weight = 4
+severity = "critical"
+reaction = "safe_state"
+scope = "global"
+affects_control = true
+hmi_color = "red"
+correlation_group = "dac_health"
+correlation_priority = 100
+title = "Utrata komunikacji z DAC"
+message = "Komunikacja z układem DAC została utracona. Core przechodzi do zwalidowanej bezpiecznej polityki wyjść."
+
+[alerts.DAC_OUTPUT_MISMATCH]
+enabled = true
+owner = "core"
+category = "dac"
+weight = 4
+severity = "critical"
+reaction = "safe_state"
+scope = "global"
+affects_control = true
+hmi_color = "red"
+correlation_group = "dac_health"
+correlation_priority = 95
+title = "Niespójność stanu wyjść DAC"
+message = "Potwierdzony stan wyjść DAC jest niespójny z oczekiwanym stanem sterownika."
+
+# -----------------------------------------------------------------------------
+# Wentylatory EC / TACHO
+# HARD INVARIANT: utrata TACHO sama w sobie NIGDY nie zatrzymuje systemu.
+# Dokładne progi RPM, napięcia zadania i debounce dla alertów wykonania wymagają
+# osobnej walidacji sprzętowej i nie są tutaj sztucznie ustalane.
+# -----------------------------------------------------------------------------
+
+[alerts.TACHO_MONITOR_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "tacho"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "tacho"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "fan_feedback"
+correlation_priority = 40
+title = "Monitor TACHO niedostępny"
+message = "Brak wiarygodnego monitorowania RPM. Sterowanie 0-10 V wentylatorów działa dalej."
+
+[alerts.TACHO_CONFIGURATION_INVALID]
+enabled = true
+owner = "core"
+category = "tacho"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "tacho"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "fan_feedback"
+correlation_priority = 45
+title = "Konfiguracja TACHO jest nieprawidłowa"
+message = "Brakuje wymaganego kanału lub konfiguracja monitora TACHO jest nieprawidłowa. Wentylacja nie jest zatrzymywana."
+
+[alerts.FAN_NO_ROTATION_FEEDBACK]
+enabled = true
+owner = "core"
+category = "fan"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "fan"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "fan_execution"
+correlation_priority = 90
+title = "Wentylator nie potwierdza pracy"
+message = "Wentylator otrzymuje realne zadanie, monitor TACHO jest zdrowy, ale brak oczekiwanego potwierdzenia obrotów."
+
+[alerts.FAN_RPM_OUT_OF_RANGE]
+enabled = true
+owner = "core"
+category = "fan"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "fan"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "fan_execution"
+correlation_priority = 80
+title = "Obroty wentylatora poza oczekiwanym zakresem"
+message = "Rzeczywiste RPM są trwale niespójne z oczekiwanym zakresem dla zadanego sterowania."
+
+# -----------------------------------------------------------------------------
+# SENSOR BUS / SEN55
+# -----------------------------------------------------------------------------
+
+[alerts.SENSOR_BUS_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "sensor_bus"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_bus"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sensor_bus_health"
+correlation_priority = 90
+title = "SENSOR BUS niedostępny"
+message = "Magistrala SENSOR BUS nie dostarcza wiarygodnych danych. Core nie interpretuje braku danych jako dobrego stanu powietrza."
+
+[alerts.SENSOR_NODE_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sensor_node_health"
+correlation_priority = 60
+title = "Czujnik SEN55 niedostępny"
+message = "Brak poprawnej komunikacji z węzłem SEN55 po produkcyjnym torze SENSOR BUS."
+
+[alerts.SENSOR_DATA_INVALID]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sensor_node_health"
+correlation_priority = 65
+title = "Dane SEN55 są niewiarygodne"
+message = "Dane pomiarowe SEN55 są nieprawidłowe lub przeterminowane i nie mogą być traktowane jako prawidłowy pomiar."
+
+[alerts.SEN55_DIAGNOSTICS_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "sensor_node"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "sen55_internal"
+correlation_priority = 40
+title = "Diagnostyka SEN55 niedostępna"
+message = "Nie można odczytać wewnętrznej diagnostyki SEN55. Dostępne pomiary pozostają oznaczone jako diagnostycznie zdegradowane."
+
+[alerts.SEN55_FAN_SPEED_WARNING]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "sensor_node"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "sen55_internal"
+correlation_priority = 50
+title = "Prędkość wentylatora SEN55 poza zakresem"
+message = "Wewnętrzny wentylator SEN55 zgłasza ostrzeżenie prędkości."
+
+[alerts.SEN55_GAS_SENSOR_ERROR]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sen55_internal"
+correlation_priority = 80
+title = "Błąd toru VOC/NOx SEN55"
+message = "Wewnętrzny tor gazowy SEN55 zgłasza błąd. Dane VOC/NOx należy uznać za niewiarygodne."
+
+[alerts.SEN55_RHT_ERROR]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sen55_internal"
+correlation_priority = 80
+title = "Błąd temperatury lub wilgotności SEN55"
+message = "Wewnętrzny tor RH/T SEN55 zgłasza błąd. Dane temperatury i wilgotności należy uznać za niewiarygodne."
+
+[alerts.SEN55_LASER_ERROR]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sen55_internal"
+correlation_priority = 90
+title = "Awaria lasera SEN55"
+message = "SEN55 zgłasza błąd lasera pomiaru PM. Dane PM należy uznać za niewiarygodne."
+
+[alerts.SEN55_FAN_ERROR]
+enabled = true
+owner = "core"
+category = "sen55"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sen55_internal"
+correlation_priority = 95
+title = "Awaria wewnętrznego wentylatora SEN55"
+message = "SEN55 zgłasza awarię wewnętrznego wentylatora. Wiarygodność pomiarów sensora jest zdegradowana."
+
+# -----------------------------------------------------------------------------
+# KAmod / niezależny kanał serwisowy
+# -----------------------------------------------------------------------------
+
+[alerts.KAMOD_HEARTBEAT_SINGLE_GAP]
+enabled = true
+owner = "core"
+category = "kamod_service"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "sensor_node"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "sensor_node_health"
+correlation_priority = 10
+title = "Pojedyncza luka heartbeat KAmod"
+message = "Wykryto pojedynczą utratę pakietu heartbeat w kanale serwisowym. Produkcyjny Modbus pozostaje niezależny."
+
+[alerts.KAMOD_HEARTBEAT_DEGRADED]
+enabled = true
+owner = "core"
+category = "kamod_service"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "sensor_node"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "sensor_node_health"
+correlation_priority = 30
+title = "Kanał heartbeat KAmod jest niestabilny"
+message = "Wykryto powtarzające się luki lub nadmierne odstępy w heartbeat KAmod."
+
+[alerts.KAMOD_HEARTBEAT_LOST]
+enabled = true
+owner = "core"
+category = "kamod_service"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "sensor_node"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "sensor_node_health"
+correlation_priority = 40
+title = "Brak heartbeat KAmod"
+message = "Kanał serwisowy KAmod jest niedostępny. Sam brak heartbeat nie oznacza awarii produkcyjnego SENSOR BUS."
+
+[alerts.KAMOD_UNEXPECTED_RESTART]
+enabled = true
+owner = "core"
+category = "kamod_service"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "sensor_node"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "sensor_node_health"
+correlation_priority = 45
+title = "Nieoczekiwany restart KAmod"
+message = "Wykryto zmianę boot_id lub inny dowód ponownego uruchomienia węzła KAmod."
+
+[alerts.KAMOD_RS485_NOT_READY]
+enabled = true
+owner = "core"
+category = "kamod"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sensor_node_health"
+correlation_priority = 80
+title = "KAmod nie potwierdza gotowości RS-485"
+message = "Heartbeat KAmod działa, ale węzeł raportuje brak gotowości lokalnego toru RS-485."
+
+[alerts.KAMOD_SENSOR_STATE_ERROR]
+enabled = true
+owner = "core"
+category = "kamod"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sensor_node_health"
+correlation_priority = 85
+title = "KAmod raportuje błąd SEN55"
+message = "Węzeł KAmod odpowiada w kanale serwisowym, ale raportuje nieprawidłowy stan lokalnego SEN55."
+
+[alerts.KAMOD_NODE_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "kamod"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "sensor_node"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "sensor_node_health"
+correlation_priority = 100
+title = "Węzeł KAmod/SEN55 niedostępny"
+message = "Jednocześnie utracono produkcyjną komunikację SENSOR BUS i niezależny heartbeat serwisowy węzła."
+
+# -----------------------------------------------------------------------------
+# CM5 Service Agent / WVC-SERVICE
+# -----------------------------------------------------------------------------
+
+[alerts.SERVICE_AGENT_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "service_plane"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "service_plane"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "service_plane"
+correlation_priority = 70
+title = "Service Agent niedostępny"
+message = "CM5 utracił lokalną diagnostykę kanału serwisowego KAmod. Produkcyjny Modbus pozostaje niezależny."
+
+[alerts.SERVICE_NETWORK_AP_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "service_plane"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "service_plane"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "service_plane"
+correlation_priority = 75
+title = "Sieć WVC-SERVICE niedostępna"
+message = "Dedykowany AP serwisowy KAmod nie jest gotowy. Nie zatrzymuje to produkcyjnego SENSOR BUS."
+
+[alerts.SERVICE_NETWORK_DHCP_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "service_plane"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "service_plane"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "service_plane"
+correlation_priority = 60
+title = "DHCP WVC-SERVICE niedostępny"
+message = "Usługa DHCP prywatnej sieci serwisowej nie działa prawidłowo."
+
+[alerts.SERVICE_NETWORK_FIREWALL_INVALID]
+enabled = true
+owner = "system"
+category = "service_plane"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "service_plane"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "service_plane"
+correlation_priority = 90
+title = "Zapora WVC-SERVICE jest niespójna"
+message = "Konfiguracja firewalla lub izolacji sieci serwisowej nie odpowiada zwalidowanemu profilowi bezpieczeństwa."
+
+# -----------------------------------------------------------------------------
+# AERO
+# -----------------------------------------------------------------------------
+
+[alerts.AERO_BUS_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "aero"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "aero"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "aero_health"
+correlation_priority = 90
+title = "Rekuperator AERO niedostępny"
+message = "Brak poprawnej komunikacji z rekuperatorem AERO. Pozostałe strefy systemu pracują niezależnie."
+
+[alerts.AERO_COMMAND_NOT_CONFIRMED]
+enabled = true
+owner = "core"
+category = "aero"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "aero"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "aero_health"
+correlation_priority = 95
+title = "AERO nie potwierdza polecenia"
+message = "Stan rekuperatora nie potwierdza oczekiwanego wykonania polecenia sterownika w wymaganym czasie."
+
+# -----------------------------------------------------------------------------
+# Zigbee
+# -----------------------------------------------------------------------------
+
+[alerts.ZIGBEE_MQTT_DISCONNECTED]
+enabled = true
+owner = "core"
+category = "zigbee"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "zigbee"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "zigbee_health"
+correlation_priority = 70
+title = "Zigbee MQTT niedostępny"
+message = "Core nie ma połączenia z lokalnym brokerem MQTT dla Zigbee."
+
+[alerts.ZIGBEE_BRIDGE_OFFLINE]
+enabled = true
+owner = "core"
+category = "zigbee"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "zigbee"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "zigbee_health"
+correlation_priority = 80
+title = "Zigbee2MQTT offline"
+message = "Broker MQTT działa, ale bridge Zigbee2MQTT raportuje stan offline."
+
+[alerts.ZIGBEE_DEVICE_OFFLINE]
+enabled = true
+owner = "core"
+category = "zigbee"
+weight = 2
+severity = "warning"
+reaction = "fallback_local"
+scope = "zigbee_device"
+affects_control = true
+hmi_color = "yellow"
+correlation_group = "zigbee_device_health"
+correlation_priority = 80
+title = "Urządzenie Zigbee niedostępne"
+message = "Urządzenie Zigbee jest offline. Jego dane nie mogą być używane przez automatykę."
+
+[alerts.ZIGBEE_DEVICE_DATA_STALE]
+enabled = true
+owner = "core"
+category = "zigbee"
+weight = 2
+severity = "warning"
+reaction = "fallback_local"
+scope = "zigbee_device"
+affects_control = true
+hmi_color = "yellow"
+correlation_group = "zigbee_device_health"
+correlation_priority = 70
+title = "Dane Zigbee są przeterminowane"
+message = "Ostatnie dane urządzenia Zigbee przekroczyły dozwolony wiek i nie są wiarygodnym wejściem automatyki."
+
+[alerts.ZIGBEE_LOW_BATTERY]
+enabled = true
+owner = "core"
+category = "zigbee"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "zigbee_device"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "zigbee_device_health"
+correlation_priority = 20
+title = "Niski poziom baterii Zigbee"
+message = "Urządzenie Zigbee wymaga zaplanowania wymiany baterii."
+
+# -----------------------------------------------------------------------------
+# Pogoda
+# -----------------------------------------------------------------------------
+
+[alerts.WEATHER_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "weather"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "weather"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "weather_health"
+correlation_priority = 60
+title = "Dane pogodowe niedostępne"
+message = "Lokalny provider pogody nie ma aktualnych danych. Wentylacja nie zależy od dostępności Internetu lub pogody."
+
+[alerts.WEATHER_DATA_STALE]
+enabled = true
+owner = "system"
+category = "weather"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "weather"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "weather_health"
+correlation_priority = 50
+title = "Dane pogodowe są przeterminowane"
+message = "Ostatni poprawny snapshot pogody przekroczył dozwolony wiek."
+
+# -----------------------------------------------------------------------------
+# Harmonogram / automatyka
+# -----------------------------------------------------------------------------
+
+[alerts.SCHEDULE_INVALID]
+enabled = true
+owner = "core"
+category = "schedule"
+weight = 2
+severity = "warning"
+reaction = "fallback_local"
+scope = "schedule"
+affects_control = true
+hmi_color = "yellow"
+correlation_group = "automation_health"
+correlation_priority = 70
+title = "Harmonogram jest nieprawidłowy"
+message = "Konfiguracja harmonogramu nie może być wiarygodnie zastosowana. Core korzysta z bezpiecznego lokalnego fallbacku."
+
+[alerts.SCHEDULE_STORE_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "schedule"
+weight = 2
+severity = "warning"
+reaction = "fallback_local"
+scope = "schedule"
+affects_control = true
+hmi_color = "yellow"
+correlation_group = "automation_health"
+correlation_priority = 75
+title = "Magazyn harmonogramu niedostępny"
+message = "Core nie może odczytać trwałej konfiguracji harmonogramu i stosuje lokalny fallback."
+
+[alerts.SHADOW_ENGINE_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "automation"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "automation"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "automation_health"
+correlation_priority = 20
+title = "SHADOW automation niedostępny"
+message = "Silnik SHADOW nie generuje propozycji. Fizyczne wyjścia pozostają niezależne od SHADOW."
+
+[alerts.AUTO_INPUTS_UNTRUSTED]
+enabled = true
+owner = "core"
+category = "automation"
+weight = 3
+severity = "alarm"
+reaction = "fallback_local"
+scope = "automation"
+affects_control = true
+hmi_color = "orange"
+correlation_group = "automation_health"
+correlation_priority = 100
+title = "Automatyka nie ma wiarygodnych danych wejściowych"
+message = "Brakuje wymaganych, świeżych i poprawnych danych. Core nie interpretuje braku pomiaru jako prawidłowego stanu powietrza."
+
+# -----------------------------------------------------------------------------
+# Lokalna historia / persistence
+# -----------------------------------------------------------------------------
+
+[alerts.TELEMETRY_STORE_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "storage"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "telemetry"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "local_storage"
+correlation_priority = 70
+title = "Lokalna historia telemetrii niedostępna"
+message = "Nie można zapisać lokalnej telemetrii. Sterowanie wentylacją działa dalej niezależnie."
+
+[alerts.ALERT_STORE_UNAVAILABLE]
+enabled = true
+owner = "core"
+category = "storage"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "alerts"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "local_storage"
+correlation_priority = 90
+title = "Trwała historia alertów niedostępna"
+message = "Alerty mogą działać w pamięci procesu, ale nie ma pewności zapisu ich lifecycle do lokalnego magazynu."
+
+[alerts.LOCAL_STORAGE_PRESSURE]
+enabled = true
+owner = "system"
+category = "storage"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "storage"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "local_storage"
+correlation_priority = 95
+title = "Mało wolnego miejsca na CM5"
+message = "Wolna przestrzeń lokalnego magazynu spadła poniżej progu wymagającego interwencji serwisowej."
+
+# -----------------------------------------------------------------------------
+# AI / centralny storage / synchronizacja
+# -----------------------------------------------------------------------------
+
+[alerts.AI_BRIDGE_SYNC_TEMPORARY_FAILURE]
+enabled = true
+owner = "system"
+category = "ai_sync"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "ai_sync"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "ai_sync"
+correlation_priority = 20
+title = "Tymczasowy brak synchronizacji z AI Bridge"
+message = "Synchronizacja z centralnym magazynem chwilowo nie działa. Lokalna kolejka i sterowanie CM5 pozostają aktywne."
+
+[alerts.AI_BRIDGE_BACKLOG_HIGH]
+enabled = true
+owner = "system"
+category = "ai_sync"
+weight = 2
+severity = "warning"
+reaction = "continue_degraded"
+scope = "ai_sync"
+affects_control = false
+hmi_color = "yellow"
+correlation_group = "ai_sync"
+correlation_priority = 70
+title = "Duża kolejka synchronizacji"
+message = "Backlog danych oczekujących na synchronizację przekroczył próg serwisowy."
+
+[alerts.AI_ADVISORY_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "ai"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "ai"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "ai_health"
+correlation_priority = 20
+title = "AI advisory niedostępne"
+message = "Warstwa rekomendacji AI jest niedostępna. Nie ma to wpływu na lokalne sterowanie CM5."
+
+[alerts.NAS_STORAGE_UNAVAILABLE]
+enabled = true
+owner = "system"
+category = "storage"
+weight = 1
+severity = "info"
+reaction = "continue"
+scope = "central_storage"
+affects_control = false
+hmi_color = "blue"
+correlation_group = "ai_sync"
+correlation_priority = 30
+title = "Magazyn długoterminowy niedostępny"
+message = "Docelowy magazyn długoterminowy jest niedostępny. Lokalny capture i kolejka backfill działają dalej."
