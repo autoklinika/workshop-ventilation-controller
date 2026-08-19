@@ -139,6 +139,7 @@
 }
 body.v2-history-custom-open{overflow:hidden}
 @media(max-width:1280px){
+  .v2-history-ranges{flex-wrap:wrap;justify-content:flex-end}
   .v2-history-custom-panel{width:min(680px,92vw);padding:18px}
   .v2-history-custom-fields{gap:10px}
 }
