@@ -89,7 +89,6 @@ class HistoryAlertFoldersStage42Test(unittest.TestCase):
         self.assertIn('historyH42Mode = "alerts"', js)
         self.assertIn('historyH42SetChartControlsVisible(false)', js)
         self.assertIn('document.createElement("details")', js)
-        self.assertIn('details.open = index === 0', js)
         self.assertIn("historyH42GroupByDate", js)
         self.assertIn("alert.cleared_at", js)
         self.assertNotIn("30 * 24 * 60", js)
@@ -111,6 +110,19 @@ class HistoryAlertFoldersStage42Test(unittest.TestCase):
         self.assertNotIn("height:calc(100dvh - 230px)", css)
         self.assertNotIn("overflow-y:auto", css)
         self.assertNotIn("scrollbar-gutter:stable", css)
+
+    def test_polling_preserves_operator_folder_state(self) -> None:
+        js = (STATIC / "history-h42-alert-folders.js").read_text(encoding="utf-8")
+        self.assertIn("historyH42OpenFolderKeys = new Set()", js)
+        self.assertIn("historyH42CaptureFolderState", js)
+        self.assertIn("historyH42RememberFolderState", js)
+        self.assertIn("details.dataset.historyDateKey = group.key", js)
+        self.assertIn("details.open = historyH42OpenFolderKeys.has(group.key)", js)
+        self.assertIn('details.addEventListener("toggle"', js)
+        self.assertIn("historyH42ArchiveSignature", js)
+        self.assertIn("signature === historyH42LastRenderSignature", js)
+        self.assertIn("historyH42OpenFolderKeys = new Set([groups[0].key])", js)
+        self.assertNotIn("details.open = index === 0", js)
 
     def test_h42_assets_are_bundled_after_h41(self) -> None:
         server = (ROOT / "src" / "ventilation_core" / "web" / "server.py").read_text(
