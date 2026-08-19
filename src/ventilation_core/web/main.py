@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 
-from ventilation_core.telemetry.history import TelemetryHistoryReader
+from ventilation_core.telemetry.long_range_history import LongRangeTelemetryHistoryReader
 
 from .advisory import FileAdvisoryProvider
 from .app import WebApplication
@@ -61,7 +61,7 @@ def main() -> int:
     )
     static_root = Path(__file__).with_name("static")
     core = CoreUnixClient(args.socket, timeout_seconds=args.core_timeout)
-    history = TelemetryHistoryReader(args.telemetry_database)
+    history = LongRangeTelemetryHistoryReader(args.telemetry_database)
     weather = FileWeatherProvider(args.weather_snapshot)
     advisory = FileAdvisoryProvider(
         args.ai_advisory_cache,
