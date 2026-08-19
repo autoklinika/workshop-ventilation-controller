@@ -9,6 +9,7 @@ from ventilation_core.telemetry.history import TelemetryHistoryUnavailable
 from .advisory import AdvisoryError
 from .client import CoreClient, CoreClientError
 from .config import WebUiConfig
+from .history_series import HistorySeriesService
 from .weather import WeatherError
 
 
@@ -64,6 +65,9 @@ class WebApplication:
         self._config = config or WebUiConfig()
         self._weather_provider = weather
         self._history_provider = history
+        self._history_series = (
+            None if history is None else HistorySeriesService(history, self._config)
+        )
         self._advisory_provider = advisory
 
     def handle(self, method: str, path: str, body: Any = None) -> ApiResponse:
@@ -86,10 +90,14 @@ class WebApplication:
                 return self._advisory()
             if method == "GET" and path == "/api/v1/history/status":
                 return self._history_status()
+            if method == "GET" and path == "/api/v1/history/series":
+                return self._history_series_catalog()
             if method == "GET" and path == "/api/v1/health":
                 return self._health()
             if method == "POST" and path == "/api/v1/history/query":
                 return self._history_query(body)
+            if method == "POST" and path == "/api/v1/history/series/query":
+                return self._history_series_query(body)
             if method == "POST" and path == "/api/v1/alerts/ack":
                 return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/schedule/zone":
@@ -192,6 +200,19 @@ class WebApplication:
         resolution = data.get("resolution", "raw")
         samples = provider.query(start_at=start_at, end_at=end_at, limit=limit, resolution=resolution)
         return ApiResponse(200, {"ok": True, "resolution": resolution, "count": len(samples), "samples": samples})
+
+    def _history_series_catalog(self) -> ApiResponse:
+        service = self._history_series
+        if service is None:
+            return ApiResponse(503, {"ok": False, "error": "local history is not configured"})
+        return ApiResponse(200, {"ok": True, "history": service.catalog()})
+
+    def _history_series_query(self, body: Any) -> ApiResponse:
+        service = self._history_series
+        if service is None:
+            return ApiResponse(503, {"ok": False, "error": "local history is not configured"})
+        data = self._require_object(body)
+        return ApiResponse(200, {"ok": True, "history": service.query(data)})
 
     def _ack_alert(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
