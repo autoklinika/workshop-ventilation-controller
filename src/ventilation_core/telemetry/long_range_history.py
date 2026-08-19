@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shutil
 import sqlite3
 from typing import Any
 
@@ -11,20 +12,38 @@ from .history import (
 )
 
 
+STORAGE_WARNING_PERCENT = 70.0
+STORAGE_CRITICAL_PERCENT = 85.0
+
+
 @dataclass(frozen=True)
 class LongRangeTelemetryHistoryStatus(TelemetryHistoryStatus):
     rollup_1h_samples: int = 0
     rollup_1d_samples: int = 0
+    storage_total_bytes: int = 0
+    storage_used_bytes: int = 0
+    storage_free_bytes: int = 0
+    storage_used_percent: float = 0.0
+    storage_level: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         payload = super().to_dict()
         payload["rollup_1h_samples"] = self.rollup_1h_samples
         payload["rollup_1d_samples"] = self.rollup_1d_samples
+        payload["storage"] = {
+            "total_bytes": self.storage_total_bytes,
+            "used_bytes": self.storage_used_bytes,
+            "free_bytes": self.storage_free_bytes,
+            "used_percent": self.storage_used_percent,
+            "level": self.storage_level,
+            "warning_percent": STORAGE_WARNING_PERCENT,
+            "critical_percent": STORAGE_CRITICAL_PERCENT,
+        }
         return payload
 
 
 class LongRangeTelemetryHistoryReader(TelemetryHistoryReader):
-    """Read-only telemetry history with hourly and daily rollup support."""
+    """Read-only telemetry history with hourly/daily rollups and disk monitoring."""
 
     MAX_QUERY_SAMPLES = 2500
     ROLLUP_TABLES = {
@@ -44,6 +63,30 @@ class LongRangeTelemetryHistoryReader(TelemetryHistoryReader):
                     daily = self._count_table(connection, "telemetry_rollup_1d")
             except sqlite3.Error as exc:
                 raise TelemetryHistoryUnavailable(str(exc)) from exc
+
+        total_bytes = 0
+        used_bytes = 0
+        free_bytes = 0
+        used_percent = 0.0
+        level = "unknown"
+        try:
+            usage = shutil.disk_usage(self.path.parent)
+            total_bytes = int(usage.total)
+            used_bytes = int(usage.used)
+            free_bytes = int(usage.free)
+            if total_bytes > 0:
+                used_percent = round((used_bytes / total_bytes) * 100.0, 2)
+                if used_percent >= STORAGE_CRITICAL_PERCENT:
+                    level = "critical"
+                elif used_percent >= STORAGE_WARNING_PERCENT:
+                    level = "warning"
+                else:
+                    level = "ok"
+        except OSError:
+            # Storage telemetry is informative only. History availability remains
+            # determined by SQLite and never affects ventilation-core operation.
+            pass
+
         return LongRangeTelemetryHistoryStatus(
             available=base.available,
             total_samples=base.total_samples,
@@ -58,6 +101,11 @@ class LongRangeTelemetryHistoryReader(TelemetryHistoryReader):
             database_bytes=base.database_bytes,
             rollup_1h_samples=hourly,
             rollup_1d_samples=daily,
+            storage_total_bytes=total_bytes,
+            storage_used_bytes=used_bytes,
+            storage_free_bytes=free_bytes,
+            storage_used_percent=used_percent,
+            storage_level=level,
         )
 
     def query(
