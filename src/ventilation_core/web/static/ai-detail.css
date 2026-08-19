@@ -126,7 +126,7 @@ body.v2-ai-detail-open{
   grid-template-rows:auto minmax(0,1fr);
   box-sizing:border-box;
   overflow:hidden;
-  transform-origin:0 0;
+  transform-origin:50% 50%;
   will-change:transform,border-radius;
   border:1px solid #2b4151;
   border-radius:18px;
