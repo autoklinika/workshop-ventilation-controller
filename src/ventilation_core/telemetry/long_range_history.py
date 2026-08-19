@@ -1,8 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import sqlite3
 from typing import Any
 
-from .history import TelemetryHistoryReader, TelemetryHistoryUnavailable
+from .history import (
+    TelemetryHistoryReader,
+    TelemetryHistoryStatus,
+    TelemetryHistoryUnavailable,
+)
+
+
+@dataclass(frozen=True)
+class LongRangeTelemetryHistoryStatus(TelemetryHistoryStatus):
+    rollup_1h_samples: int = 0
+    rollup_1d_samples: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload["rollup_1h_samples"] = self.rollup_1h_samples
+        payload["rollup_1d_samples"] = self.rollup_1d_samples
+        return payload
 
 
 class LongRangeTelemetryHistoryReader(TelemetryHistoryReader):
@@ -14,6 +32,33 @@ class LongRangeTelemetryHistoryReader(TelemetryHistoryReader):
         "1h": "telemetry_rollup_1h",
         "1d": "telemetry_rollup_1d",
     }
+
+    def status(self) -> LongRangeTelemetryHistoryStatus:
+        base = super().status()
+        hourly = 0
+        daily = 0
+        if base.available:
+            try:
+                with self._connect() as connection:
+                    hourly = self._count_table(connection, "telemetry_rollup_1h")
+                    daily = self._count_table(connection, "telemetry_rollup_1d")
+            except sqlite3.Error as exc:
+                raise TelemetryHistoryUnavailable(str(exc)) from exc
+        return LongRangeTelemetryHistoryStatus(
+            available=base.available,
+            total_samples=base.total_samples,
+            pending_samples=base.pending_samples,
+            synced_samples=base.synced_samples,
+            oldest_captured_at=base.oldest_captured_at,
+            newest_captured_at=base.newest_captured_at,
+            oldest_pending_at=base.oldest_pending_at,
+            last_synced_at=base.last_synced_at,
+            rollup_1m_samples=base.rollup_1m_samples,
+            rollup_15m_samples=base.rollup_15m_samples,
+            database_bytes=base.database_bytes,
+            rollup_1h_samples=hourly,
+            rollup_1d_samples=daily,
+        )
 
     def query(
         self,
