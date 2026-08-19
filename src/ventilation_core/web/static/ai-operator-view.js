@@ -10,12 +10,13 @@
  * Dashboard presentation rule:
  * - the compact AI card is a fixed-size HMI client view with CSS-only clipping;
  * - tapping the card opens a large centered modal that shows the same DOM text in full;
- * - the transition is presentation-only: the card visually morphs to/from the modal;
+ * - the transition is presentation-only: the modal flies out of the tapped card and
+ *   returns into the same card when it is closed;
  * - no summarization, trend calculation or other AI interpretation happens here.
  */
 
-const AI_DETAIL_OPEN_MS = 220;
-const AI_DETAIL_CLOSE_MS = 180;
+const AI_DETAIL_OPEN_MS = 280;
+const AI_DETAIL_CLOSE_MS = 240;
 let aiDetailTransitionSerial = 0;
 
 function validAiOperatorView(result) {
@@ -127,15 +128,34 @@ function cancelAiDetailAnimations(overlay) {
   overlay.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
 }
 
-function aiDetailTransformFromCard(card, detailCard) {
+function aiDetailFlightFromCard(card, detailCard) {
   const source = card.getBoundingClientRect();
   const target = detailCard.getBoundingClientRect();
   const targetWidth = Math.max(1, target.width);
   const targetHeight = Math.max(1, target.height);
+  const sourceCenterX = source.left + source.width / 2;
+  const sourceCenterY = source.top + source.height / 2;
+  const targetCenterX = target.left + target.width / 2;
+  const targetCenterY = target.top + target.height / 2;
+  const translateX = sourceCenterX - targetCenterX;
+  const translateY = sourceCenterY - targetCenterY;
   const scaleX = Math.max(0.001, source.width / targetWidth);
   const scaleY = Math.max(0.001, source.height / targetHeight);
-  const translateX = source.left - target.left;
-  const translateY = source.top - target.top;
+
+  return {
+    translateX,
+    translateY,
+    scaleX,
+    scaleY,
+    transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`
+  };
+}
+
+function aiDetailTravelTransform(flight, remaining, scaleBoost = 0) {
+  const translateX = flight.translateX * remaining;
+  const translateY = flight.translateY * remaining;
+  const scaleX = 1 + (flight.scaleX - 1) * remaining + scaleBoost;
+  const scaleY = 1 + (flight.scaleY - 1) * remaining + scaleBoost;
   return `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
 }
 
@@ -188,37 +208,38 @@ function openAiDetailModal() {
     return;
   }
 
-  const fromTransform = aiDetailTransformFromCard(card, detailCard);
+  const flight = aiDetailFlightFromCard(card, detailCard);
   overlay.animate(
-    [{ opacity: 0 }, { opacity: 1 }],
+    [{ opacity: 0 }, { opacity: 0.92, offset: 0.55 }, { opacity: 1 }],
     { duration: AI_DETAIL_OPEN_MS, easing: "linear", fill: "both" }
   );
 
   if (detailHeader) {
     detailHeader.animate(
-      [{ opacity: 0 }, { opacity: 0, offset: 0.42 }, { opacity: 1 }],
+      [{ opacity: 0 }, { opacity: 0, offset: 0.50 }, { opacity: 1 }],
       { duration: AI_DETAIL_OPEN_MS, easing: "ease-out", fill: "both" }
     );
   }
   if (detailScroll) {
     detailScroll.animate(
-      [{ opacity: 0 }, { opacity: 0, offset: 0.48 }, { opacity: 1 }],
+      [{ opacity: 0 }, { opacity: 0, offset: 0.56 }, { opacity: 1 }],
       { duration: AI_DETAIL_OPEN_MS, easing: "ease-out", fill: "both" }
     );
   }
 
-  const morph = detailCard.animate(
+  const flyOut = detailCard.animate(
     [
-      { transform: fromTransform, borderRadius: "14px" },
-      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "18px" }
+      { transform: flight.transform, borderRadius: "14px", offset: 0 },
+      { transform: aiDetailTravelTransform(flight, 0.08, 0.018), borderRadius: "19px", offset: 0.78 },
+      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "18px", offset: 1 }
     ],
     {
       duration: AI_DETAIL_OPEN_MS,
-      easing: "cubic-bezier(.20,.80,.20,1)",
+      easing: "cubic-bezier(.18,.84,.24,1)",
       fill: "both"
     }
   );
-  morph.addEventListener("finish", () => finalizeAiDetailOpen(serial), { once: true });
+  flyOut.addEventListener("finish", () => finalizeAiDetailOpen(serial), { once: true });
 }
 
 function closeAiDetailModal() {
@@ -239,37 +260,38 @@ function closeAiDetailModal() {
     return;
   }
 
-  const toTransform = aiDetailTransformFromCard(card, detailCard);
+  const flight = aiDetailFlightFromCard(card, detailCard);
   overlay.animate(
-    [{ opacity: 1 }, { opacity: 0 }],
+    [{ opacity: 1 }, { opacity: 1, offset: 0.30 }, { opacity: 0 }],
     { duration: AI_DETAIL_CLOSE_MS, easing: "linear", fill: "both" }
   );
 
   if (detailHeader) {
     detailHeader.animate(
       [{ opacity: 1 }, { opacity: 0 }],
-      { duration: Math.round(AI_DETAIL_CLOSE_MS * 0.55), easing: "ease-in", fill: "both" }
+      { duration: Math.round(AI_DETAIL_CLOSE_MS * 0.48), easing: "ease-in", fill: "both" }
     );
   }
   if (detailScroll) {
     detailScroll.animate(
       [{ opacity: 1 }, { opacity: 0 }],
-      { duration: Math.round(AI_DETAIL_CLOSE_MS * 0.5), easing: "ease-in", fill: "both" }
+      { duration: Math.round(AI_DETAIL_CLOSE_MS * 0.42), easing: "ease-in", fill: "both" }
     );
   }
 
-  const morph = detailCard.animate(
+  const flyBack = detailCard.animate(
     [
-      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "18px" },
-      { transform: toTransform, borderRadius: "14px" }
+      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "18px", offset: 0 },
+      { transform: aiDetailTravelTransform(flight, 0.14, -0.008), borderRadius: "17px", offset: 0.28 },
+      { transform: flight.transform, borderRadius: "14px", offset: 1 }
     ],
     {
       duration: AI_DETAIL_CLOSE_MS,
-      easing: "cubic-bezier(.40,0,.70,.20)",
+      easing: "cubic-bezier(.42,0,.78,.22)",
       fill: "both"
     }
   );
-  morph.addEventListener("finish", () => finalizeAiDetailClose(serial), { once: true });
+  flyBack.addEventListener("finish", () => finalizeAiDetailClose(serial), { once: true });
 }
 
 function wireAiDetailInteraction() {
