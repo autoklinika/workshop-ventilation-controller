@@ -10,7 +10,7 @@ from threading import Event
 from .agent import BatchSender, TelemetryAgent
 from .core_client import CoreStateClient
 from .http_client import AIBridgeTelemetryClient
-from .store import TelemetryStore
+from .long_range import LongRangeTelemetryStore
 
 
 DEFAULT_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
@@ -100,7 +100,7 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    store = TelemetryStore(args.database)
+    store = LongRangeTelemetryStore(args.database)
     store.initialize()
     sender = build_batch_sender(args.ai_bridge_url, args.http_timeout)
     agent = TelemetryAgent(
@@ -141,7 +141,7 @@ def main() -> int:
     logger.info(
         "CM5 telemetry capture started source_id=%s sync_enabled=%s sink=%s "
         "capture_interval=%.3fs raw_retention=%dd minute_retention=%dd "
-        "quarter_retention=%dd",
+        "quarter_retention=%dd hourly_retention=%dd daily_retention=%dd",
         args.source_id,
         agent.sync_enabled,
         args.ai_bridge_url or "disabled",
@@ -149,6 +149,8 @@ def main() -> int:
         args.retention_days,
         args.minute_retention_days,
         args.quarter_retention_days,
+        LongRangeTelemetryStore.HOURLY_RETENTION_DAYS,
+        LongRangeTelemetryStore.DAILY_RETENTION_DAYS,
     )
     agent.run(stop_event)
     return 0
