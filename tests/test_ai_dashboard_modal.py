@@ -30,7 +30,7 @@ class AiDashboardModalTest(unittest.TestCase):
         self.assertIn("-webkit-line-clamp:2;", compact)
         self.assertNotIn("overflow-y:auto", compact)
 
-    def test_tapping_card_opens_fullscreen_modal_without_expand_button(self) -> None:
+    def test_tapping_card_opens_large_modal_without_expand_button(self) -> None:
         self.assertIn('document.querySelector(".v2-ai-panel")', self.js)
         self.assertIn('card.addEventListener("click"', self.js)
         self.assertIn("openAiDetailModal();", self.js)
@@ -52,26 +52,36 @@ class AiDashboardModalTest(unittest.TestCase):
         self.assertNotIn('fetch("http://', self.js)
         self.assertNotIn('method: "POST"', self.js)
 
-    def test_modal_is_viewport_fullscreen_with_vertical_scroll_only(self) -> None:
+    def test_modal_is_large_centered_window_with_blurred_background(self) -> None:
         detail = self.css.split(".v2-ai-detail{", 1)[1]
         self.assertIn("position:fixed;", detail)
         self.assertIn("inset:0;", detail)
+        self.assertIn("display:grid;", detail)
+        self.assertIn("place-items:center;", detail)
         self.assertIn("width:100vw;", detail)
         self.assertIn("height:100vh;", detail)
+        self.assertIn("background:rgba(2,8,14,.72);", detail)
+        self.assertIn("backdrop-filter:blur(10px);", detail)
+        self.assertIn("width:94vw;", detail)
+        self.assertIn("height:92vh;", detail)
+        self.assertIn("border-radius:18px;", detail)
         self.assertIn(".v2-ai-detail-scroll{", detail)
         self.assertIn("overflow-x:hidden;", detail)
         self.assertIn("overflow-y:auto;", detail)
 
-    def test_modal_morphs_between_card_and_viewport(self) -> None:
+    def test_modal_morphs_between_card_and_modal_window(self) -> None:
         self.assertIn("const AI_DETAIL_OPEN_MS = 220;", self.js)
         self.assertIn("const AI_DETAIL_CLOSE_MS = 180;", self.js)
-        self.assertIn("function aiDetailTransformFromCard(card)", self.js)
+        self.assertIn("function aiDetailTransformFromCard(card, detailCard)", self.js)
         self.assertIn("card.getBoundingClientRect()", self.js)
-        self.assertIn("rect.width / width", self.js)
-        self.assertIn("rect.height / height", self.js)
+        self.assertIn("detailCard.getBoundingClientRect()", self.js)
+        self.assertIn("source.width / targetWidth", self.js)
+        self.assertIn("source.height / targetHeight", self.js)
+        self.assertIn("source.left - target.left", self.js)
+        self.assertIn("source.top - target.top", self.js)
         self.assertIn("detailCard.animate(", self.js)
         self.assertIn('borderRadius: "14px"', self.js)
-        self.assertIn('borderRadius: "0px"', self.js)
+        self.assertIn('borderRadius: "18px"', self.js)
         self.assertIn("cubic-bezier(.20,.80,.20,1)", self.js)
         self.assertIn("cubic-bezier(.40,0,.70,.20)", self.js)
         self.assertIn("transform-origin:0 0;", self.css)
