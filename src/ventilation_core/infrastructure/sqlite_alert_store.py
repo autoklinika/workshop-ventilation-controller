@@ -147,7 +147,7 @@ class SqliteAlertStore:
                 """,
                 (
                     signal.code.value,
-                    signal.source.value if isinstance(signal.source, AlarmCode) else signal.source,
+                    signal.source,
                     signal.severity.value,
                     signal.message,
                     signal.detail,
