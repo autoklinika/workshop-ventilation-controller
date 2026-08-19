@@ -28,11 +28,12 @@ class ScheduleUiContractTest(unittest.TestCase):
         self.assertNotIn("/api/v1/manual/", source)
         self.assertNotIn("/api/v1/command", source)
 
-    def test_static_server_serves_settings_route_and_assets(self) -> None:
+    def test_static_server_keeps_settings_in_global_application_shell(self) -> None:
         source = (ROOT / "src" / "ventilation_core" / "web" / "server.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('("/settings", "/settings/")', source)
+        self.assertIn('"/settings", "/settings/"', source)
+        self.assertIn('relative = "index.html"', source)
         self.assertIn('"settings.html"', source)
         self.assertIn('"schedule.css"', source)
         self.assertIn('"schedule.js"', source)

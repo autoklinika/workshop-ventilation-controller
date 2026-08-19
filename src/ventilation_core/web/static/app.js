@@ -66,7 +66,7 @@ function renderAeroResult(result, fromCurrentCommand = true) {
 }
 function renderState(state) {
   latestState = state; setChip(ui.connectionChip, "CM5 · online", "good"); setMessage("Połączenie z ventilation-core działa. Sterowanie pozostaje wyłącznie ręczne.", "good");
-  const setpoints = state.setpoints || {}; ui.coreMode.textContent = state.mode || "—"; ui.supplyActual.textContent = `${formatNumber(setpoints.supply_voltage || 0)} V`; ui.extractActual.textContent = `${formatNumber(setpoints.extract_voltage || 0)} V`;
+  const setpoints = state.setpoints || {}; setChip(ui.coreMode, "CORE: ONLINE", "good"); ui.supplyActual.textContent = `${formatNumber(setpoints.supply_voltage || 0)} V`; ui.extractActual.textContent = `${formatNumber(setpoints.extract_voltage || 0)} V`;
   ui.coreHealth.textContent = state.hardware_ready && state.output_state_known && Array.isArray(state.active_alarms) && state.active_alarms.length === 0 ? "OK" : "UWAGA";
   const sensorBus = state.sensor_bus; renderSensor("zone1", publicConfig.zone1.sensor_address, nodeByAddress(sensorBus, publicConfig.zone1.sensor_address), ui.sensor1Chip); renderSensor("zone2", publicConfig.zone2.sensor_address, nodeByAddress(sensorBus, publicConfig.zone2.sensor_address), ui.sensor2Chip);
   ui.sensorBusHealth.textContent = sensorBus && sensorBus.ready && sensorBus.worker_alive ? "OK" : "NIEDOSTĘPNY";
@@ -86,7 +86,7 @@ async function loadConfig() {
 }
 async function pollState() {
   try { const response = await requestJson("/api/v1/state"); renderState(response.state); }
-  catch (error) { setChip(ui.connectionChip, "CM5 · brak danych", "bad"); setMessage(`Brak aktualnego stanu ventilation-core: ${error.message}`, "bad"); ui.coreHealth.textContent = "BRAK DANYCH"; }
+  catch (error) { setChip(ui.connectionChip, "CM5 · brak danych", "bad"); setChip(ui.coreMode, "CORE: BRAK DANYCH", "bad"); setMessage(`Brak aktualnego stanu ventilation-core: ${error.message}`, "bad"); ui.coreHealth.textContent = "BRAK DANYCH"; }
 }
 function markManualDirty() { manualDraftDirty = true; renderFanDraft(); }
 ui.supplyToggle.addEventListener("click", () => { supplyEnabled = !supplyEnabled; markManualDirty(); }); ui.extractToggle.addEventListener("click", () => { extractEnabled = !extractEnabled; markManualDirty(); }); ui.supplySlider.addEventListener("input", markManualDirty); ui.extractSlider.addEventListener("input", markManualDirty);
