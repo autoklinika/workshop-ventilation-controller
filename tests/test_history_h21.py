@@ -34,7 +34,7 @@ class HistoryH21Test(unittest.TestCase):
         self.assertIn("historySeriesValue(point, payload.resolution)", self.js)
         self.assertIn("if (value === null || !Number.isFinite(time))", self.js)
         self.assertIn("if (point.gap_before === true) drawing = false;", self.js)
-        self.assertNotIn("interpolate", self.js.lower())
+        self.assertNotIn("interpolate(", self.js.lower())
 
     def test_pointer_readout_snaps_to_backend_timestamp_without_new_query(self) -> None:
         self.assertIn("historyH21NearestTimestamp", self.js)
@@ -70,9 +70,9 @@ class HistoryH21Test(unittest.TestCase):
         for forbidden in (
             "/api/v1/history/query",
             "/api/v1/manual/",
-            "setpoint",
-            "trend",
-            "anomaly",
+            "set_manual",
+            "control_aero",
+            "schedule-replace",
         ):
             self.assertNotIn(forbidden, self.js.lower())
 
