@@ -106,6 +106,10 @@ restore_legacy_runtime() {
         echo "CRITICAL: legacy production core did not become active after rollback" >&2
         return 1
     fi
+    if ! PYTHONPATH="$WT/src" /usr/bin/python3 -c 'from ventilation_core.alert_v2_stage4b_runtime import CoreReadOnlyClient, require_passive_safe_state; require_passive_safe_state(CoreReadOnlyClient(timeout_seconds=1.0).request("status")); print("PASS: rollback core is STOP / 0 V / output_state_known")'; then
+        echo "CRITICAL: rollback core is active but safe STOP / 0 V state was not confirmed" >&2
+        return 1
+    fi
     echo "INFO: production core rolled back to base service configuration" >&2
 }
 
