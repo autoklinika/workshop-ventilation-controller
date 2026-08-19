@@ -3,9 +3,8 @@
 /*
  * History H4: custom date range + read-only CM5 storage warning presentation.
  *
- * The browser does not aggregate telemetry and does not choose a storage source.
- * For a custom range it only replaces the preset token with explicit ISO start/end
- * timestamps. HistorySeriesService still owns resolution selection and point data.
+ * The browser only sends explicit ISO start/end timestamps for a custom range.
+ * HistorySeriesService remains the sole owner of resolution selection and point data.
  */
 
 const HISTORY_H4_MAX_CUSTOM_DAYS = 1825;
