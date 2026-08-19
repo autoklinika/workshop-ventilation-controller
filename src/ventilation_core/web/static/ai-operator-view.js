@@ -10,8 +10,13 @@
  * Dashboard presentation rule:
  * - the compact AI card is a fixed-size HMI client view with CSS-only clipping;
  * - tapping the card opens a full-screen modal that shows the same DOM text in full;
+ * - the transition is presentation-only: the card visually morphs to/from fullscreen;
  * - no summarization, trend calculation or other AI interpretation happens here.
  */
+
+const AI_DETAIL_OPEN_MS = 220;
+const AI_DETAIL_CLOSE_MS = 180;
+let aiDetailTransitionSerial = 0;
 
 function validAiOperatorView(result) {
   const view = result && result.operator_view;
@@ -108,22 +113,47 @@ function syncAiDetailModalFromCard() {
   }
 }
 
-function openAiDetailModal() {
-  const overlay = ensureAiDetailModal();
-  const card = document.querySelector(".v2-ai-panel");
-  overlay.hidden = false;
-  document.body.classList.add("v2-ai-detail-open");
-  if (card) card.setAttribute("aria-expanded", "true");
-  syncAiDetailModalFromCard();
+function aiDetailReducedMotion() {
+  return typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function aiDetailCanAnimate(element) {
+  return !aiDetailReducedMotion() && element && typeof element.animate === "function";
+}
+
+function cancelAiDetailAnimations(overlay) {
+  if (!overlay || typeof overlay.getAnimations !== "function") return;
+  overlay.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
+}
+
+function aiDetailTransformFromCard(card) {
+  const rect = card.getBoundingClientRect();
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
+  const scaleX = Math.max(0.001, rect.width / width);
+  const scaleY = Math.max(0.001, rect.height / height);
+  return `translate(${rect.left}px, ${rect.top}px) scale(${scaleX}, ${scaleY})`;
+}
+
+function finalizeAiDetailOpen(serial) {
+  if (serial !== aiDetailTransitionSerial) return;
+  const overlay = document.getElementById("aiDetailModal");
+  if (!overlay || overlay.hidden) return;
+  overlay.classList.remove("is-transitioning");
+  cancelAiDetailAnimations(overlay);
 
   const close = document.getElementById("aiDetailClose");
   if (close) close.focus({ preventScroll: true });
 }
 
-function closeAiDetailModal() {
+function finalizeAiDetailClose(serial) {
+  if (serial !== aiDetailTransitionSerial) return;
   const overlay = document.getElementById("aiDetailModal");
-  if (!overlay || overlay.hidden) return;
+  if (!overlay) return;
 
+  cancelAiDetailAnimations(overlay);
+  overlay.classList.remove("is-transitioning");
   overlay.hidden = true;
   document.body.classList.remove("v2-ai-detail-open");
 
@@ -132,6 +162,111 @@ function closeAiDetailModal() {
     card.setAttribute("aria-expanded", "false");
     card.focus({ preventScroll: true });
   }
+}
+
+function openAiDetailModal() {
+  const overlay = ensureAiDetailModal();
+  const card = document.querySelector(".v2-ai-panel");
+  const detailCard = overlay.querySelector(".v2-ai-detail-card");
+  const detailHeader = overlay.querySelector(".v2-ai-detail-header");
+  const detailScroll = overlay.querySelector(".v2-ai-detail-scroll");
+
+  const serial = ++aiDetailTransitionSerial;
+  cancelAiDetailAnimations(overlay);
+  overlay.hidden = false;
+  overlay.classList.add("is-transitioning");
+  document.body.classList.add("v2-ai-detail-open");
+  if (card) card.setAttribute("aria-expanded", "true");
+  syncAiDetailModalFromCard();
+  if (detailScroll) detailScroll.scrollTop = 0;
+
+  if (!card || !detailCard || !aiDetailCanAnimate(detailCard)) {
+    finalizeAiDetailOpen(serial);
+    return;
+  }
+
+  const fromTransform = aiDetailTransformFromCard(card);
+  overlay.animate(
+    [{ opacity: 0 }, { opacity: 1 }],
+    { duration: AI_DETAIL_OPEN_MS, easing: "linear", fill: "both" }
+  );
+
+  if (detailHeader) {
+    detailHeader.animate(
+      [{ opacity: 0 }, { opacity: 0, offset: 0.42 }, { opacity: 1 }],
+      { duration: AI_DETAIL_OPEN_MS, easing: "ease-out", fill: "both" }
+    );
+  }
+  if (detailScroll) {
+    detailScroll.animate(
+      [{ opacity: 0 }, { opacity: 0, offset: 0.48 }, { opacity: 1 }],
+      { duration: AI_DETAIL_OPEN_MS, easing: "ease-out", fill: "both" }
+    );
+  }
+
+  const morph = detailCard.animate(
+    [
+      { transform: fromTransform, borderRadius: "14px" },
+      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "0px" }
+    ],
+    {
+      duration: AI_DETAIL_OPEN_MS,
+      easing: "cubic-bezier(.20,.80,.20,1)",
+      fill: "both"
+    }
+  );
+  morph.addEventListener("finish", () => finalizeAiDetailOpen(serial), { once: true });
+}
+
+function closeAiDetailModal() {
+  const overlay = document.getElementById("aiDetailModal");
+  if (!overlay || overlay.hidden) return;
+
+  const card = document.querySelector(".v2-ai-panel");
+  const detailCard = overlay.querySelector(".v2-ai-detail-card");
+  const detailHeader = overlay.querySelector(".v2-ai-detail-header");
+  const detailScroll = overlay.querySelector(".v2-ai-detail-scroll");
+  const serial = ++aiDetailTransitionSerial;
+
+  cancelAiDetailAnimations(overlay);
+  overlay.classList.add("is-transitioning");
+
+  if (!card || !detailCard || !aiDetailCanAnimate(detailCard)) {
+    finalizeAiDetailClose(serial);
+    return;
+  }
+
+  const toTransform = aiDetailTransformFromCard(card);
+  overlay.animate(
+    [{ opacity: 1 }, { opacity: 0 }],
+    { duration: AI_DETAIL_CLOSE_MS, easing: "linear", fill: "both" }
+  );
+
+  if (detailHeader) {
+    detailHeader.animate(
+      [{ opacity: 1 }, { opacity: 0 }],
+      { duration: Math.round(AI_DETAIL_CLOSE_MS * 0.55), easing: "ease-in", fill: "both" }
+    );
+  }
+  if (detailScroll) {
+    detailScroll.animate(
+      [{ opacity: 1 }, { opacity: 0 }],
+      { duration: Math.round(AI_DETAIL_CLOSE_MS * 0.5), easing: "ease-in", fill: "both" }
+    );
+  }
+
+  const morph = detailCard.animate(
+    [
+      { transform: "translate(0px, 0px) scale(1, 1)", borderRadius: "0px" },
+      { transform: toTransform, borderRadius: "14px" }
+    ],
+    {
+      duration: AI_DETAIL_CLOSE_MS,
+      easing: "cubic-bezier(.40,0,.70,.20)",
+      fill: "both"
+    }
+  );
+  morph.addEventListener("finish", () => finalizeAiDetailClose(serial), { once: true });
 }
 
 function wireAiDetailInteraction() {
