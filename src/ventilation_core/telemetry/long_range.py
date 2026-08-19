@@ -7,15 +7,20 @@ from .store import TelemetryStore, _parse_aware_iso
 
 
 class LongRangeTelemetryStore(TelemetryStore):
-    """Telemetry store extension with persistent hourly and daily rollups.
+    """Telemetry store extension with persistent long-range rollups.
 
     RAW samples remain the source of truth for all rollup resolutions. Raw pruning
     is allowed only after every configured rollup has processed the candidate time
     range, so adding long-range history cannot silently create holes.
+
+    Retention is deliberately tiered instead of keeping every 5-second sample for
+    years. The CM5 therefore retains fine detail for recent periods and progressively
+    coarser history for multi-year inspection without excessive eMMC growth.
     """
 
-    HOURLY_RETENTION_DAYS = 730
-    DAILY_RETENTION_DAYS = 3650
+    QUARTER_RETENTION_DAYS = 1095  # 3 years minimum at 15-minute resolution
+    HOURLY_RETENTION_DAYS = 1825  # 5 years
+    DAILY_RETENTION_DAYS = 3650  # 10 years
 
     ROLLUPS = {
         **TelemetryStore.ROLLUPS,
@@ -54,10 +59,17 @@ class LongRangeTelemetryStore(TelemetryStore):
         quarter_retention_days: int,
         now: datetime | None = None,
     ) -> dict[str, int]:
+        # Existing service arguments remain valid, but H4 guarantees that the local
+        # CM5 historian never shrinks the 15-minute layer below the multi-year floor.
+        effective_quarter_retention_days = max(
+            quarter_retention_days,
+            self.QUARTER_RETENTION_DAYS,
+        )
+
         values = (
             ("raw_retention_days", raw_retention_days),
             ("minute_retention_days", minute_retention_days),
-            ("quarter_retention_days", quarter_retention_days),
+            ("quarter_retention_days", effective_quarter_retention_days),
             ("hourly_retention_days", self.HOURLY_RETENTION_DAYS),
             ("daily_retention_days", self.DAILY_RETENTION_DAYS),
         )
@@ -73,7 +85,7 @@ class LongRangeTelemetryStore(TelemetryStore):
         raw_cutoff = effective_now - timedelta(days=raw_retention_days)
         cutoffs = {
             "1m": effective_now - timedelta(days=minute_retention_days),
-            "15m": effective_now - timedelta(days=quarter_retention_days),
+            "15m": effective_now - timedelta(days=effective_quarter_retention_days),
             "1h": effective_now - timedelta(days=self.HOURLY_RETENTION_DAYS),
             "1d": effective_now - timedelta(days=self.DAILY_RETENTION_DAYS),
         }
