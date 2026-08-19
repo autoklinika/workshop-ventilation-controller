@@ -2,8 +2,8 @@
 .v2-history-alert-tile.is-active{border-color:#8d6262;background:linear-gradient(180deg,#3a2025,#25161b);color:#ffd2d2;box-shadow:inset 0 0 22px rgba(224,92,92,.08)}
 #historyRangeButtons[hidden],#historyMetricButtons[hidden],#historyChartCard[hidden]{display:none!important}
 .v2-history-alert-archive[hidden]{display:none!important}
-.v2-history-alert-archive{height:calc(100vh - 230px);height:calc(100dvh - 230px);min-height:280px;max-height:none;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
-.v2-history-alert-groups{min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;align-content:start;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable;padding-bottom:8px}
+.v2-history-alert-archive{height:auto;min-height:280px;max-height:none;display:grid;grid-template-rows:auto auto;overflow:visible}
+.v2-history-alert-groups{min-height:0;overflow:visible;align-content:start;padding-bottom:8px}
 .v2-history-alert-folder{border:1px solid #203543;border-radius:12px;background:#0b151e;overflow:hidden}
 .v2-history-alert-folder+.v2-history-alert-folder{margin-top:9px}
 .v2-history-alert-folder-summary{min-height:58px;display:grid;grid-template-columns:34px minmax(0,1fr) 26px;align-items:center;gap:11px;padding:0 14px;cursor:pointer;list-style:none;background:#0d1b26;touch-action:manipulation;user-select:none}
@@ -23,7 +23,6 @@
 .v2-history-alert-folder:not([open]) .v2-history-alert-folder-list{display:none}
 @media(max-width:1280px){
   .v2-history-alert-tile{min-width:112px}
-  .v2-history-alert-archive{height:calc(100vh - 214px);height:calc(100dvh - 214px)}
   .v2-history-alert-folder-summary{min-height:54px;padding:0 12px}
   .v2-history-alert-folder-list{padding:8px}
 }
