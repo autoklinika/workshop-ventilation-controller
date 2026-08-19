@@ -95,7 +95,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "sidebar.css", "v2-weather.css",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
             "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
