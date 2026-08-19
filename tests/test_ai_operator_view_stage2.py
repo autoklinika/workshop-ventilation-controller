@@ -82,6 +82,12 @@ class AiOperatorViewStage2Test(unittest.TestCase):
         self.assertNotIn("fetch(\"http://", js)
         self.assertNotIn("method: \"POST\"", js)
 
+    def test_static_server_allows_stage2_renderer(self) -> None:
+        server = (ROOT / "src" / "ventilation_core" / "web" / "server.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"ai-operator-view.js"', server)
+
 
 if __name__ == "__main__":
     unittest.main()
