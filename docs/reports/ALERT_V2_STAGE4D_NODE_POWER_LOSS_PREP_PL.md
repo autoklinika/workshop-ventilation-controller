@@ -4,7 +4,7 @@
 **Repozytorium:** `autoklinika/workshop-ventilation-controller`  
 **Gałąź:** `agent/core-alert-v2-design-stage1`  
 **Draft PR:** #44  
-**Status:** przygotowane do walidacji na CM5; bez merge do `main`, bez produkcyjnego deploymentu AlertV2 i bez wykonywania `reaction` z TOML
+**Status:** przygotowanie zakończone; rzeczywista walidacja CM5 zakończona PASS. Wynik: `docs/reports/ALERT_V2_STAGE4D_NODE_POWER_LOSS_CM5_VALIDATION_RESULT_PL.md`. Bez merge do `main`, bez produkcyjnego deploymentu AlertV2 i bez wykonywania `reaction` z TOML.
 
 ## 1. Cel
 
@@ -284,7 +284,13 @@ Testy kontraktu sprawdzają m.in.:
 
 ## 13. Kryterium PASS
 
-Stage 4D będzie uznany za sprzętowo zaliczony dopiero po rzeczywistym teście CM5, jeżeli otrzymamy:
+Stage 4D został sprzętowo zaliczony na rzeczywistym CM5. Szczegółowy wynik zapisano w:
+
+```text
+docs/reports/ALERT_V2_STAGE4D_NODE_POWER_LOSS_CM5_VALIDATION_RESULT_PL.md
+```
+
+Potwierdzono:
 
 ```text
 production SENSOR_NODE_UNAVAILABLE = ACTIVE
@@ -305,4 +311,4 @@ STOP / 0 V / 0 V
 write_commands_sent = 0
 ```
 
-Do czasu tego testu Stage 4D ma status **PREPARED, NOT HARDWARE-VALIDATED**.
+**Status Stage 4D: PASS — HARDWARE VALIDATED.**
