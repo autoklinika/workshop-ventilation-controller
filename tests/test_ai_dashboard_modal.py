@@ -62,6 +62,33 @@ class AiDashboardModalTest(unittest.TestCase):
         self.assertIn("overflow-x:hidden;", detail)
         self.assertIn("overflow-y:auto;", detail)
 
+    def test_modal_morphs_between_card_and_viewport(self) -> None:
+        self.assertIn("const AI_DETAIL_OPEN_MS = 220;", self.js)
+        self.assertIn("const AI_DETAIL_CLOSE_MS = 180;", self.js)
+        self.assertIn("function aiDetailTransformFromCard(card)", self.js)
+        self.assertIn("card.getBoundingClientRect()", self.js)
+        self.assertIn("rect.width / width", self.js)
+        self.assertIn("rect.height / height", self.js)
+        self.assertIn("detailCard.animate(", self.js)
+        self.assertIn('borderRadius: "14px"', self.js)
+        self.assertIn('borderRadius: "0px"', self.js)
+        self.assertIn("cubic-bezier(.20,.80,.20,1)", self.js)
+        self.assertIn("cubic-bezier(.40,0,.70,.20)", self.js)
+        self.assertIn("transform-origin:0 0;", self.css)
+        self.assertIn("will-change:transform,border-radius;", self.css)
+
+    def test_animation_is_presentation_only_and_has_accessibility_fallback(self) -> None:
+        self.assertIn('(prefers-reduced-motion: reduce)', self.js)
+        self.assertIn("@media(prefers-reduced-motion:reduce)", self.css)
+        self.assertIn("aiDetailCanAnimate", self.js)
+        self.assertIn("cancelAiDetailAnimations", self.js)
+        self.assertIn("is-transitioning", self.js)
+        self.assertIn(".v2-ai-detail.is-transitioning", self.css)
+
+        self.assertNotIn("requestAnimationFrame", self.js)
+        self.assertNotIn("setInterval(", self.js)
+        self.assertNotIn("setTimeout(", self.js)
+
     def test_static_server_allows_ai_detail_styles(self) -> None:
         server = (ROOT / "src" / "ventilation_core" / "web" / "server.py").read_text(
             encoding="utf-8"
