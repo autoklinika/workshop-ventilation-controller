@@ -13,6 +13,34 @@ const coreAlertUi = {
 let coreAlertSnapshot = { active: [], history: [] };
 let alertAckInFlight = false;
 
+function ensureSidebarAlertBadge() {
+  const nav = document.querySelector('.v2-nav[data-route="/alerts"]');
+  if (!nav) return null;
+  let badge = nav.querySelector(".v2-alert-nav-badge");
+  if (badge) return badge;
+
+  badge = document.createElement("span");
+  badge.className = "v2-alert-nav-badge";
+  badge.hidden = true;
+  badge.setAttribute("aria-label", "Aktywne alerty");
+  nav.appendChild(badge);
+  return badge;
+}
+
+function renderSidebarAlertBadge(activeCount) {
+  const badge = ensureSidebarAlertBadge();
+  if (!badge) return;
+  if (!Number.isInteger(activeCount) || activeCount <= 0) {
+    badge.hidden = true;
+    badge.textContent = "";
+    badge.setAttribute("aria-label", "Brak aktywnych alertów");
+    return;
+  }
+  badge.textContent = String(activeCount);
+  badge.hidden = false;
+  badge.setAttribute("aria-label", `Aktywne alerty: ${activeCount}`);
+}
+
 function formatAlertTime(value) {
   if (typeof value !== "string" || !value) return "—";
   const date = new Date(value);
@@ -236,6 +264,7 @@ function renderCoreAlerts(payload) {
   coreAlertSnapshot = { active, history };
 
   const unacknowledged = active.filter((alert) => alert && alert.acknowledged !== true).length;
+  renderSidebarAlertBadge(active.length);
   if (coreAlertUi.activeCount) coreAlertUi.activeCount.textContent = String(active.length);
   if (coreAlertUi.unackCount) coreAlertUi.unackCount.textContent = String(unacknowledged);
   if (coreAlertUi.historyCount) coreAlertUi.historyCount.textContent = String(history.length);
@@ -286,6 +315,7 @@ if (coreAlertUi.activeList) {
   });
 }
 
+ensureSidebarAlertBadge();
 ensureCoreAlertModal();
 pollCoreAlerts();
 setInterval(pollCoreAlerts, ALERT_POLL_MS);
