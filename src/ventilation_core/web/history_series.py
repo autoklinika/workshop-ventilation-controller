@@ -45,13 +45,14 @@ class HistorySeriesService:
     """Prepare stable time-series payloads for the browser.
 
     SQLite/raw telemetry layout stays behind this boundary. The GUI requests stable
-    series IDs and receives already selected resolution, metadata and points. The
-    service does not classify air quality or calculate trends; it only projects
+    series IDs and receives already selected resolution, metadata, gaps and points.
+    The service does not classify air quality or calculate trends; it only projects
     recorded numeric telemetry and existing rollups.
     """
 
     MAX_SERIES_PER_QUERY = 16
     MAX_SOURCE_SAMPLES = 2000
+    RESOLUTION_SECONDS = {"raw": 5, "1m": 60, "15m": 900}
     RANGE_PRESETS = {
         "1h": ("1 godzina", timedelta(hours=1)),
         "24h": ("24 godziny", timedelta(hours=24)),
@@ -79,6 +80,7 @@ class HistorySeriesService:
                 for range_id, (label, _duration) in self.RANGE_PRESETS.items()
             ],
             "series": [spec.to_dict() for spec in self._specs.values()],
+            "long_range_rollups_ready": False,
         }
 
     def query(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -128,6 +130,7 @@ class HistorySeriesService:
                 "end": self._format_time(end),
             },
             "resolution": resolution,
+            "expected_step_seconds": self.RESOLUTION_SECONDS[resolution],
             "series": series_payload,
         }
 
@@ -138,7 +141,11 @@ class HistorySeriesService:
                 raise ValueError(f"unsupported history range: {range_id}")
             if body.get("start_at") is not None:
                 raise ValueError("start_at cannot be combined with a history range preset")
-            end = self._parse_time(body.get("end_at"), "end_at") if body.get("end_at") else self._now_utc()
+            end = (
+                self._parse_time(body.get("end_at"), "end_at")
+                if body.get("end_at")
+                else self._now_utc()
+            )
             duration = self.RANGE_PRESETS[range_id][1]
             return end - duration, end, range_id
 
@@ -183,7 +190,7 @@ class HistorySeriesService:
         seconds = (end - start).total_seconds()
         if seconds <= 0:
             raise ValueError("history range must be positive")
-        bucket_seconds = {"raw": 5, "1m": 60, "15m": 900}[resolution]
+        bucket_seconds = self.RESOLUTION_SECONDS[resolution]
         # +2 protects range edges/bucket overlap without silently truncating the start.
         expected = math.ceil(seconds / bucket_seconds) + 2
         if expected > self.MAX_SOURCE_SAMPLES:
@@ -212,11 +219,13 @@ class HistorySeriesService:
                 missing += 1
             points.append(point)
 
+        gap_count = self._mark_gaps(points, self.RESOLUTION_SECONDS[resolution])
         return {
             **spec.to_dict(),
             "points": points,
             "point_count": len(points),
             "missing_points": missing,
+            "gap_count": gap_count,
         }
 
     @staticmethod
@@ -224,6 +233,27 @@ class HistorySeriesService:
         if resolution == "raw":
             return point.get("value") is None
         return point.get("avg") is None
+
+    @classmethod
+    def _mark_gaps(cls, points: list[dict[str, Any]], step_seconds: int) -> int:
+        previous: datetime | None = None
+        gaps = 0
+        # Use 2.5x expected interval so ordinary scheduling jitter is not a gap.
+        threshold = step_seconds * 2.5
+        for point in points:
+            point["gap_before"] = False
+            raw_time = point.get("t")
+            if not isinstance(raw_time, str):
+                continue
+            try:
+                current = cls._parse_time(raw_time, "point time")
+            except ValueError:
+                continue
+            if previous is not None and (current - previous).total_seconds() > threshold:
+                point["gap_before"] = True
+                gaps += 1
+            previous = current
+        return gaps
 
     def _raw_point(self, spec: HistorySeriesSpec, sample: dict[str, Any]) -> dict[str, Any] | None:
         captured_at = sample.get("captured_at")
@@ -257,15 +287,20 @@ class HistorySeriesService:
                 "last": None,
                 "count": 0,
                 "sample_count": int(sample_count) if isinstance(sample_count, int) else 0,
+                "coverage": 0.0,
             }
+        signal_count = int(signal.get("count", 0)) if isinstance(signal.get("count"), int) else 0
+        source_count = int(sample_count) if isinstance(sample_count, int) else 0
+        coverage = signal_count / source_count if source_count > 0 else 0.0
         return {
             "t": bucket_start,
             "avg": self._finite_number(signal.get("avg")),
             "min": self._finite_number(signal.get("min")),
             "max": self._finite_number(signal.get("max")),
             "last": self._finite_number(signal.get("last")),
-            "count": int(signal.get("count", 0)) if isinstance(signal.get("count"), int) else 0,
-            "sample_count": int(sample_count) if isinstance(sample_count, int) else 0,
+            "count": signal_count,
+            "sample_count": source_count,
+            "coverage": coverage,
         }
 
     @classmethod
@@ -274,6 +309,29 @@ class HistorySeriesService:
             return None
         current: Any = value
         for segment in path.split("."):
+            if "[" in segment and segment.endswith("]"):
+                key, selector = segment[:-1].split("[", 1)
+                if not isinstance(current, dict):
+                    return None
+                rows = current.get(key)
+                if not isinstance(rows, list):
+                    return None
+                try:
+                    address = int(selector)
+                except ValueError:
+                    return None
+                current = next(
+                    (
+                        row
+                        for row in rows
+                        if isinstance(row, dict) and row.get("slave_address") == address
+                    ),
+                    None,
+                )
+                if current is None:
+                    return None
+                continue
+
             if not isinstance(current, dict) or segment not in current:
                 return None
             current = current[segment]
@@ -380,20 +438,132 @@ class HistorySeriesService:
 
         specs.extend(
             [
-                HistorySeriesSpec("zone1.fans.supply.setpoint_v", "Nawiew · wartość zadana", "V", "zone1.fans", "zone1", 1, "setpoints.supply_voltage"),
-                HistorySeriesSpec("zone1.fans.extract.setpoint_v", "Wyciąg · wartość zadana", "V", "zone1.fans", "zone1", 1, "setpoints.extract_voltage"),
-                HistorySeriesSpec("zone1.fans.supply.rpm", "Nawiew · prędkość", "RPM", "zone1.fans", "zone1", 0, "tacho.supply.rpm"),
-                HistorySeriesSpec("zone1.fans.extract.rpm", "Wyciąg · prędkość", "RPM", "zone1.fans", "zone1", 0, "tacho.extract.rpm"),
-                HistorySeriesSpec("zone1.fans.supply.frequency_hz", "Nawiew · TACHO", "Hz", "zone1.fans", "zone1", 1, "tacho.supply.frequency_hz"),
-                HistorySeriesSpec("zone1.fans.extract.frequency_hz", "Wyciąg · TACHO", "Hz", "zone1.fans", "zone1", 1, "tacho.extract.frequency_hz"),
-                HistorySeriesSpec("zone1.duct.supply.temperature", "Kanał nawiewny · temperatura", "°C", "zone1.duct", "zone1", 1, zigbee_role="supply"),
-                HistorySeriesSpec("zone1.duct.extract.temperature", "Kanał wywiewny · temperatura", "°C", "zone1.duct", "zone1", 1, zigbee_role="extract"),
-                HistorySeriesSpec("zone2.aero.humidity", "AERO · wilgotność", "%", "zone2.aero", "zone2", 1, "aero_bus.telemetry.humidity_percent"),
-                HistorySeriesSpec("zone2.aero.supply_temperature", "AERO · temperatura nawiewu", "°C", "zone2.aero", "zone2", 1, "aero_bus.telemetry.supply_temperature_celsius"),
-                HistorySeriesSpec("zone2.aero.extract_temperature", "AERO · temperatura wywiewu", "°C", "zone2.aero", "zone2", 1, "aero_bus.telemetry.extract_temperature_celsius"),
-                HistorySeriesSpec("zone2.aero.outdoor_temperature", "AERO · temperatura zewnętrzna", "°C", "zone2.aero", "zone2", 1, "aero_bus.telemetry.outdoor_temperature_celsius"),
-                HistorySeriesSpec("zone2.aero.fan1_percent", "AERO · wentylator 1", "%", "zone2.aero", "zone2", 0, "aero_bus.telemetry.fan_1_percent"),
-                HistorySeriesSpec("zone2.aero.fan2_percent", "AERO · wentylator 2", "%", "zone2.aero", "zone2", 0, "aero_bus.telemetry.fan_2_percent"),
+                HistorySeriesSpec(
+                    "zone1.fans.supply.setpoint_v",
+                    "Nawiew · wartość zadana",
+                    "V",
+                    "zone1.fans",
+                    "zone1",
+                    1,
+                    "setpoints.supply_voltage",
+                ),
+                HistorySeriesSpec(
+                    "zone1.fans.extract.setpoint_v",
+                    "Wyciąg · wartość zadana",
+                    "V",
+                    "zone1.fans",
+                    "zone1",
+                    1,
+                    "setpoints.extract_voltage",
+                ),
+                HistorySeriesSpec(
+                    "zone1.fans.supply.rpm",
+                    "Nawiew · prędkość",
+                    "RPM",
+                    "zone1.fans",
+                    "zone1",
+                    0,
+                    "tacho.supply.rpm",
+                ),
+                HistorySeriesSpec(
+                    "zone1.fans.extract.rpm",
+                    "Wyciąg · prędkość",
+                    "RPM",
+                    "zone1.fans",
+                    "zone1",
+                    0,
+                    "tacho.extract.rpm",
+                ),
+                HistorySeriesSpec(
+                    "zone1.fans.supply.frequency_hz",
+                    "Nawiew · TACHO",
+                    "Hz",
+                    "zone1.fans",
+                    "zone1",
+                    1,
+                    "tacho.supply.frequency_hz",
+                ),
+                HistorySeriesSpec(
+                    "zone1.fans.extract.frequency_hz",
+                    "Wyciąg · TACHO",
+                    "Hz",
+                    "zone1.fans",
+                    "zone1",
+                    1,
+                    "tacho.extract.frequency_hz",
+                ),
+                HistorySeriesSpec(
+                    "zone1.duct.supply.temperature",
+                    "Kanał nawiewny · temperatura",
+                    "°C",
+                    "zone1.duct",
+                    "zone1",
+                    1,
+                    zigbee_role="supply",
+                ),
+                HistorySeriesSpec(
+                    "zone1.duct.extract.temperature",
+                    "Kanał wywiewny · temperatura",
+                    "°C",
+                    "zone1.duct",
+                    "zone1",
+                    1,
+                    zigbee_role="extract",
+                ),
+                HistorySeriesSpec(
+                    "zone2.aero.humidity",
+                    "AERO · wilgotność",
+                    "%",
+                    "zone2.aero",
+                    "zone2",
+                    1,
+                    "aero_bus.telemetry.humidity_percent",
+                ),
+                HistorySeriesSpec(
+                    "zone2.aero.supply_temperature",
+                    "AERO · temperatura nawiewu",
+                    "°C",
+                    "zone2.aero",
+                    "zone2",
+                    1,
+                    "aero_bus.telemetry.supply_temperature_celsius",
+                ),
+                HistorySeriesSpec(
+                    "zone2.aero.extract_temperature",
+                    "AERO · temperatura wywiewu",
+                    "°C",
+                    "zone2.aero",
+                    "zone2",
+                    1,
+                    "aero_bus.telemetry.extract_temperature_celsius",
+                ),
+                HistorySeriesSpec(
+                    "zone2.aero.outdoor_temperature",
+                    "AERO · temperatura zewnętrzna",
+                    "°C",
+                    "zone2.aero",
+                    "zone2",
+                    1,
+                    "aero_bus.telemetry.outdoor_temperature_celsius",
+                ),
+                HistorySeriesSpec(
+                    "zone2.aero.fan1_percent",
+                    "AERO · wentylator 1",
+                    "%",
+                    "zone2.aero",
+                    "zone2",
+                    0,
+                    "aero_bus.telemetry.fan_1_percent",
+                ),
+                HistorySeriesSpec(
+                    "zone2.aero.fan2_percent",
+                    "AERO · wentylator 2",
+                    "%",
+                    "zone2.aero",
+                    "zone2",
+                    0,
+                    "aero_bus.telemetry.fan_2_percent",
+                ),
             ]
         )
         return {spec.id: spec for spec in specs}
