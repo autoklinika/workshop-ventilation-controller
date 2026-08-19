@@ -9,6 +9,9 @@
  */
 
 let historyH42Mode = "zone";
+let historyH42OpenFolderKeys = new Set();
+let historyH42FolderStateInitialized = false;
+let historyH42LastRenderSignature = null;
 
 function historyH42EnsureAlertTile() {
   const host = document.getElementById("historyZoneButtons");
@@ -125,10 +128,48 @@ function historyH42FolderSummary(items) {
   return fragments.join(" · ");
 }
 
-function historyH42RenderDateFolder(group, index) {
+function historyH42ArchiveSignature(records) {
+  return JSON.stringify(records.map((alert) => [
+    alert.alert_id,
+    alert.cleared_at,
+    alert.severity,
+    alert.message,
+    alert.detail,
+    alert.source,
+    alert.acknowledged,
+    alert.acknowledged_at,
+    alert.occurrences,
+  ]));
+}
+
+function historyH42CaptureFolderState(host) {
+  const folders = host.querySelectorAll("details.v2-history-alert-folder[data-history-date-key]");
+  if (folders.length === 0) return;
+
+  const openKeys = new Set();
+  folders.forEach((folder) => {
+    if (folder.open && folder.dataset.historyDateKey) {
+      openKeys.add(folder.dataset.historyDateKey);
+    }
+  });
+  historyH42OpenFolderKeys = openKeys;
+  historyH42FolderStateInitialized = true;
+}
+
+function historyH42RememberFolderState(details) {
+  const key = details.dataset.historyDateKey;
+  if (!key) return;
+  historyH42FolderStateInitialized = true;
+  if (details.open) historyH42OpenFolderKeys.add(key);
+  else historyH42OpenFolderKeys.delete(key);
+}
+
+function historyH42RenderDateFolder(group) {
   const details = document.createElement("details");
   details.className = "v2-history-alert-folder";
-  details.open = index === 0;
+  details.dataset.historyDateKey = group.key;
+  details.open = historyH42OpenFolderKeys.has(group.key);
+  details.addEventListener("toggle", () => historyH42RememberFolderState(details));
 
   const summary = document.createElement("summary");
   summary.className = "v2-history-alert-folder-summary";
@@ -182,11 +223,6 @@ historyH41RenderArchive = function historyH42RenderArchive() {
   if (historyH41Archive.lastError) {
     if (state) state.textContent = "BŁĄD ODCZYTU";
     if (count) count.textContent = "—";
-    host.replaceChildren();
-    const empty = document.createElement("div");
-    empty.className = "v2-history-alert-empty is-error";
-    empty.textContent = historyH41Archive.lastError;
-    host.appendChild(empty);
     return;
   }
 
@@ -194,7 +230,22 @@ historyH41RenderArchive = function historyH42RenderArchive() {
   if (state) state.textContent = "RETENCJA 30 DNI";
   if (count) count.textContent = `${records.length} zakończonych`;
 
+  const signature = historyH42ArchiveSignature(records);
+  if (signature === historyH42LastRenderSignature && host.querySelector(".v2-history-alert-folder")) {
+    return;
+  }
+
+  historyH42CaptureFolderState(host);
+  const groups = historyH42GroupByDate(records);
+
+  if (!historyH42FolderStateInitialized && groups.length > 0) {
+    historyH42OpenFolderKeys = new Set([groups[0].key]);
+    historyH42FolderStateInitialized = true;
+  }
+
+  historyH42LastRenderSignature = signature;
   host.replaceChildren();
+
   if (records.length === 0) {
     const empty = document.createElement("div");
     empty.className = "v2-history-alert-empty";
@@ -203,8 +254,8 @@ historyH41RenderArchive = function historyH42RenderArchive() {
     return;
   }
 
-  historyH42GroupByDate(records).forEach((group, index) => {
-    host.appendChild(historyH42RenderDateFolder(group, index));
+  groups.forEach((group) => {
+    host.appendChild(historyH42RenderDateFolder(group));
   });
 };
 
