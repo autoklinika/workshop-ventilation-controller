@@ -116,19 +116,29 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
                 module = (self.server.static_root / name).resolve()
                 if module.parent == self.server.static_root and module.is_file():
                     content += b"\n\n" + module.read_bytes()
-            for name in ("history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js"):
-                module = (self.server.static_root / name).resolve()
-                if module.parent == self.server.static_root and module.is_file():
-                    content += b"\n\n" + module.read_bytes()
+            h21_js = (self.server.static_root / "history-h21.js").resolve()
+            if h21_js.parent == self.server.static_root and h21_js.is_file():
+                content += b"\n\n" + h21_js.read_bytes()
+            h22_js = (self.server.static_root / "history-h22.js").resolve()
+            if h22_js.parent == self.server.static_root and h22_js.is_file():
+                content += b"\n\n" + h22_js.read_bytes()
+            h23_js = (self.server.static_root / "history-h23.js").resolve()
+            if h23_js.parent == self.server.static_root and h23_js.is_file():
+                content += b"\n\n" + h23_js.read_bytes()
+            h3_js = (self.server.static_root / "history-h3.js").resolve()
+            if h3_js.parent == self.server.static_root and h3_js.is_file():
+                content += b"\n\n" + h3_js.read_bytes()
         elif relative == "ai-detail.css":
             for name in ("zone-detail.css", "history.css"):
                 module = (self.server.static_root / name).resolve()
                 if module.parent == self.server.static_root and module.is_file():
                     content += b"\n\n" + module.read_bytes()
-            for name in ("history-h21.css", "history-h22.css"):
-                module = (self.server.static_root / name).resolve()
-                if module.parent == self.server.static_root and module.is_file():
-                    content += b"\n\n" + module.read_bytes()
+            h21_css = (self.server.static_root / "history-h21.css").resolve()
+            if h21_css.parent == self.server.static_root and h21_css.is_file():
+                content += b"\n\n" + h21_css.read_bytes()
+            h22_css = (self.server.static_root / "history-h22.css").resolve()
+            if h22_css.parent == self.server.static_root and h22_css.is_file():
+                content += b"\n\n" + h22_css.read_bytes()
 
         content_type, _ = mimetypes.guess_type(candidate.name)
         if content_type is None:
