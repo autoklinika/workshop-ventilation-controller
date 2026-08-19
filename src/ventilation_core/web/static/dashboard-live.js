@@ -145,3 +145,209 @@ function weather(w){if(!w||w.available!==true){u.wi.textContent='◌';u.wt.textC
 function render(st){const z1=node(st.sensor_bus,cfg.zone1.sensor_address),z2=node(st.sensor_bus,cfg.zone2.sensor_address),s=pct(st.setpoints&&st.setpoints.supply_voltage),e=pct(st.setpoints&&st.setpoints.extract_voltage),avg=Math.round((s+e)/2),a=st.aero_bus,t=a&&a.telemetry?a.telemetry:{},f1=typeof t.fan_1_percent==='number'?t.fan_1_percent:null,f2=typeof t.fan_2_percent==='number'?t.fan_2_percent:null,ah=aok(a),alarms=Array.isArray(st.active_alarms)?st.active_alarms:[];u.z1n.textContent=cfg.zone1.name;u.z2n.textContent=cfg.zone2.name;air(st,'zone1',z1,u.z1s,u.z1v,u.z1p,u.z1d);air(st,'zone2',z2,u.z2s,u.z2v,u.z2p,u.z2d);u.sp.textContent=`${s}%`;u.ep.textContent=`${e}%`;u.vp.textContent=`${avg}%`;u.mode.textContent=st.mode==='MANUAL'?'Ręcznie · MANUAL':(st.mode||'—');u.b1.style.width=`${avg}%`;u.am.textContent=ah?'ONLINE':'NIEDOSTĘPNY';u.ae.textContent=ah?'AERO ONLINE':'Brak komunikacji AERO';u.as.textContent=f1===null?'—':`${f1}%`;u.ax.textContent=f2===null?'—':`${f2}%`;u.b2.style.width=`${Math.round(((f1||0)+(f2||0))/2)}%`;const allOk=alarms.length===0;if(u.systemDot)u.systemDot.className=`v2-dot ${allOk?'good':'warn'}`;if(u.systemText)u.systemText.textContent=allOk?'System OK':'System UWAGA'}
 async function req(p){const r=await fetch(p,{cache:'no-store'}),j=await r.json();if(!r.ok||j.ok!==true)throw Error();return j}async function state(){try{render((await req('/api/v1/state')).state)}catch(e){if(u.systemDot)u.systemDot.className='v2-dot bad';if(u.systemText)u.systemText.textContent='Brak danych z CM5'}}async function meteo(){try{weather((await req('/api/v1/weather')).weather)}catch(e){weather(null)}}async function config(){try{const r=await req('/api/v1/config');if(r.config)cfg=r.config}catch(e){}}
 clock();setInterval(clock,1000);config().finally(state);meteo();setInterval(state,2000);setInterval(meteo,900000);
+
+const AI_RESULT_PRESENTATION = {
+  no_anomaly_detected: {
+    chip: "BRAK ANOMALII",
+    css: "status-good",
+    headline: "Brak wykrytych anomalii"
+  },
+  attention: {
+    chip: "WYMAGA UWAGI",
+    css: "status-warn",
+    headline: "System wymaga uwagi"
+  },
+  anomaly: {
+    chip: "ANOMALIA",
+    css: "status-bad",
+    headline: "Wykryto anomalię"
+  },
+  insufficient_data: {
+    chip: "NIEWYSTARCZAJĄCE DANE",
+    css: "status-unknown",
+    headline: "Niewystarczające dane do analizy"
+  }
+};
+
+function aiAgeText(seconds) {
+  const value = Number(seconds);
+
+  if (!Number.isFinite(value) || value < 0) return "wiek danych nieznany";
+  if (value < 60) return "przed chwilą";
+
+  const minutes = Math.floor(value / 60);
+
+  if (minutes < 60) return `${minutes} min temu`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours < 48) {
+    return remainingMinutes > 0
+      ? `${hours} h ${remainingMinutes} min temu`
+      : `${hours} h temu`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+
+  return remainingHours > 0
+    ? `${days} d ${remainingHours} h temu`
+    : `${days} d temu`;
+}
+
+function aiWindowText(windowEnd, ageSeconds) {
+  if (typeof windowEnd !== "string" || !windowEnd) {
+    return aiAgeText(ageSeconds);
+  }
+
+  const parsed = new Date(windowEnd);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return aiAgeText(ageSeconds);
+  }
+
+  const formatted = new Intl.DateTimeFormat("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(parsed);
+
+  return `Okno do ${formatted} · ${aiAgeText(ageSeconds)}`;
+}
+
+function setAiEventsMuted(muted) {
+  document.querySelectorAll("#aiPanel .v2-event").forEach((item) => {
+    item.classList.toggle("muted", muted);
+  });
+}
+
+function renderAiUnavailable(message, failure = false) {
+  const status = document.getElementById("aiStatus");
+  const headline = document.getElementById("aiHeadline");
+  const summary = document.getElementById("aiSummary");
+  const recommendation = document.getElementById("aiRecommendation");
+  const dataQuality = document.getElementById("aiDataQuality");
+  const updatedAt = document.getElementById("aiUpdatedAt");
+
+  if (status) {
+    status.className = `status-chip ${failure ? "status-bad" : "status-unknown"}`;
+    status.textContent = failure ? "BŁĄD ODCZYTU AI" : "BRAK ANALIZY";
+  }
+
+  if (headline) {
+    headline.textContent = failure
+      ? "Nie można odczytać analizy AI"
+      : "Brak analizy AI";
+  }
+
+  if (summary) {
+    summary.textContent =
+      message || "Nie ma jeszcze zapisanej analizy dla tego systemu.";
+  }
+
+  if (recommendation) recommendation.textContent = "—";
+  if (dataQuality) dataQuality.textContent = "—";
+  if (updatedAt) updatedAt.textContent = "—";
+
+  setAiEventsMuted(true);
+}
+
+function renderAiAdvisory(snapshot) {
+  if (!snapshot || snapshot.available !== true) {
+    renderAiUnavailable(
+      snapshot && typeof snapshot.error === "string"
+        ? snapshot.error
+        : null
+    );
+    return;
+  }
+
+  const report = snapshot.report;
+  const result = report && report.result;
+
+  if (!report || !result || typeof result.status !== "string") {
+    renderAiUnavailable("Lokalny raport AI ma niepoprawną strukturę.", true);
+    return;
+  }
+
+  const presentation =
+    AI_RESULT_PRESENTATION[result.status] ||
+    AI_RESULT_PRESENTATION.insufficient_data;
+
+  const status = document.getElementById("aiStatus");
+  const headline = document.getElementById("aiHeadline");
+  const summary = document.getElementById("aiSummary");
+  const recommendation = document.getElementById("aiRecommendation");
+  const dataQuality = document.getElementById("aiDataQuality");
+  const updatedAt = document.getElementById("aiUpdatedAt");
+  const panel = document.getElementById("aiPanel");
+
+  if (status) {
+    if (snapshot.stale === true) {
+      status.className = "status-chip status-warn";
+      status.textContent = "ANALIZA NIEAKTUALNA";
+    } else {
+      status.className = `status-chip ${presentation.css}`;
+      status.textContent = presentation.chip;
+    }
+  }
+
+  if (headline) headline.textContent = presentation.headline;
+
+  if (summary) {
+    summary.textContent =
+      typeof result.analysis_pl === "string" && result.analysis_pl.trim()
+        ? result.analysis_pl
+        : "Brak opisu analizy.";
+  }
+
+  if (recommendation) {
+    recommendation.textContent =
+      typeof result.operator_recommendation_pl === "string" &&
+      result.operator_recommendation_pl.trim()
+        ? result.operator_recommendation_pl
+        : "Brak rekomendacji.";
+  }
+
+  if (dataQuality) {
+    dataQuality.textContent =
+      typeof result.data_quality_pl === "string" &&
+      result.data_quality_pl.trim()
+        ? result.data_quality_pl
+        : "Brak informacji o jakości danych.";
+  }
+
+  if (updatedAt) {
+    updatedAt.textContent = aiWindowText(
+      report.window_end,
+      snapshot.age_seconds
+    );
+  }
+
+  if (panel) {
+    panel.dataset.analysisId =
+      typeof report.analysis_id === "string" ? report.analysis_id : "";
+    panel.dataset.resultStatus = result.status;
+    panel.dataset.fresh = snapshot.fresh === true ? "true" : "false";
+  }
+
+  setAiEventsMuted(false);
+}
+
+async function aiAdvisory() {
+  try {
+    const payload = await req("/api/v1/ai/advisory");
+    renderAiAdvisory(payload.advisory);
+  } catch (_error) {
+    renderAiUnavailable(
+      "Nie udało się odczytać lokalnego raportu AI z CM5.",
+      true
+    );
+  }
+}
+
+aiAdvisory();
+setInterval(aiAdvisory, 60000);
