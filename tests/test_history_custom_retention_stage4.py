@@ -107,25 +107,40 @@ class HistoryCustomRetentionStage4Test(unittest.TestCase):
 
     def test_storage_ui_renders_backend_owned_warning_and_critical_levels(self) -> None:
         js = (STATIC / "history-h4.js").read_text(encoding="utf-8")
+        monitor = (STATIC / "history-h4-storage.js").read_text(encoding="utf-8")
         css = (STATIC / "history-h4.css").read_text(encoding="utf-8")
         self.assertIn('storage.level === "warning"', js)
         self.assertIn('storage.level === "critical"', js)
         self.assertIn("storage.warning_percent", js)
         self.assertIn("storage.critical_percent", js)
+        self.assertIn("HISTORY_H4_STORAGE_POLL_MS = 60000", monitor)
+        self.assertIn('historyRequest("/api/v1/history/status")', monitor)
+        self.assertIn('storage.level === "warning"', monitor)
+        self.assertIn('storage.level === "critical"', monitor)
+        self.assertNotIn("used >=", monitor)
+        self.assertNotIn("used >", monitor)
         self.assertIn(".v2-history-storage-alert.is-warning", css)
         self.assertIn(".v2-history-storage-alert.is-critical", css)
+        self.assertIn(".v2-history-global-storage-alert.is-warning", css)
+        self.assertIn(".v2-history-global-storage-alert.is-critical", css)
 
     def test_h4_assets_are_bundled_after_h3(self) -> None:
         server = (ROOT / "src" / "ventilation_core" / "web" / "server.py").read_text(
             encoding="utf-8"
         )
         self.assertIn('"history-h4.js"', server)
+        self.assertIn('"history-h4-storage.js"', server)
         self.assertIn('"history-h4.css"', server)
         self.assertIn("h4_js.read_bytes()", server)
+        self.assertIn("h4_storage_js.read_bytes()", server)
         self.assertIn("h4_css.read_bytes()", server)
         self.assertLess(
             server.index('h3_js = (self.server.static_root / "history-h3.js")'),
             server.index('h4_js = (self.server.static_root / "history-h4.js")'),
+        )
+        self.assertLess(
+            server.index('h4_js = (self.server.static_root / "history-h4.js")'),
+            server.index('h4_storage_js = (self.server.static_root / "history-h4-storage.js")'),
         )
 
     def test_ai_telemetry_send_logic_is_byte_for_byte_unchanged_from_h3(self) -> None:
