@@ -26,6 +26,27 @@ def _require_aware_datetime(payload: dict[str, Any], field: str) -> None:
         raise RuntimeError(f"AI advisory field {field!r} must include timezone information")
 
 
+def _validate_operator_view(result: dict[str, Any]) -> None:
+    """Validate presentation shape only; CM5 never reinterprets AI semantics."""
+
+    view = result.get("operator_view")
+    if view is None:
+        return
+    if not isinstance(view, dict):
+        raise RuntimeError("AI advisory operator_view must be an object")
+    if view.get("schema_version") != 1:
+        raise RuntimeError("AI advisory operator_view schema is unsupported")
+    for field in (
+        "status_label_pl",
+        "headline_pl",
+        "summary_pl",
+        "recommendation_pl",
+        "data_quality_short_pl",
+    ):
+        if not isinstance(view.get(field), str) or not view[field].strip():
+            raise RuntimeError(f"AI advisory operator_view field {field!r} is invalid")
+
+
 def validate_advisory_delivery(
     payload: dict[str, Any],
     *,
@@ -67,6 +88,7 @@ def validate_advisory_delivery(
         if not isinstance(result.get(field), str) or not result[field].strip():
             raise RuntimeError(f"AI advisory result field {field!r} is invalid")
 
+    _validate_operator_view(result)
     return payload
 
 
