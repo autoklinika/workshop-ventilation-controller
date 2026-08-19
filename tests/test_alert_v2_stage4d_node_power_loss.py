@@ -46,7 +46,7 @@ class AlertV2Stage4DNodePowerLossTests(unittest.TestCase):
         self.assertIn("require_passive_safe_state", source)
         self.assertIn("_require_non_target_healthy", source)
         self.assertIn("non-target SENSOR BUS", source)
-        self.assertIn("non-target_node_healthy", source)
+        self.assertIn('"non_target_node_healthy": True', source)
         self.assertIn("both KAmod heartbeats must be online before Stage 4D", source)
 
     def test_validator_does_not_inject_software_or_issue_control_commands(self) -> None:
