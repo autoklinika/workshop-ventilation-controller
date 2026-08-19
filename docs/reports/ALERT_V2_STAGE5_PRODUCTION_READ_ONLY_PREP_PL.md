@@ -242,7 +242,7 @@ Po dodaniu validatora, helpera rollout/rollback oraz testów kontraktu GitHub Ac
 Ventilation Core Tests #1614 = SUCCESS
 ```
 
-Poprzedni pełny przebieg z tym samym zestawem testów Stage 5 wykonał 426 testów i zakończył `OK`; ostatnia zmiana dodatkowo utwardziła automatyczny rollback o kontrolę `STOP / 0 V`.
+Pełny przebieg Stage 5 wykonał 426 testów i zakończył `OK`. Następnie helper rollout został dodatkowo utwardzony o potwierdzenie `STOP / 0 V / output_state_known=true` po automatycznym rollbacku; ten sam zestaw kontraktów pozostaje wymagany przez CI.
 
 ## 11. Kryterium PASS na CM5
 
