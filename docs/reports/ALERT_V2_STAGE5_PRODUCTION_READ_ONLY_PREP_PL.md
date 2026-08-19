@@ -206,7 +206,7 @@ systemctl daemon-reload
 restartuje ventilation-core.service
 ```
 
-czyli wraca do bazowego runtime z `/home/wentylacja/workshop-ventilation-controller`.
+czyli wraca do bazowego runtime z `/home/wentylacja/workshop-ventilation-controller` i dodatkowo potwierdza po rollback `STOP / 0 V / output_state_known=true`.
 
 ### `rollback`
 
@@ -234,7 +234,17 @@ TACHO_* nie może wywołać globalnego STOP / safe_state
 
 Weight alertu nadal nie jest równoznaczny z wykonaniem reakcji.
 
-## 10. Kryterium PASS na CM5
+## 10. Testy przygotowania
+
+Po dodaniu validatora, helpera rollout/rollback oraz testów kontraktu GitHub Actions zakończył:
+
+```text
+Ventilation Core Tests #1614 = SUCCESS
+```
+
+Poprzedni pełny przebieg z tym samym zestawem testów Stage 5 wykonał 426 testów i zakończył `OK`; ostatnia zmiana dodatkowo utwardziła automatyczny rollback o kontrolę `STOP / 0 V`.
+
+## 11. Kryterium PASS na CM5
 
 Stage 5 będzie uznany za zakończony dopiero po rzeczywistym `apply` na CM5 i wyniku:
 
