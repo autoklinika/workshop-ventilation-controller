@@ -1,0 +1,19 @@
+/* History H2.2: large-modal zoom/pan controls only. */
+.v2-history-zoom-controls{margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.v2-history-zoom-button,.v2-history-zoom-reset{height:46px;border:1px solid #355164;border-radius:10px;background:#0f2130;color:#d9edf8;font:inherit;font-weight:850;cursor:pointer;touch-action:manipulation;box-sizing:border-box}
+.v2-history-zoom-button{width:50px;font-size:1.42rem;line-height:1}
+.v2-history-zoom-reset{min-width:76px;padding:0 12px;font-size:.72rem;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.v2-history-zoom-button:hover,.v2-history-zoom-reset:hover{border-color:#4c7894;background:#133049;color:#eef9ff}
+.v2-history-zoom-button:focus-visible,.v2-history-zoom-reset:focus-visible{outline:3px solid rgba(88,195,255,.68);outline-offset:2px}
+.v2-history-zoom-button:disabled{opacity:.35;cursor:default}
+.v2-history-detail-stage{touch-action:none}
+.v2-history-detail-stage.is-zoomed{cursor:grab}
+.v2-history-detail-stage.is-zoomed:active{cursor:grabbing}
+#historyModalSvg{touch-action:none;user-select:none;-webkit-user-select:none}
+@media(max-width:1280px){
+  .v2-history-detail-head{gap:12px;padding-left:16px;padding-right:16px}
+  .v2-history-zoom-controls{gap:6px}
+  .v2-history-zoom-button{width:46px;height:44px}
+  .v2-history-zoom-reset{min-width:70px;height:44px;padding:0 10px}
+  .v2-history-detail-close{min-width:110px;min-height:44px;padding:0 14px}
+}
