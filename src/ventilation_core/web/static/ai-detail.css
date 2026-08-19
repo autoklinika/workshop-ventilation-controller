@@ -41,11 +41,11 @@
 }
 
 .v2-ai-panel .v2-event{
-  height:52px;
+  height:58px;
   min-height:0;
-  grid-template-columns:38px minmax(0,1fr);
+  grid-template-columns:40px minmax(0,1fr);
   gap:10px;
-  padding:4px 0 5px;
+  padding:4px 0;
   box-sizing:border-box;
   overflow:hidden;
 }
@@ -55,8 +55,8 @@
 }
 
 .v2-ai-panel .v2-event-icon{
-  width:34px;
-  height:34px;
+  width:36px;
+  height:36px;
   font-size:1rem;
 }
 
@@ -70,20 +70,20 @@
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  font-size:.78rem;
-  line-height:1.2;
+  font-size:.82rem;
+  line-height:1.15;
 }
 
 .v2-ai-panel .v2-event small{
   display:-webkit-box;
-  margin-top:3px;
+  margin-top:2px;
   overflow:hidden;
   -webkit-box-orient:vertical;
   -webkit-line-clamp:2;
   line-clamp:2;
   text-overflow:ellipsis;
-  font-size:.73rem;
-  line-height:1.25;
+  font-size:.79rem;
+  line-height:1.22;
 }
 
 body.v2-ai-detail-open{
