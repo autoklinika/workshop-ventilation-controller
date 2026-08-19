@@ -51,12 +51,21 @@ class HistorySeriesService:
     """
 
     MAX_SERIES_PER_QUERY = 16
-    MAX_SOURCE_SAMPLES = 2000
-    RESOLUTION_SECONDS = {"raw": 5, "1m": 60, "15m": 900}
+    MAX_SOURCE_SAMPLES = 2500
+    RESOLUTION_SECONDS = {
+        "raw": 5,
+        "1m": 60,
+        "15m": 15 * 60,
+        "1h": 60 * 60,
+        "1d": 24 * 60 * 60,
+    }
     RANGE_PRESETS = {
         "1h": ("1 godzina", timedelta(hours=1)),
         "24h": ("24 godziny", timedelta(hours=24)),
         "7d": ("7 dni", timedelta(days=7)),
+        "30d": ("30 dni", timedelta(days=30)),
+        "90d": ("90 dni", timedelta(days=90)),
+        "1y": ("1 rok", timedelta(days=365)),
     }
 
     def __init__(
@@ -74,13 +83,13 @@ class HistorySeriesService:
     def catalog(self) -> dict[str, Any]:
         return {
             "schema_version": 1,
-            "resolutions": ["auto", "raw", "1m", "15m"],
+            "resolutions": ["auto", "raw", "1m", "15m", "1h", "1d"],
             "ranges": [
                 {"id": range_id, "label": label}
                 for range_id, (label, _duration) in self.RANGE_PRESETS.items()
             ],
             "series": [spec.to_dict() for spec in self._specs.values()],
-            "long_range_rollups_ready": False,
+            "long_range_rollups_ready": True,
         }
 
     def query(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -102,8 +111,11 @@ class HistorySeriesService:
 
         start, end, range_id = self._resolve_range(body)
         resolution_request = body.get("resolution", "auto")
-        if resolution_request not in {"auto", "raw", "1m", "15m"}:
-            raise ValueError("history series resolution must be one of: auto, raw, 1m, 15m")
+        supported = {"auto", *self.RESOLUTION_SECONDS.keys()}
+        if resolution_request not in supported:
+            raise ValueError(
+                "history series resolution must be one of: auto, raw, 1m, 15m, 1h, 1d"
+            )
         resolution = (
             self._auto_resolution(end - start)
             if resolution_request == "auto"
@@ -184,7 +196,11 @@ class HistorySeriesService:
             return "raw"
         if seconds <= 2 * 24 * 60 * 60:
             return "1m"
-        return "15m"
+        if seconds <= 14 * 24 * 60 * 60:
+            return "15m"
+        if seconds <= 120 * 24 * 60 * 60:
+            return "1h"
+        return "1d"
 
     def _source_limit(self, start: datetime, end: datetime, resolution: str) -> int:
         seconds = (end - start).total_seconds()
@@ -196,7 +212,7 @@ class HistorySeriesService:
         if expected > self.MAX_SOURCE_SAMPLES:
             raise ValueError(
                 "history range is too large for current stored resolution; "
-                "use a shorter range or wait for long-range rollups"
+                "use a shorter range or a coarser resolution"
             )
         return max(1, expected)
 
