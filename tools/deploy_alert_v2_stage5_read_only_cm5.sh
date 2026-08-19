@@ -205,10 +205,10 @@ PY
         exit 1
     fi
 
-    PYTHONPATH="$ROOT/src" /usr/bin/python3 - <<'PY'
+    PYTHONPATH="$WT/src" /usr/bin/python3 - <<'PY'
 from ventilation_core.alert_v2_stage4b_runtime import CoreReadOnlyClient, require_passive_safe_state
 require_passive_safe_state(CoreReadOnlyClient(timeout_seconds=1.0).request("status"))
-print("PASS: legacy production core is STOP / 0 V / output_state_known after rollback")
+print("PASS: base production core is STOP / 0 V / output_state_known after rollback")
 PY
 
     echo "PASS: Stage 5 drop-in removed and production core returned to base runtime"
