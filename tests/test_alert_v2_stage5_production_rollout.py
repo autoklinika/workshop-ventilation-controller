@@ -78,10 +78,11 @@ class AlertV2Stage5ProductionRolloutTests(unittest.TestCase):
         self.assertIn("existing runtime policy preserved", source)
         self.assertIn("POLICY_PATH was intentionally preserved", source)
 
-    def test_deploy_requires_stop_zero_preflight_before_restart(self) -> None:
+    def test_deploy_requires_stop_zero_preflight_before_rollout_restart(self) -> None:
         source = DEPLOY.read_text(encoding="utf-8")
-        preflight_index = source.index("preflight\n")
-        restart_index = source.index('systemctl restart "$UNIT"')
+        apply_body = source.split("apply_rollout() {", 1)[1].split("rollback_rollout() {", 1)[0]
+        preflight_index = apply_body.index("preflight\n")
+        restart_index = apply_body.index('systemctl restart "$UNIT"')
         self.assertLess(preflight_index, restart_index)
         self.assertIn("validate_alert_v2_stage4a_preflight.py", source)
 
