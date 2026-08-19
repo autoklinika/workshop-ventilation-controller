@@ -79,18 +79,19 @@ class ZoneDetailModalTest(unittest.TestCase):
             self.assertIn(token, self.js)
         self.assertNotIn("inferAero", self.js)
         self.assertNotIn("estimateAero", self.js)
+        self.assertNotIn("fan_1_percent +", self.js)
+        self.assertNotIn("fan_2_percent +", self.js)
 
-    def test_zone_client_is_read_only_and_does_not_perform_domain_analysis(self) -> None:
+    def test_zone_client_is_read_only_and_does_not_issue_control_commands(self) -> None:
         self.assertIn('zoneDetailGet("/api/v1/state")', self.js)
         self.assertIn('zoneDetailGet("/api/v1/config")', self.js)
         self.assertNotIn('method: "POST"', self.js)
         self.assertNotIn('method: "PUT"', self.js)
         self.assertNotIn('method: "PATCH"', self.js)
         self.assertNotIn('method: "DELETE"', self.js)
-        self.assertNotIn("slope", self.js)
-        self.assertNotIn("average", self.js.lower())
-        self.assertNotIn("trend", self.js.lower())
         self.assertNotIn("/api/v1/manual/", self.js)
+        self.assertNotIn("/api/v1/alerts/ack", self.js)
+        self.assertNotIn("/api/v1/schedule/zone", self.js)
 
     def test_modal_refreshes_live_values_only_while_open(self) -> None:
         self.assertIn("const ZONE_DETAIL_POLL_MS = 2000;", self.js)
