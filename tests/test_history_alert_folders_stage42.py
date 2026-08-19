@@ -101,16 +101,16 @@ class HistoryAlertFoldersStage42Test(unittest.TestCase):
         self.assertIn("historyH42DateKey(alert.cleared_at)", group_function)
         self.assertNotIn("severity", group_function.lower())
 
-    def test_expanded_alert_folders_scroll_inside_archive(self) -> None:
+    def test_expanded_alert_folders_extend_page_instead_of_nested_scroll(self) -> None:
         css = (STATIC / "history-h42-alert-folders.css").read_text(encoding="utf-8")
-        self.assertIn(".v2-history-alert-archive{height:calc(100vh - 230px)", css)
-        self.assertIn("height:calc(100dvh - 230px)", css)
-        self.assertIn("grid-template-rows:auto minmax(0,1fr)", css)
-        self.assertIn("overflow:hidden", css)
-        self.assertIn(".v2-history-alert-groups{min-height:0;overflow-y:auto", css)
-        self.assertIn("touch-action:pan-y", css)
-        self.assertIn("-webkit-overflow-scrolling:touch", css)
-        self.assertIn("scrollbar-gutter:stable", css)
+        self.assertIn(".v2-history-alert-archive{height:auto", css)
+        self.assertIn("grid-template-rows:auto auto", css)
+        self.assertIn("overflow:visible", css)
+        self.assertIn(".v2-history-alert-groups{min-height:0;overflow:visible", css)
+        self.assertNotIn("height:calc(100vh - 230px)", css)
+        self.assertNotIn("height:calc(100dvh - 230px)", css)
+        self.assertNotIn("overflow-y:auto", css)
+        self.assertNotIn("scrollbar-gutter:stable", css)
 
     def test_h42_assets_are_bundled_after_h41(self) -> None:
         server = (ROOT / "src" / "ventilation_core" / "web" / "server.py").read_text(
