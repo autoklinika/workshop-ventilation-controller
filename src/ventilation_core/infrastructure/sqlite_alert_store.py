@@ -113,7 +113,7 @@ class SqliteAlertStore:
                 """,
                 (
                     signal.code.value,
-                    signal.source.value if hasattr(signal.source, "value") else signal.source,
+                    signal.source,
                     signal.severity.value,
                     signal.message,
                     signal.detail,
