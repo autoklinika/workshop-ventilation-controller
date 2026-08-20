@@ -2,7 +2,10 @@ package pl.autoklinika.workshopventilation.hmi;
 
 import android.util.Log;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
@@ -11,7 +14,8 @@ final class IiyamaLedDriver {
 
     private static final String TAG = "WvcHmiLed";
     private static final String SYSFS = "/sys/devices/platform/led_con_h/zigbee_reset";
-    private static final long COMMAND_TIMEOUT_MS = 1200L;
+    private static final long COMMAND_TIMEOUT_MS = 1500L;
+    private static final long ON_SETTLE_MS = 200L;
 
     // Hardware-validated vendor commands.
     static final int CODE_OFF = 0x02;
@@ -27,36 +31,41 @@ final class IiyamaLedDriver {
     static final int CODE_ALARM_FALLBACK = CODE_ORANGE;
 
     /**
-     * Execute every vendor transition as one atomic root-shell transaction.
+     * Drive the vendor sysfs through a one-shot interactive `su` session.
      *
-     * The panel expects COLOR to be preceded by LED ON. Keeping a long-lived shell and
-     * splitting ON/COLOR into separate writes proved unreliable on real hardware after
-     * an ACK transition: the vendor LED engine could remain in its colour-cycle mode.
+     * This deliberately mirrors the command path validated manually on the panel:
+     *   printf 'echo ...\nexit\n' | su
      *
-     * Therefore:
-     *   OFF   -> one command containing only 0x02
-     *   COLOR -> one `su -c` command containing `0x03 && COLOR`
-     *
-     * This matches the hardware command sequence validated manually on the iiyama.
+     * `su -c` is not used because this iiyama firmware does not execute that form
+     * reliably from the application process.
      */
     synchronized boolean writeCode(int code) {
-        String command;
-        if (code == CODE_OFF) {
-            command = rawCommand(CODE_OFF);
-        } else {
-            command = rawCommand(CODE_ON) + " && " + rawCommand(code);
-        }
-
         Process process = null;
         try {
-            process = new ProcessBuilder("su", "-c", command)
+            process = new ProcessBuilder("su")
                     .redirectErrorStream(true)
                     .start();
+
+            try (BufferedWriter input = new BufferedWriter(new OutputStreamWriter(
+                    process.getOutputStream(), StandardCharsets.UTF_8))) {
+                if (code == CODE_OFF) {
+                    writeRawCode(input, CODE_OFF);
+                } else {
+                    writeRawCode(input, CODE_ON);
+                    input.flush();
+                    waitForOnSettle();
+                    writeRawCode(input, code);
+                }
+                input.write("exit");
+                input.newLine();
+                input.flush();
+            }
 
             boolean finished = process.waitFor(COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                Log.e(TAG, "Timed out writing iiyama RGB code 0x" + String.format(Locale.US, "%02X", code));
+                Log.e(TAG, "Timed out writing iiyama RGB code 0x"
+                        + String.format(Locale.US, "%02X", code));
                 return false;
             }
 
@@ -67,10 +76,10 @@ final class IiyamaLedDriver {
                 return false;
             }
 
-            Log.d(TAG, "RGB write code=0x" + String.format(Locale.US, "%02X", code));
+            Log.i(TAG, "RGB write PASS code=0x" + String.format(Locale.US, "%02X", code));
             return true;
         } catch (IOException error) {
-            Log.e(TAG, "Unable to start root command for iiyama RGB bar", error);
+            Log.e(TAG, "Unable to use root shell for iiyama RGB bar", error);
             return false;
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
@@ -83,7 +92,17 @@ final class IiyamaLedDriver {
         }
     }
 
-    private static String rawCommand(int code) {
-        return String.format(Locale.US, "echo w 0x%02X > %s", code & 0xFF, SYSFS);
+    private static void writeRawCode(BufferedWriter input, int code) throws IOException {
+        input.write(String.format(Locale.US, "echo w 0x%02X > %s", code & 0xFF, SYSFS));
+        input.newLine();
+    }
+
+    private static void waitForOnSettle() throws IOException {
+        try {
+            Thread.sleep(ON_SETTLE_MS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while enabling iiyama RGB bar", error);
+        }
     }
 }
