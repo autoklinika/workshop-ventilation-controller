@@ -6,7 +6,7 @@
 
 Finalny raport walidacji: `docs/reports/IYAMA_ANDROID_KIOSK_STAGE4_FINAL_VALIDATION_2026-08-20_PL.md`.
 
-**RGB Alert LED Stage 1 — SOFTWARE + CI PASS, hardware alert-flow validation pending.**
+**RGB Alert LED Stage 1 — finalna paleta zakodowana; pełna walidacja alert-flow na sprzęcie oczekuje.**
 
 Raport implementacji: `docs/reports/IYAMA_ANDROID_LED_ALERT_STAGE1_IMPLEMENTATION_PL.md`.
 
@@ -159,6 +159,13 @@ cd hmi\iiyama-android
 
 `deploy-debug.ps1` uses `adb install -r -t`; app-private service cards and the normal service PIN are preserved across this update path.
 
+Current LED build:
+
+```text
+versionCode 10
+versionName 0.5.3-led-alert-palette
+```
+
 ## Stage 4 hardware validation — PASS
 
 Na docelowym panelu iiyama TW1025LASC-B3PNR potwierdzono:
@@ -186,33 +193,35 @@ Priorytet lokalnej wizualizacji:
 CRITICAL > ALARM > WARNING > INFO > SERVICE > NORMAL
 ```
 
-Mapowanie:
+Finalne mapowanie:
 
 - NORMAL → zielony stały,
 - SERVICE / Android → niebieski stały, o ile nie ma aktywnego alertu,
-- INFO → niebieski,
-- WARNING → żółty,
-- ALARM → pomarańczowy,
-- CRITICAL → czerwony,
+- INFO → niebieski; UNACK miga, ACK stały,
+- WARNING → żółty; UNACK miga, ACK stały,
+- ALARM → pomarańczowy; UNACK miga, ACK stały,
+- CRITICAL → czerwony; UNACK szybko miga, ACK stały,
 - przed pierwszym poprawnym snapshotem → biały wolno migający,
 - utrata komunikacji po wcześniejszym połączeniu przez ponad 6 s → czerwony szybko migający.
 
-ACK nie obniża priorytetu i nie zmienia koloru; dla aktywnego alertu przełącza wzór z migania na światło stałe.
+ACK nie obniża priorytetu i nie zmienia koloru.
 
-Sprzętowo potwierdzona paleta:
+Sprzętowo potwierdzona paleta docelowego B3:
 
 ```text
 0x02 = OFF
 0x03 = LED ON
-0x04 = RED
-0x05 = GREEN
-0x06 = BLUE
-0x07 = WHITE
-0x08 = ORANGE
-0x0B = YELLOW
+0x04 = RED / CRITICAL
+0x05 = GREEN / NORMAL
+0x06 = BLUE / INFO + SERVICE
+0x07 = WHITE / STARTUP UNKNOWN
+0x08 = ORANGE / ALARM
+0x10 = YELLOW / WARNING
 ```
 
-Sterownik wysyła `0x03` przed każdą komendą koloru.
+Potwierdzone efekty `0x0B`, `0x0F`, `0x13`, `0x17` nie są używane przez AlertV2, ponieważ mają własne zachowanie kolorystyczne. Próby uzyskania fade bieżącego koloru przez efekt producenta, custom RGB i brightness nie dały poprawnego fade na B3. Starszy interfejs `/dev/ledjni` z demo B1 nie istnieje na docelowym B3.
+
+Sterownik używa zatem statycznego koloru oraz kontrolowanego programowo ON/OFF dla stanów UNACK. Po OFF wysyła `0x03`, a następnie właściwy statyczny kolor; przy zwykłej zmianie koloru bez OFF nie powtarza `0x03`.
 
 Test palety:
 
@@ -220,4 +229,4 @@ Test palety:
 .\tools\test-led-palette.ps1
 ```
 
-Skrypt używa wyłącznie potwierdzonej palety i sprawdza połączenie ADB przed testem.
+Skrypt sprawdza kolejno zielony, niebieski, żółty, pomarańczowy, czerwony i biały.
