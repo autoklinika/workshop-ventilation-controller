@@ -1,12 +1,17 @@
 package pl.autoklinika.workshopventilation.hmi;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
 import android.graphics.Color;
 import android.net.Uri;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -25,6 +30,7 @@ import java.util.Locale;
 
 public class MainActivity extends Activity implements NfcAdapter.ReaderCallback {
 
+    private static final String TAG = "WvcHmiKiosk";
     private static final String HMI_URL = "http://192.168.1.64:18091/";
     private static final String ALLOWED_SCHEME = "http";
     private static final String ALLOWED_HOST = "192.168.1.64";
@@ -33,6 +39,8 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
     private WebView webView;
     private NfcAdapter nfcAdapter;
+    private DevicePolicyManager devicePolicyManager;
+    private ComponentName deviceAdminComponent;
     private boolean pageReady = false;
     private String pendingNfcEvent = null;
     private String lastUid = null;
@@ -43,6 +51,11 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         super.onCreate(savedInstanceState);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        devicePolicyManager =
+                (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        deviceAdminComponent = new ComponentName(this, KioskDeviceAdminReceiver.class);
+        configureDeviceOwnerPolicies();
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
@@ -61,7 +74,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setUserAgentString(
-                settings.getUserAgentString() + " WorkshopVentilationHmi/0.1"
+                settings.getUserAgentString() + " WorkshopVentilationHmi/0.2"
         );
 
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
@@ -128,6 +141,51 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         webView.loadUrl(HMI_URL);
     }
 
+    private void configureDeviceOwnerPolicies() {
+        if (devicePolicyManager == null
+                || !devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
+            Log.i(TAG, "Device Owner not active; Android lock task remains disabled");
+            return;
+        }
+
+        try {
+            devicePolicyManager.setLockTaskPackages(
+                    deviceAdminComponent,
+                    new String[]{getPackageName()}
+            );
+            devicePolicyManager.setLockTaskFeatures(
+                    deviceAdminComponent,
+                    DevicePolicyManager.LOCK_TASK_FEATURE_NONE
+            );
+            Log.i(TAG, "Device Owner policy configured; package allowlisted for lock task");
+        } catch (RuntimeException error) {
+            Log.e(TAG, "Unable to configure Device Owner kiosk policy", error);
+        }
+    }
+
+    private void enterLockTaskIfPermitted() {
+        if (devicePolicyManager == null
+                || !devicePolicyManager.isDeviceOwnerApp(getPackageName())
+                || !devicePolicyManager.isLockTaskPermitted(getPackageName())) {
+            return;
+        }
+
+        ActivityManager activityManager =
+                (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (activityManager != null
+                && activityManager.getLockTaskModeState()
+                != ActivityManager.LOCK_TASK_MODE_NONE) {
+            return;
+        }
+
+        try {
+            startLockTask();
+            Log.i(TAG, "Android Lock Task Mode entered");
+        } catch (RuntimeException error) {
+            Log.e(TAG, "Unable to enter Android Lock Task Mode", error);
+        }
+    }
+
     private boolean isAllowedUri(Uri uri) {
         if (uri == null) {
             return false;
@@ -142,6 +200,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     protected void onResume() {
         super.onResume();
         scheduleImmersiveMode();
+        enterLockTaskIfPermitted();
 
         if (nfcAdapter == null || !nfcAdapter.isEnabled()) {
             return;
