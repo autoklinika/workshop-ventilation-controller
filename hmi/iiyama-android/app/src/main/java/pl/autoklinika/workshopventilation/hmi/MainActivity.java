@@ -36,6 +36,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     private static final String ALLOWED_HOST = "192.168.1.64";
     private static final int ALLOWED_PORT = 18091;
     private static final long NFC_DEBOUNCE_MS = 1500L;
+    private static final long[] KIOSK_RETRY_DELAYS_MS = {250L, 1000L, 3000L, 7000L};
 
     private WebView webView;
     private NfcAdapter nfcAdapter;
@@ -132,10 +133,11 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
         setContentView(webView);
 
-        // The iiyama Android 13 firmware may not have a DecorView-backed
-        // WindowInsetsController available at the beginning of onCreate().
-        // Defer immersive-mode setup until the content view is attached.
+        // The iiyama Android 13 firmware may still be finishing its boot/UI
+        // transition when BOOT_COMPLETED starts this activity. Re-assert both
+        // immersive mode and Android Lock Task after the view is attached.
         scheduleImmersiveMode();
+        scheduleKioskEnforcement();
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         webView.loadUrl(HMI_URL);
@@ -186,6 +188,23 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         }
     }
 
+    private void enforceKioskNow() {
+        configureDeviceOwnerPolicies();
+        enterLockTaskIfPermitted();
+    }
+
+    private void scheduleKioskEnforcement() {
+        View decorView = getWindow().getDecorView();
+        for (long delayMs : KIOSK_RETRY_DELAYS_MS) {
+            decorView.postDelayed(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                enforceKioskNow();
+            }, delayMs);
+        }
+    }
+
     private boolean isAllowedUri(Uri uri) {
         if (uri == null) {
             return false;
@@ -200,7 +219,8 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     protected void onResume() {
         super.onResume();
         scheduleImmersiveMode();
-        enterLockTaskIfPermitted();
+        enforceKioskNow();
+        scheduleKioskEnforcement();
 
         if (nfcAdapter == null || !nfcAdapter.isEnabled()) {
             return;
@@ -227,6 +247,8 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
         if (hasFocus) {
             scheduleImmersiveMode();
+            enforceKioskNow();
+            scheduleKioskEnforcement();
         }
     }
 
