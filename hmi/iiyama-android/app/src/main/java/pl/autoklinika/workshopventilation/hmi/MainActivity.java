@@ -2,26 +2,32 @@ package pl.autoklinika.workshopventilation.hmi;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.provider.Settings;
+import android.text.InputType;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.EditText;
 import android.widget.Toast;
 
 import org.json.JSONObject;
@@ -31,21 +37,28 @@ import java.util.Locale;
 public class MainActivity extends Activity implements NfcAdapter.ReaderCallback {
 
     private static final String TAG = "WvcHmiKiosk";
+    private static final String SERVICE_TAG = "WvcHmiService";
     private static final String HMI_URL = "http://192.168.1.64:18091/";
     private static final String ALLOWED_SCHEME = "http";
     private static final String ALLOWED_HOST = "192.168.1.64";
     private static final int ALLOWED_PORT = 18091;
     private static final long NFC_DEBOUNCE_MS = 1500L;
     private static final long[] KIOSK_RETRY_DELAYS_MS = {250L, 1000L, 3000L, 7000L};
+    private static final int MAX_PIN_ATTEMPTS = 5;
+    private static final long PIN_LOCKOUT_MS = 30000L;
 
     private WebView webView;
     private NfcAdapter nfcAdapter;
     private DevicePolicyManager devicePolicyManager;
     private ComponentName deviceAdminComponent;
     private boolean pageReady = false;
+    private boolean serviceExitActive = false;
+    private boolean servicePinDialogVisible = false;
     private String pendingNfcEvent = null;
     private String lastUid = null;
     private long lastScanElapsedMs = 0L;
+    private int failedPinAttempts = 0;
+    private long pinLockoutUntilElapsedMs = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +76,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
+        webView.addJavascriptInterface(new KioskJavascriptBridge(), "WvcKioskBridge");
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -75,7 +89,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setUserAgentString(
-                settings.getUserAgentString() + " WorkshopVentilationHmi/0.2"
+                settings.getUserAgentString() + " WorkshopVentilationHmi/0.3"
         );
 
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
@@ -144,6 +158,10 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void configureDeviceOwnerPolicies() {
+        if (serviceExitActive) {
+            return;
+        }
+
         if (devicePolicyManager == null
                 || !devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
             Log.i(TAG, "Device Owner not active; Android lock task remains disabled");
@@ -166,6 +184,10 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void enterLockTaskIfPermitted() {
+        if (serviceExitActive) {
+            return;
+        }
+
         if (devicePolicyManager == null
                 || !devicePolicyManager.isDeviceOwnerApp(getPackageName())
                 || !devicePolicyManager.isLockTaskPermitted(getPackageName())) {
@@ -189,6 +211,9 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void enforceKioskNow() {
+        if (serviceExitActive) {
+            return;
+        }
         configureDeviceOwnerPolicies();
         enterLockTaskIfPermitted();
     }
@@ -197,7 +222,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         View decorView = getWindow().getDecorView();
         for (long delayMs : KIOSK_RETRY_DELAYS_MS) {
             decorView.postDelayed(() -> {
-                if (isFinishing() || isDestroyed()) {
+                if (isFinishing() || isDestroyed() || serviceExitActive) {
                     return;
                 }
                 enforceKioskNow();
@@ -215,9 +240,151 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                 && uri.getPort() == ALLOWED_PORT;
     }
 
+    private void showServicePinDialog() {
+        if (servicePinDialogVisible || serviceExitActive) {
+            return;
+        }
+
+        if (!ServiceAccessConfig.isPinConfigured()) {
+            Log.w(SERVICE_TAG, "Service PIN requested but no PIN is configured yet");
+            Toast.makeText(this, "PIN serwisowy nie jest jeszcze skonfigurowany", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        long now = SystemClock.elapsedRealtime();
+        if (now < pinLockoutUntilElapsedMs) {
+            long seconds = Math.max(1L, (pinLockoutUntilElapsedMs - now + 999L) / 1000L);
+            Toast.makeText(
+                    this,
+                    "Zbyt wiele prób. Spróbuj za " + seconds + " s",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(
+                InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        );
+        input.setHint("PIN");
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Tryb serwisowy")
+                .setMessage("Wprowadź PIN serwisowy")
+                .setView(input)
+                .setNegativeButton("Anuluj", null)
+                .setPositiveButton("Odblokuj", null)
+                .create();
+
+        servicePinDialogVisible = true;
+        dialog.setOnDismissListener(ignored -> servicePinDialogVisible = false);
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+                String pin = input.getText().toString();
+                if (ServiceAccessConfig.matchesPin(pin)) {
+                    failedPinAttempts = 0;
+                    pinLockoutUntilElapsedMs = 0L;
+                    dialog.dismiss();
+                    exitKioskToSettings("PIN");
+                    return;
+                }
+
+                failedPinAttempts++;
+                input.setText("");
+                input.setError("Nieprawidłowy PIN");
+
+                if (failedPinAttempts >= MAX_PIN_ATTEMPTS) {
+                    failedPinAttempts = 0;
+                    pinLockoutUntilElapsedMs =
+                            SystemClock.elapsedRealtime() + PIN_LOCKOUT_MS;
+                    Log.w(SERVICE_TAG, "Service PIN temporarily locked after failed attempts");
+                    dialog.dismiss();
+                    Toast.makeText(
+                            MainActivity.this,
+                            "Zbyt wiele prób. Blokada na 30 s",
+                            Toast.LENGTH_LONG
+                    ).show();
+                }
+            });
+        });
+
+        dialog.getWindow();
+        dialog.show();
+        input.requestFocus();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            );
+        }
+    }
+
+    private void exitKioskToSettings(String method) {
+        if (serviceExitActive) {
+            return;
+        }
+
+        serviceExitActive = true;
+
+        try {
+            ActivityManager activityManager =
+                    (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            if (activityManager != null
+                    && activityManager.getLockTaskModeState()
+                    != ActivityManager.LOCK_TASK_MODE_NONE) {
+                stopLockTask();
+            }
+        } catch (RuntimeException error) {
+            serviceExitActive = false;
+            Log.e(SERVICE_TAG, "Unable to leave Android Lock Task Mode", error);
+            Toast.makeText(this, "Nie udało się wyjść z kiosku", Toast.LENGTH_LONG).show();
+            enforceKioskNow();
+            return;
+        }
+
+        showSystemBars();
+
+        Intent settingsIntent = new Intent(Settings.ACTION_SETTINGS);
+        settingsIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+        try {
+            startActivity(settingsIntent);
+            Log.i(SERVICE_TAG, "Service exit granted via " + method + "; Android Settings opened");
+            Toast.makeText(this, "Tryb serwisowy", Toast.LENGTH_SHORT).show();
+        } catch (RuntimeException error) {
+            serviceExitActive = false;
+            Log.e(SERVICE_TAG, "Unable to open Android Settings after service exit", error);
+            Toast.makeText(this, "Nie udało się otworzyć ustawień", Toast.LENGTH_LONG).show();
+            scheduleImmersiveMode();
+            enforceKioskNow();
+            scheduleKioskEnforcement();
+        }
+    }
+
+    private void showSystemBars() {
+        View decorView = getWindow().getDecorView();
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = decorView.getWindowInsetsController();
+            if (controller != null) {
+                controller.show(
+                        WindowInsets.Type.statusBars()
+                                | WindowInsets.Type.navigationBars()
+                );
+            }
+            return;
+        }
+        decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+
+        if (serviceExitActive) {
+            serviceExitActive = false;
+            Log.i(SERVICE_TAG, "HMI resumed after service mode; kiosk re-armed");
+        }
+
         scheduleImmersiveMode();
         enforceKioskNow();
         scheduleKioskEnforcement();
@@ -245,7 +412,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
 
-        if (hasFocus) {
+        if (hasFocus && !serviceExitActive) {
             scheduleImmersiveMode();
             enforceKioskNow();
             scheduleKioskEnforcement();
@@ -258,6 +425,13 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         String uid = toHexCompact(rawUid);
 
         if (uid.isEmpty() || isDebounced(uid)) {
+            return;
+        }
+
+        Log.i(SERVICE_TAG, "NFC UID scanned: " + uid);
+
+        if (ServiceAccessConfig.isServiceCard(uid)) {
+            runOnUiThread(() -> exitKioskToSettings("NFC:" + uid));
             return;
         }
 
@@ -349,6 +523,10 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void enterImmersiveMode() {
+        if (serviceExitActive) {
+            return;
+        }
+
         View decorView = getWindow().getDecorView();
 
         if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -380,8 +558,23 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     @Override
     protected void onDestroy() {
         if (webView != null) {
+            webView.removeJavascriptInterface("WvcKioskBridge");
             webView.destroy();
         }
         super.onDestroy();
+    }
+
+    private final class KioskJavascriptBridge {
+        @JavascriptInterface
+        public void requestServicePin() {
+            runOnUiThread(() -> {
+                if (webView == null || !isAllowedUri(Uri.parse(webView.getUrl()))) {
+                    Log.w(SERVICE_TAG, "Service PIN request rejected outside the HMI origin");
+                    return;
+                }
+                Log.i(SERVICE_TAG, "Service PIN requested by five-tap dashboard gesture");
+                showServicePinDialog();
+            });
+        }
     }
 }
