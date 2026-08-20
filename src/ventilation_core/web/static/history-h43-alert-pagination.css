@@ -1,0 +1,9 @@
+.v2-history-alert-day-loading{min-height:70px;display:grid;place-items:center;padding:18px;color:#718793;font-size:.72rem;text-align:center}
+.v2-history-alert-load-more,.v2-history-alert-load-older{min-height:42px;border:1px solid #345266;border-radius:10px;background:#102333;color:#b9dff1;font:inherit;font-size:.7rem;font-weight:850;letter-spacing:.055em;cursor:pointer;touch-action:manipulation}
+.v2-history-alert-load-more{width:100%;margin-top:2px}
+.v2-history-alert-load-older{min-width:260px;padding:0 22px}
+.v2-history-alert-load-more:hover,.v2-history-alert-load-older:hover{border-color:#4e7c98;background:#133049;color:#d8f2ff}
+.v2-history-alert-load-more:disabled,.v2-history-alert-load-older:disabled{opacity:.55;cursor:wait}
+.v2-history-alert-load-more:focus-visible,.v2-history-alert-load-older:focus-visible{outline:3px solid rgba(88,195,255,.58);outline-offset:2px}
+.v2-history-alert-older-footer{display:flex;justify-content:center;padding:12px 0 4px}
+@media(max-width:1280px){.v2-history-alert-load-older{min-width:230px;min-height:40px}}

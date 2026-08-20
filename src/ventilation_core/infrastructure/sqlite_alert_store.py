@@ -15,6 +15,11 @@ class SqliteAlertStore:
     change, so normal 1 Hz health supervision does not generate continuous eMMC
     writes. Occurrence-only growth is batched by AlertRegistry; the final exact
     count is written together with the CLEARED transition.
+
+    Alert history is intentionally not pruned automatically. The project keeps
+    the full local journal while the ventilation system is being characterized;
+    retention will be reviewed only after at least one year of operational data
+    has been collected.
     """
 
     def __init__(self, path: Path) -> None:

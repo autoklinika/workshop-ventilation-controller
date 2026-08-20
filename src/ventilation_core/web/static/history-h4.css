@@ -1,0 +1,177 @@
+.v2-history-storage-alert{
+  margin:-4px 0 10px;
+  min-height:40px;
+  padding:9px 14px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.12);
+  font-size:13px;
+  font-weight:800;
+  letter-spacing:.02em;
+  display:flex;
+  align-items:center;
+}
+.v2-history-storage-alert[hidden]{display:none!important}
+.v2-history-storage-alert.is-warning{
+  background:rgba(221,151,34,.13);
+  border-color:rgba(221,151,34,.48);
+}
+.v2-history-storage-alert.is-critical{
+  background:rgba(207,65,65,.16);
+  border-color:rgba(207,65,65,.58);
+}
+#historyStorageState.is-storage-warning{color:#dca43f}
+#historyStorageState.is-storage-critical{color:#e66b6b}
+.v2-history-global-storage-alert{
+  position:fixed;
+  top:12px;
+  right:16px;
+  z-index:930;
+  min-height:42px;
+  padding:0 15px;
+  border-radius:11px;
+  border:1px solid rgba(255,255,255,.14);
+  color:#f3f7fa;
+  font:inherit;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.045em;
+  box-shadow:0 10px 28px rgba(0,0,0,.28);
+  cursor:pointer;
+}
+.v2-history-global-storage-alert[hidden]{display:none!important}
+.v2-history-global-storage-alert.is-warning{
+  background:#6f4c13;
+  border-color:#b9842f;
+}
+.v2-history-global-storage-alert.is-critical{
+  background:#741f26;
+  border-color:#c3525d;
+}
+.v2-history-custom-range{white-space:nowrap}
+.v2-history-custom-overlay{
+  position:fixed;
+  inset:0;
+  z-index:950;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:rgba(4,8,14,.68);
+  backdrop-filter:blur(8px);
+}
+.v2-history-custom-overlay[hidden]{display:none!important}
+.v2-history-custom-panel{
+  width:min(720px,94vw);
+  max-height:90vh;
+  overflow:auto;
+  padding:20px;
+  border-radius:18px;
+  border:1px solid rgba(255,255,255,.12);
+  background:#111820;
+  box-shadow:0 24px 80px rgba(0,0,0,.48);
+}
+.v2-history-custom-head{
+  display:flex;
+  justify-content:space-between;
+  gap:18px;
+  align-items:flex-start;
+  margin-bottom:18px;
+}
+.v2-history-custom-head span{
+  display:block;
+  margin-bottom:4px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.14em;
+  opacity:.62;
+}
+.v2-history-custom-head h2{
+  margin:0;
+  font-size:24px;
+  line-height:1.15;
+}
+.v2-history-custom-close{
+  width:48px;
+  height:48px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);
+  font-size:30px;
+  line-height:1;
+  cursor:pointer;
+}
+.v2-history-custom-fields{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+}
+.v2-history-custom-fields label span{
+  display:block;
+  margin:0 0 7px 2px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.12em;
+  opacity:.66;
+}
+.v2-history-custom-fields input{
+  width:100%;
+  min-height:52px;
+  padding:0 12px;
+  box-sizing:border-box;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);
+  background:#0b1118;
+  color:inherit;
+  font:inherit;
+  font-size:16px;
+}
+.v2-history-custom-note{
+  margin:14px 2px 0;
+  font-size:12px;
+  line-height:1.45;
+  opacity:.62;
+}
+.v2-history-custom-error{
+  margin-top:12px;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid rgba(207,65,65,.55);
+  background:rgba(207,65,65,.14);
+  font-size:13px;
+  font-weight:700;
+}
+.v2-history-custom-error[hidden]{display:none!important}
+.v2-history-custom-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  margin-top:18px;
+}
+.v2-history-custom-actions button{
+  min-width:132px;
+  min-height:48px;
+  padding:0 16px;
+  border-radius:12px;
+  font-weight:800;
+  letter-spacing:.04em;
+  cursor:pointer;
+}
+.v2-history-custom-secondary{
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.04);
+}
+.v2-history-custom-primary{
+  border:1px solid rgba(74,167,255,.52);
+  background:rgba(74,167,255,.16);
+}
+body.v2-history-custom-open{overflow:hidden}
+@media(max-width:1280px){
+  .v2-history-ranges{flex-wrap:wrap;justify-content:flex-end}
+  .v2-history-custom-panel{width:min(680px,92vw);padding:18px}
+  .v2-history-custom-fields{gap:10px}
+  .v2-history-global-storage-alert{top:8px;right:10px;min-height:38px;font-size:11px}
+}
+@media(max-width:720px){
+  .v2-history-custom-fields{grid-template-columns:1fr}
+  .v2-history-custom-actions{flex-direction:column-reverse}
+  .v2-history-custom-actions button{width:100%}
+}

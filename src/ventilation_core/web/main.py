@@ -5,10 +5,11 @@ import logging
 import os
 from pathlib import Path
 
-from ventilation_core.telemetry.history import TelemetryHistoryReader
+from ventilation_core.telemetry.long_range_history import LongRangeTelemetryHistoryReader
 
 from .advisory import FileAdvisoryProvider
-from .app import WebApplication
+from .alert_history import SqliteAlertHistoryReader
+from .alert_history_app import AlertHistoryWebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
 from .server import WebUiHttpServer
@@ -17,6 +18,7 @@ from .weather import FileWeatherProvider
 
 DEFAULT_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
 DEFAULT_TELEMETRY_DATABASE = Path("/var/lib/workshop-ventilation/telemetry.sqlite3")
+DEFAULT_ALERT_DATABASE = Path("/var/lib/workshop-ventilation/alerts.sqlite3")
 DEFAULT_WEATHER_SNAPSHOT = Path("/var/lib/workshop-ventilation/weather.json")
 DEFAULT_AI_ADVISORY_CACHE = Path("/var/lib/workshop-ventilation/ai-advisory.json")
 DEFAULT_HOST = "0.0.0.0"
@@ -34,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(os.getenv("WVC_WEB_TELEMETRY_DATABASE", str(DEFAULT_TELEMETRY_DATABASE))),
         help="Read-only local telemetry history database",
+    )
+    parser.add_argument(
+        "--alert-database",
+        type=Path,
+        default=Path(os.getenv("WVC_WEB_ALERT_DATABASE", str(DEFAULT_ALERT_DATABASE))),
+        help="Read-only local alert journal database",
     )
     parser.add_argument(
         "--weather-snapshot",
@@ -61,7 +69,8 @@ def main() -> int:
     )
     static_root = Path(__file__).with_name("static")
     core = CoreUnixClient(args.socket, timeout_seconds=args.core_timeout)
-    history = TelemetryHistoryReader(args.telemetry_database)
+    history = LongRangeTelemetryHistoryReader(args.telemetry_database)
+    alert_history = SqliteAlertHistoryReader(args.alert_database)
     weather = FileWeatherProvider(args.weather_snapshot)
     advisory = FileAdvisoryProvider(
         args.ai_advisory_cache,
@@ -70,21 +79,23 @@ def main() -> int:
             "workshop-ventilation-cm5-01",
         ),
     )
-    app = WebApplication(
+    app = AlertHistoryWebApplication(
         core,
         WebUiConfig.from_environment(),
         weather,
         history,
         advisory,
+        alert_history=alert_history,
     )
     server = WebUiHttpServer((args.host, args.port), app, static_root)
 
     logging.getLogger(__name__).info(
-        "web UI listening on http://%s:%d using core socket %s; history=%s; weather_snapshot=%s; ai_advisory_cache=%s",
+        "web UI listening on http://%s:%d using core socket %s; history=%s; alert_history=%s; weather_snapshot=%s; ai_advisory_cache=%s",
         args.host,
         args.port,
         args.socket,
         args.telemetry_database,
+        args.alert_database,
         args.weather_snapshot,
         args.ai_advisory_cache,
     )

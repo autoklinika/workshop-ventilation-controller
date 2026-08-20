@@ -89,15 +89,15 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, request_path: str) -> None:
         if request_path in (
-            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/"
+            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/", "/history", "/history/"
         ):
             relative = "index.html"
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "sidebar.css", "v2-weather.css",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -107,6 +107,66 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         content = candidate.read_bytes()
+
+        # The dashboard already loads the Stage 2 AI assets. Keep staged presentation
+        # modules in separate source files, but append them to the existing dashboard
+        # asset responses so the shell stays stable while GUI work is validated.
+        if relative == "ai-operator-view.js":
+            for name in ("zone-detail.js", "history.js"):
+                module = (self.server.static_root / name).resolve()
+                if module.parent == self.server.static_root and module.is_file():
+                    content += b"\n\n" + module.read_bytes()
+            h21_js = (self.server.static_root / "history-h21.js").resolve()
+            if h21_js.parent == self.server.static_root and h21_js.is_file():
+                content += b"\n\n" + h21_js.read_bytes()
+            h22_js = (self.server.static_root / "history-h22.js").resolve()
+            if h22_js.parent == self.server.static_root and h22_js.is_file():
+                content += b"\n\n" + h22_js.read_bytes()
+            h23_js = (self.server.static_root / "history-h23.js").resolve()
+            if h23_js.parent == self.server.static_root and h23_js.is_file():
+                content += b"\n\n" + h23_js.read_bytes()
+            h3_js = (self.server.static_root / "history-h3.js").resolve()
+            if h3_js.parent == self.server.static_root and h3_js.is_file():
+                content += b"\n\n" + h3_js.read_bytes()
+            h4_js = (self.server.static_root / "history-h4.js").resolve()
+            if h4_js.parent == self.server.static_root and h4_js.is_file():
+                content += b"\n\n" + h4_js.read_bytes()
+            h4_storage_js = (self.server.static_root / "history-h4-storage.js").resolve()
+            if h4_storage_js.parent == self.server.static_root and h4_storage_js.is_file():
+                content += b"\n\n" + h4_storage_js.read_bytes()
+            h41_alert_js = (self.server.static_root / "history-h41-alerts.js").resolve()
+            if h41_alert_js.parent == self.server.static_root and h41_alert_js.is_file():
+                content += b"\n\n" + h41_alert_js.read_bytes()
+            h42_alert_js = (self.server.static_root / "history-h42-alert-folders.js").resolve()
+            if h42_alert_js.parent == self.server.static_root and h42_alert_js.is_file():
+                content += b"\n\n" + h42_alert_js.read_bytes()
+            h43_alert_js = (self.server.static_root / "history-h43-alert-pagination.js").resolve()
+            if h43_alert_js.parent == self.server.static_root and h43_alert_js.is_file():
+                content += b"\n\n" + h43_alert_js.read_bytes()
+        elif relative == "ai-detail.css":
+            for name in ("zone-detail.css", "history.css"):
+                module = (self.server.static_root / name).resolve()
+                if module.parent == self.server.static_root and module.is_file():
+                    content += b"\n\n" + module.read_bytes()
+            h21_css = (self.server.static_root / "history-h21.css").resolve()
+            if h21_css.parent == self.server.static_root and h21_css.is_file():
+                content += b"\n\n" + h21_css.read_bytes()
+            h22_css = (self.server.static_root / "history-h22.css").resolve()
+            if h22_css.parent == self.server.static_root and h22_css.is_file():
+                content += b"\n\n" + h22_css.read_bytes()
+            h4_css = (self.server.static_root / "history-h4.css").resolve()
+            if h4_css.parent == self.server.static_root and h4_css.is_file():
+                content += b"\n\n" + h4_css.read_bytes()
+            h41_alert_css = (self.server.static_root / "history-h41-alerts.css").resolve()
+            if h41_alert_css.parent == self.server.static_root and h41_alert_css.is_file():
+                content += b"\n\n" + h41_alert_css.read_bytes()
+            h42_alert_css = (self.server.static_root / "history-h42-alert-folders.css").resolve()
+            if h42_alert_css.parent == self.server.static_root and h42_alert_css.is_file():
+                content += b"\n\n" + h42_alert_css.read_bytes()
+            h43_alert_css = (self.server.static_root / "history-h43-alert-pagination.css").resolve()
+            if h43_alert_css.parent == self.server.static_root and h43_alert_css.is_file():
+                content += b"\n\n" + h43_alert_css.read_bytes()
+
         content_type, _ = mimetypes.guess_type(candidate.name)
         if content_type is None:
             content_type = "application/octet-stream"
