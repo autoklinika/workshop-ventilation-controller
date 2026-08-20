@@ -3,9 +3,10 @@
 /*
  * History H4.2: ALERTY becomes a third History tile.
  *
- * The archive uses only ended incidents returned by ventilation-core. Backend
- * storage owns the 30-day retention policy. The browser groups those existing
- * records by their cleared calendar date for presentation only.
+ * The archive uses ended incidents returned by ventilation-core. The browser
+ * groups those existing records by their cleared calendar date for presentation
+ * only. No browser-side retention policy is applied; the full alert journal is
+ * kept locally while the ventilation system is being characterized.
  */
 
 let historyH42Mode = "zone";
@@ -25,7 +26,7 @@ function historyH42EnsureAlertTile() {
   button.className = "v2-history-btn v2-history-alert-tile";
   button.dataset.historyZone = "alerts";
   button.textContent = "ALERTY";
-  button.setAttribute("aria-label", "Historia alertów z ostatnich 30 dni");
+  button.setAttribute("aria-label", "Historia alertów");
   button.addEventListener("click", () => historyH42SelectAlerts());
   host.appendChild(button);
   return button;
@@ -217,8 +218,8 @@ historyH41RenderArchive = function historyH42RenderArchive() {
   if (!host) return;
 
   if (kicker) kicker.textContent = "CM5 · REJESTR SYSTEMOWY";
-  if (title) title.textContent = "Historia alertów · ostatnie 30 dni";
-  if (description) description.textContent = "Zakończone alerty uporządkowane według dnia zakończenia. Kliknij datę, aby otworzyć katalog.";
+  if (title) title.textContent = "Historia alertów · pełny rejestr";
+  if (description) description.textContent = "Zakończone alerty uporządkowane według dnia zakończenia. Rejestr nie jest automatycznie przycinany.";
 
   if (historyH41Archive.lastError) {
     if (state) state.textContent = "BŁĄD ODCZYTU";
@@ -227,7 +228,7 @@ historyH41RenderArchive = function historyH42RenderArchive() {
   }
 
   const records = historyH41ClosedRecords(historyH41Archive.history);
-  if (state) state.textContent = "RETENCJA 30 DNI";
+  if (state) state.textContent = "PEŁNY REJESTR";
   if (count) count.textContent = `${records.length} zakończonych`;
 
   const signature = historyH42ArchiveSignature(records);
@@ -249,7 +250,7 @@ historyH41RenderArchive = function historyH42RenderArchive() {
   if (records.length === 0) {
     const empty = document.createElement("div");
     empty.className = "v2-history-alert-empty";
-    empty.textContent = "Brak zakończonych alertów z ostatnich 30 dni.";
+    empty.textContent = "Brak zakończonych alertów w rejestrze.";
     host.appendChild(empty);
     return;
   }
