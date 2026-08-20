@@ -1,6 +1,10 @@
 # Workshop Ventilation HMI — iiyama Android
 
-Current development branch: `agent/iiyama-android-kiosk-stage4-service-access`
+## Status
+
+**Stage 4 — FINAL HARDWARE VALIDATION PASS (2026-08-20).**
+
+Finalny raport walidacji: `docs/reports/IYAMA_ANDROID_KIOSK_STAGE4_FINAL_VALIDATION_2026-08-20_PL.md`.
 
 ## Stage 4 — local service access management
 
@@ -131,7 +135,7 @@ adb shell dpm list-owners
 adb shell "dumpsys activity activities | grep -A8 -B2 'LockTaskController'"
 ```
 
-The validation APK is still marked `android:testOnly="true"` so recovery remains possible during hardware validation.
+The current APK is still marked `android:testOnly="true"`; this is retained as a deliberate recovery path while the Android shell remains under active development.
 
 ## Build / deploy
 
@@ -150,17 +154,19 @@ cd hmi\iiyama-android
 
 `deploy-debug.ps1` uses `adb install -r -t`; app-private service cards and the normal service PIN are preserved across this update path.
 
-## Revised Stage 4 hardware validation
+## Stage 4 hardware validation — PASS
 
-1. Update the APK without reprovisioning Device Owner.
-2. Verify an allowed NFC card opens the two-tile service menu and Lock Task remains `LOCKED`.
-3. Verify `5× PULPIT + normal service PIN` opens the same menu and Lock Task remains `LOCKED`.
-4. Select `USTAWIENIA`; verify a wrong fixed administrator PIN is rejected.
-5. Verify the correct fixed administrator PIN opens the card/PIN editor.
-6. Verify existing card-management and normal service-PIN editing still work.
-7. Return to the service menu and select `ANDROID`.
-8. Verify Lock Task changes to `NONE`, the allowlist becomes empty and the Android launcher opens.
-9. Launch HMI again and verify Lock Task returns to `LOCKED` with HMI allowlisted.
-10. Reboot and verify HMI autostart + `LOCKED` still work.
+Na docelowym panelu iiyama TW1025LASC-B3PNR potwierdzono:
 
-Do not merge this branch into `main` without explicit project-owner approval.
+- Device Owner pozostaje aktywny po aktualizacji APK,
+- normalna praca HMI ma `mLockTaskModeState=LOCKED`,
+- NFC otwiera dwukafelkowe menu serwisowe bez opuszczania kiosku,
+- `5× PULPIT + normalny PIN serwisowy` otwiera to samo menu,
+- lokalne dodawanie kart NFC i zmiana normalnego PIN-u działają,
+- `USTAWIENIA` wymagają drugiego, stałego PIN-u administratora,
+- poprawny stały PIN otwiera edycję kart i normalnego PIN-u,
+- stałego PIN-u administratora nie można zmienić z HMI,
+- `ANDROID` przełącza Lock Task na `NONE`, czyści allowlistę i otwiera system Android,
+- po ponownym uruchomieniu HMI Lock Task wraca do `LOCKED` i pakiet HMI wraca na allowlistę.
+
+Szczegółowy zapis testów i wyniki znajdują się w finalnym raporcie Stage 4.
