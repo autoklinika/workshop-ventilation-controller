@@ -3,7 +3,7 @@ name: HMI Android
 on:
   push:
     branches:
-      - agent/iiyama-android-kiosk-stage3-service-exit
+      - agent/iiyama-android-kiosk-stage4-service-access
     paths:
       - 'hmi/iiyama-android/**'
       - '.github/workflows/hmi-android.yml'
@@ -49,6 +49,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: workshop-ventilation-hmi-kiosk-stage3-service-exit
+          name: workshop-ventilation-hmi-kiosk-stage4-service-access
           path: hmi/iiyama-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
