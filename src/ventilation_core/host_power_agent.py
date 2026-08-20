@@ -8,7 +8,6 @@ import signal
 import socket
 import subprocess
 import threading
-import time
 from typing import Callable
 
 
@@ -24,8 +23,8 @@ class HostPowerAgent:
     """Privileged local agent exposing only shutdown/restart over AF_UNIX."""
 
     COMMANDS: dict[str, tuple[str, ...]] = {
-        "shutdown": ("/usr/bin/systemctl", "poweroff"),
-        "restart": ("/usr/bin/systemctl", "reboot"),
+        "shutdown": ("/usr/bin/systemctl", "--no-block", "poweroff"),
+        "restart": ("/usr/bin/systemctl", "--no-block", "reboot"),
     }
 
     def __init__(
@@ -149,12 +148,13 @@ class HostPowerAgent:
 
     @staticmethod
     def _launch_command(command: tuple[str, ...]) -> None:
-        subprocess.Popen(
+        subprocess.run(
             command,
+            check=True,
+            timeout=5.0,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            close_fds=True,
         )
 
 
