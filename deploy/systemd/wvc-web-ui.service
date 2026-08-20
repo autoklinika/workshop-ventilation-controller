@@ -1,7 +1,7 @@
 [Unit]
 Description=Workshop Ventilation Web UI
-After=network-online.target ventilation-core.service
-Wants=network-online.target
+After=network-online.target ventilation-core.service wvc-host-power.service
+Wants=network-online.target wvc-host-power.service
 
 [Service]
 Type=simple
