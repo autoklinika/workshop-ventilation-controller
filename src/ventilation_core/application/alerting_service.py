@@ -43,13 +43,15 @@ class AlertingVentilationService(VentilationService):
         return self._with_system_alerts(super().state())
 
     def health_check(self) -> CoreState:
+        # Keep the authoritative hardware/DAC health path first.  System power
+        # diagnostics are read-only and must never delay that safety check.
+        super().health_check()
         if self._system_power_monitor is not None:
             try:
                 self._system_power_monitor.poll()
             except Exception:
                 # Power diagnostics must never interrupt the control health loop.
                 LOGGER.exception("System power monitor poll failed")
-        super().health_check()
         raw = super().state()
         self._sync_alerts(raw)
         return self._with_system_alerts(raw)
