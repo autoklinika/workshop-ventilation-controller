@@ -26,6 +26,13 @@ def mmc_written_sectors(block: str = "mmcblk0") -> int | None:
     return None
 
 
+def uptime_seconds() -> float | None:
+    try:
+        return float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
 def filesystem_snapshot() -> dict[str, tuple[int, int, int]]:
     result: dict[str, tuple[int, int, int]] = {}
     root_dev = os.stat("/").st_dev
@@ -90,6 +97,8 @@ def main() -> int:
     if os.geteuid() != 0:
         raise SystemExit("run as root: sudo ./tools/audit_cm5_emmc_runtime.py")
 
+    start_uptime = uptime_seconds()
+
     print("===== EMMC RUNTIME WRITE AUDIT =====")
     print("Creating eMMC snapshot...")
     before = filesystem_snapshot()
@@ -97,6 +106,8 @@ def main() -> int:
     sectors_before = mmc_written_sectors()
     print(f"Files in snapshot: {len(before)}")
     print(f"Measurement duration: {args.duration} s")
+    if start_uptime is not None:
+        print(f"System uptime at start: {start_uptime:.0f} s")
     time.sleep(args.duration)
 
     after = filesystem_snapshot()
@@ -153,6 +164,16 @@ def main() -> int:
         print(f"bytes:   {written}")
         print(f"MiB:     {mib:.3f}")
         print(f"MiB/day equivalent at this activity level: {per_day:.1f}")
+        if args.duration < 3600:
+            print(
+                "NOTE: short-window daily extrapolation is diagnostic only; "
+                "it is not an eMMC endurance estimate."
+            )
+        if start_uptime is not None and start_uptime < 1800:
+            print(
+                "NOTE: audit started within 30 minutes of boot; filesystem "
+                "journal and early-boot service activity can inflate the rate."
+            )
 
     return 0
 
