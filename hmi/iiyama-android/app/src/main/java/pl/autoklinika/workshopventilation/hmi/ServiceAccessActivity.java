@@ -2,12 +2,10 @@ package pl.autoklinika.workshopventilation.hmi;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.Intent;
 import android.graphics.Color;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -24,7 +22,7 @@ import java.text.DateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/** Native, offline service-access management screen available only after leaving Lock Task. */
+/** Local editor for service NFC cards and the normal service PIN. */
 public final class ServiceAccessActivity extends Activity implements NfcAdapter.ReaderCallback {
 
     private static final int BG = Color.rgb(9, 18, 28);
@@ -63,16 +61,16 @@ public final class ServiceAccessActivity extends Activity implements NfcAdapter.
 
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text("TRYB SERWISOWY", 26, TEXT);
+        TextView title = text("USTAWIENIA SERWISOWE", 26, TEXT);
         title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        TextView subtitle = text("Lokalne zarządzanie dostępem HMI · działa bez CM5 i sieci", 14, MUTED);
+        TextView subtitle = text("Lokalne zarządzanie kartami NFC i PIN-em serwisowym", 14, MUTED);
         titles.addView(title);
         titles.addView(subtitle);
         header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button back = button("WRÓĆ DO HMI");
+        Button back = button("WRÓĆ");
         back.setOnClickListener(v -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(dp(190), dp(56)));
+        header.addView(back, new LinearLayout.LayoutParams(dp(150), dp(56)));
         root.addView(header);
 
         LinearLayout columns = new LinearLayout(this);
@@ -89,7 +87,7 @@ public final class ServiceAccessActivity extends Activity implements NfcAdapter.
         TextView cardsTitle = text("KARTY NFC", 20, TEXT);
         cardsTitle.setTypeface(cardsTitle.getTypeface(), android.graphics.Typeface.BOLD);
         cardsPanel.addView(cardsTitle);
-        nfcStatus = text("Karty serwisowe otwierają tryb serwisowy bez PIN-u.", 13, MUTED);
+        nfcStatus = text("Karty serwisowe otwierają menu serwisowe bez PIN-u.", 13, MUTED);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -140,35 +138,17 @@ public final class ServiceAccessActivity extends Activity implements NfcAdapter.
         changeParams.topMargin = dp(14);
         settingsPanel.addView(changePin, changeParams);
 
-        TextView systemTitle = text("SYSTEM ANDROID", 20, TEXT);
-        systemTitle.setTypeface(systemTitle.getTypeface(), android.graphics.Typeface.BOLD);
-        LinearLayout.LayoutParams systemTitleParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        systemTitleParams.topMargin = dp(34);
-        settingsPanel.addView(systemTitle, systemTitleParams);
-
-        TextView systemInfo = text(
-                "Lock Task jest wyłączony do czasu powrotu do HMI. Możesz wejść do ustawień systemowych.",
+        TextView note = text(
+                "Stały PIN administratora chroniący ten ekran jest oddzielny od PIN-u serwisowego i nie może być zmieniany z panelu.",
                 13,
                 MUTED
         );
-        LinearLayout.LayoutParams infoParams = new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         );
-        infoParams.topMargin = dp(6);
-        settingsPanel.addView(systemInfo, infoParams);
-
-        Button androidSettings = button("OTWÓRZ USTAWIENIA ANDROIDA");
-        androidSettings.setOnClickListener(v -> openAndroidSettings());
-        LinearLayout.LayoutParams androidParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(54)
-        );
-        androidParams.topMargin = dp(14);
-        settingsPanel.addView(androidSettings, androidParams);
+        noteParams.topMargin = dp(28);
+        settingsPanel.addView(note, noteParams);
 
         LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.25f);
         LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.75f);
@@ -265,7 +245,7 @@ public final class ServiceAccessActivity extends Activity implements NfcAdapter.
     private void refreshPinStatus() {
         pinStatus.setText(store.isPinConfigured()
                 ? "PIN jest skonfigurowany. Możesz zmienić go lokalnie bez przebudowy APK."
-                : "PIN nie jest skonfigurowany. Ustaw go przed opuszczeniem trybu serwisowego.");
+                : "PIN nie jest skonfigurowany. Ustaw go przed opuszczeniem ustawień serwisowych.");
     }
 
     private void beginAddCard() {
@@ -384,7 +364,7 @@ public final class ServiceAccessActivity extends Activity implements NfcAdapter.
 
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Zmień PIN serwisowy")
-                .setMessage("Tryb serwisowy jest już uwierzytelniony. Ustaw nowy PIN.")
+                .setMessage("Ustaw nowy PIN używany do wejścia do menu serwisowego.")
                 .setView(form)
                 .setNegativeButton("Anuluj", null)
                 .setPositiveButton("Zapisz", null)
@@ -428,14 +408,6 @@ public final class ServiceAccessActivity extends Activity implements NfcAdapter.
         input.setHint(hint);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
         return input;
-    }
-
-    private void openAndroidSettings() {
-        try {
-            startActivity(new Intent(Settings.ACTION_SETTINGS));
-        } catch (RuntimeException error) {
-            Toast.makeText(this, "Nie udało się otworzyć ustawień Androida", Toast.LENGTH_LONG).show();
-        }
     }
 
     private int dp(int value) {
