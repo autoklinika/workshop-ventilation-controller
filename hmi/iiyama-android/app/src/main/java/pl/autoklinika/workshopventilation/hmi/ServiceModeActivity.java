@@ -263,7 +263,7 @@ public final class ServiceModeActivity extends Activity {
         try {
             startActivity(home);
             Log.i(TAG, "Android service exit granted; launcher opened");
-            finish();
+            finishAndRemoveTask();
         } catch (RuntimeException error) {
             Log.e(TAG, "Unable to open Android launcher", error);
             Toast.makeText(this, "Nie udało się otworzyć Androida", Toast.LENGTH_LONG).show();
