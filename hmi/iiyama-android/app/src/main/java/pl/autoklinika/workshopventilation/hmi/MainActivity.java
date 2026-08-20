@@ -118,6 +118,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                 }
 
                 HmiWebProfile.apply(view);
+                HmiServiceGestureProfile.apply(view);
                 pageReady = true;
                 flushPendingNfcEvent();
             }
@@ -147,9 +148,6 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
 
         setContentView(webView);
 
-        // The iiyama Android 13 firmware may still be finishing its boot/UI
-        // transition when BOOT_COMPLETED starts this activity. Re-assert both
-        // immersive mode and Android Lock Task after the view is attached.
         scheduleImmersiveMode();
         scheduleKioskEnforcement();
 
@@ -309,7 +307,6 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
             });
         });
 
-        dialog.getWindow();
         dialog.show();
         input.requestFocus();
         if (dialog.getWindow() != null) {
