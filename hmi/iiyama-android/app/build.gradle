@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+def serviceAccess = new Properties()
+def serviceAccessFile = rootProject.file('service-access.properties')
+if (serviceAccessFile.exists()) {
+    serviceAccessFile.withInputStream { serviceAccess.load(it) }
+}
+
+def servicePinSha256 = serviceAccess.getProperty('servicePinSha256', '').trim()
+def serviceNfcUids = serviceAccess.getProperty('serviceNfcUids', '').trim()
+
+android {
+    namespace = 'pl.autoklinika.workshopventilation.hmi'
+
+    compileSdk {
+        version = release(37) {
+            it.minorApiLevel = 0
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    defaultConfig {
+        applicationId = 'pl.autoklinika.workshopventilation.hmi'
+        minSdk = 33
+        targetSdk = 33
+        versionCode = 3
+        versionName = '0.3.0-service-exit-stage3'
+
+        buildConfigField 'String', 'SERVICE_PIN_SHA256', '"' + servicePinSha256 + '"'
+        buildConfigField 'String', 'SERVICE_NFC_UIDS', '"' + serviceNfcUids + '"'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
