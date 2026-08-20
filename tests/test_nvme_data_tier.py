@@ -50,6 +50,8 @@ class NvmeDataTierDeploymentTest(unittest.TestCase):
         text = (ROOT / "tools/validate_cm5_nvme_data.sh").read_text(encoding="utf-8")
         self.assertIn('WEB_ENV_FILE="/etc/default/wvc-web-ui"', text)
         self.assertIn("check_env_file_value()", text)
+        self.assertIn('if [[ -z "$line" ]]', text)
+        self.assertIn("does not override $key; WebGUI unit value remains authoritative", text)
         self.assertIn("check_process_env_value()", text)
         self.assertIn('WEB_PID="$(systemctl show -p MainPID --value wvc-web-ui.service', text)
         self.assertIn('tr \'\\0\' \'\\n\' <"/proc/$WEB_PID/environ"', text)
