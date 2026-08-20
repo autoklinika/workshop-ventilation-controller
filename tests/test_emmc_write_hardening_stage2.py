@@ -73,6 +73,8 @@ class EmmcWriteHardeningStage2Tests(unittest.TestCase):
         )
         self.assertIn("MMCBLK0 PHYSICAL WRITES", audit)
         self.assertIn("PROCESS WRITE_BYTES DELTA", audit)
+        self.assertIn("short-window daily extrapolation is diagnostic only", audit)
+        self.assertIn("audit started within 30 minutes of boot", audit)
         self.assertNotIn("unlink(", audit)
         self.assertNotIn("write_text(", audit)
 
