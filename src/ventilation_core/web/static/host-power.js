@@ -4,6 +4,8 @@
   const POWER_ENDPOINT = "/api/v1/system/power";
   let overlay = null;
   let actionInFlight = false;
+  let awaitingHostRecovery = null;
+  let hostCommunicationLost = false;
 
   function ensureStylesheet() {
     if (document.getElementById("hostPowerStylesheet")) return;
@@ -84,6 +86,8 @@
   function openModal() {
     const modal = ensureModal();
     actionInFlight = false;
+    awaitingHostRecovery = null;
+    hostCommunicationLost = false;
     setButtonsDisabled(false);
     setStatus("");
     modal.hidden = false;
@@ -109,11 +113,32 @@
     status.className = bad ? "v2-host-power-status bad" : "v2-host-power-status";
   }
 
+  function armRecoveryReload(action) {
+    awaitingHostRecovery = action;
+    hostCommunicationLost = false;
+  }
+
+  function clearRecoveryReload() {
+    awaitingHostRecovery = null;
+    hostCommunicationLost = false;
+  }
+
+  window.addEventListener("cm5-watchdog-offline", () => {
+    if (!awaitingHostRecovery) return;
+    hostCommunicationLost = true;
+  });
+
+  window.addEventListener("cm5-watchdog-online", () => {
+    if (!awaitingHostRecovery || !hostCommunicationLost) return;
+    window.location.reload();
+  });
+
   async function submitAction(action) {
     if (actionInFlight) return;
     if (action !== "shutdown" && action !== "restart") return;
 
     actionInFlight = true;
+    armRecoveryReload(action);
     setButtonsDisabled(true);
     setStatus(action === "shutdown" ? "Trwa wyłączanie…" : "Trwa restart…");
 
@@ -129,6 +154,7 @@
       }
     } catch (error) {
       actionInFlight = false;
+      clearRecoveryReload();
       setButtonsDisabled(false);
       setStatus(`Błąd: ${String(error.message || error)}`, true);
     }
