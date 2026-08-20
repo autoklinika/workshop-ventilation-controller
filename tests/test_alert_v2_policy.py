@@ -48,8 +48,8 @@ class AlertV2PolicyTests(unittest.TestCase):
     def test_default_policy_loads_and_has_expected_contract(self) -> None:
         policy = load_alert_policy(DEFAULT_POLICY)
         self.assertEqual(policy.schema_version, 1)
-        self.assertEqual(policy.policy_version, "2026-08-18.1")
-        self.assertEqual(policy.alert_count, 49)
+        self.assertEqual(policy.policy_version, "2026-08-20.1")
+        self.assertEqual(policy.alert_count, 50)
         self.assertEqual(len(policy.sha256), 64)
 
         tacho = policy.get("TACHO_MONITOR_UNAVAILABLE")
@@ -67,6 +67,14 @@ class AlertV2PolicyTests(unittest.TestCase):
         self.assertEqual(dac.reaction, "safe_state")
         self.assertTrue(dac.affects_control)
         self.assertEqual(dac.hmi_color, "red")
+
+        undervoltage = policy.get("SYSTEM_UNDERVOLTAGE")
+        self.assertIsNotNone(undervoltage)
+        assert undervoltage is not None
+        self.assertEqual(undervoltage.weight, 4)
+        self.assertEqual(undervoltage.reaction, "continue_degraded")
+        self.assertFalse(undervoltage.affects_control)
+        self.assertEqual(undervoltage.hmi_color, "red")
 
     def test_tacho_policy_cannot_be_changed_to_safe_state(self) -> None:
         text = DEFAULT_POLICY.read_text(encoding="utf-8")
@@ -186,7 +194,7 @@ class AlertV2PolicyTests(unittest.TestCase):
             result = alertctl_main(["validate", str(DEFAULT_POLICY)])
         self.assertEqual(result, 0)
         self.assertIn("PASS: AlertV2 policy valid", stdout.getvalue())
-        self.assertIn("alerts=49", stdout.getvalue())
+        self.assertIn("alerts=50", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 
     def test_cli_validate_json_output_and_invalid_exit_code(self) -> None:
@@ -196,7 +204,7 @@ class AlertV2PolicyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         payload = json.loads(stdout.getvalue())
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["alerts"], 49)
+        self.assertEqual(payload["alerts"], 50)
 
         invalid = self._write_policy("schema_version = 1")
         stdout = io.StringIO()
