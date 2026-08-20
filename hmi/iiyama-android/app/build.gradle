@@ -10,6 +10,7 @@ if (serviceAccessFile.exists()) {
 
 def servicePinSha256 = serviceAccess.getProperty('servicePinSha256', '').trim()
 def serviceNfcUids = serviceAccess.getProperty('serviceNfcUids', '').trim()
+def adminSettingsPinSha256 = serviceAccess.getProperty('adminSettingsPinSha256', '').trim()
 
 android {
     namespace = 'pl.autoklinika.workshopventilation.hmi'
@@ -28,13 +29,16 @@ android {
         applicationId = 'pl.autoklinika.workshopventilation.hmi'
         minSdk = 33
         targetSdk = 33
-        versionCode = 5
-        versionName = '0.4.1-service-settings-fix'
+        versionCode = 6
+        versionName = '0.4.2-service-menu'
 
         // Stage 3 values are retained only as a one-way migration fallback.
-        // Stage 4 changes are stored locally on the HMI and do not require APK rebuilds.
+        // Stage 4 normal service credentials are managed locally on the HMI.
+        // The administrator PIN for the service-settings tile is fixed per APK build
+        // and deliberately has no in-app change path.
         buildConfigField 'String', 'SERVICE_PIN_SHA256', '"' + servicePinSha256 + '"'
         buildConfigField 'String', 'SERVICE_NFC_UIDS', '"' + serviceNfcUids + '"'
+        buildConfigField 'String', 'ADMIN_SETTINGS_PIN_SHA256', '"' + adminSettingsPinSha256 + '"'
     }
 
     compileOptions {
