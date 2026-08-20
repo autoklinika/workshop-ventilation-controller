@@ -51,7 +51,7 @@ if ! nmcli -t -f GENERAL.DEVICE device show "$IFACE" >/dev/null 2>&1; then
     exit 1
 fi
 
-install -d -m 0755 /etc/dnsmasq.d /etc/nftables.d
+install -d -m 0755 /etc/dnsmasq.d /etc/nftables.d /var/lib/misc
 install -m 0644 \
     "$REPO_ROOT/deploy/cm5/wifi/dnsmasq/wvc-sensor-service.conf" \
     /etc/dnsmasq.d/wvc-sensor-service.conf
@@ -64,6 +64,12 @@ install -m 0644 \
 install -m 0644 \
     "$REPO_ROOT/deploy/cm5/wifi/systemd/wvc-sensor-dhcp.service" \
     /etc/systemd/system/wvc-sensor-dhcp.service
+
+# Compatibility path for older diagnostic tooling. The symlink itself is
+# persistent, but lease contents live in /run (tmpfs), not on eMMC.
+rm -f /var/lib/misc/dnsmasq-wvc.leases
+ln -s /run/wvc-sensor-service/dnsmasq-wvc.leases \
+    /var/lib/misc/dnsmasq-wvc.leases
 
 nft --check --file /etc/nftables.d/wvc-sensor-service.nft
 dnsmasq --test --conf-file=/etc/dnsmasq.d/wvc-sensor-service.conf
