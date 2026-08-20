@@ -122,7 +122,7 @@ Skrypt:
 3. kolejno wymusza każdy stan LED;
 4. przy każdym stanie użytkownik jawnie wybiera `P=PASS`, `F=FAIL` albo `Q`;
 5. zapisuje wyniki i `WvcHmiLed` logcat do pliku;
-6. na końcu wysyła `CLEAR`, aby oddać sterowanie aktualnej logice live.
+6. także przy przerwaniu/błędzie próbuje wysłać `CLEAR`, aby oddać sterowanie aktualnej logice live.
 
 Podczas tego testu nie należy uruchamiać żadnego drugiego skryptu zapisującego bezpośrednio do `zigbee_reset`.
 
