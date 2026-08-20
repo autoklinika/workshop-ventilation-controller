@@ -6,6 +6,10 @@
 
 Finalny raport walidacji: `docs/reports/IYAMA_ANDROID_KIOSK_STAGE4_FINAL_VALIDATION_2026-08-20_PL.md`.
 
+**RGB Alert LED Stage 1 — SOFTWARE + CI PASS, hardware alert-flow validation pending.**
+
+Raport implementacji: `docs/reports/IYAMA_ANDROID_LED_ALERT_STAGE1_IMPLEMENTATION_PL.md`.
+
 ## Stage 4 — local service access management
 
 Stage 4 builds on the validated native Android dedicated-device kiosk:
@@ -139,15 +143,16 @@ The current APK is still marked `android:testOnly="true"`; this is retained as a
 
 ## Build / deploy
 
+For the current RGB LED Stage 1 branch:
+
 ```powershell
 cd C:\PROJEKTY\wvc-iiyama-kiosk
 
-git switch agent/iiyama-android-kiosk-stage4-service-access
-git pull --ff-only origin agent/iiyama-android-kiosk-stage4-service-access
+git switch agent/iiyama-led-alert-stage1
+git pull --ff-only origin agent/iiyama-led-alert-stage1
 
 cd hmi\iiyama-android
 
-.\tools\configure-admin-settings-pin.ps1
 .\tools\build-debug.ps1
 .\tools\deploy-debug.ps1
 ```
@@ -170,3 +175,49 @@ Na docelowym panelu iiyama TW1025LASC-B3PNR potwierdzono:
 - po ponownym uruchomieniu HMI Lock Task wraca do `LOCKED` i pakiet HMI wraca na allowlistę.
 
 Szczegółowy zapis testów i wyniki znajdują się w finalnym raporcie Stage 4.
+
+## RGB Alert LED Stage 1
+
+RGB jest sterowane natywnie przez Androida, niezależnie od WebView. Aplikacja odpytuje istniejące `/api/v1/alerts` co 2 s; `ventilation-core` pozostaje źródłem prawdy i nie został zmodyfikowany dla tej funkcji.
+
+Priorytet lokalnej wizualizacji:
+
+```text
+CRITICAL > ALARM > WARNING > INFO > SERVICE > NORMAL
+```
+
+Mapowanie:
+
+- NORMAL → zielony stały,
+- SERVICE / Android → niebieski stały, o ile nie ma aktywnego alertu,
+- INFO → niebieski,
+- WARNING → żółty,
+- ALARM → pomarańczowy,
+- CRITICAL → czerwony,
+- przed pierwszym poprawnym snapshotem → biały wolno migający,
+- utrata komunikacji po wcześniejszym połączeniu przez ponad 6 s → czerwony szybko migający.
+
+ACK nie obniża priorytetu i nie zmienia koloru; dla aktywnego alertu przełącza wzór z migania na światło stałe.
+
+Sprzętowo potwierdzona paleta:
+
+```text
+0x02 = OFF
+0x03 = LED ON
+0x04 = RED
+0x05 = GREEN
+0x06 = BLUE
+0x07 = WHITE
+0x08 = ORANGE
+0x0B = YELLOW
+```
+
+Sterownik wysyła `0x03` przed każdą komendą koloru.
+
+Test palety:
+
+```powershell
+.\tools\test-led-palette.ps1
+```
+
+Skrypt używa wyłącznie potwierdzonej palety i sprawdza połączenie ADB przed testem.
