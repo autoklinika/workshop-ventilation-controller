@@ -32,8 +32,8 @@ import java.util.concurrent.TimeUnit;
  *
  * Hardware-validated static palette on the target B3 panel:
  * green=NORMAL, blue=INFO/SERVICE, yellow=WARNING, orange=ALARM, red=CRITICAL.
- * White is reserved for startup/unknown. Vendor animation commands such as
- * 0x0B/0x0F/0x13/0x17 are never used for alerts because they own/change colour.
+ * White is reserved for startup/unknown. Vendor animation commands are not used for
+ * alert presentation.
  */
 final class HmiLedController {
 
@@ -57,6 +57,16 @@ final class HmiLedController {
     private volatile long stateChangedElapsedMs = SystemClock.elapsedRealtime();
     private volatile int lastAppliedCommand = -1;
 
+    /*
+     * Debug-build diagnostic override.
+     *
+     * Live CM5 polling continues in the background, but the renderer uses this state
+     * until CLEAR is requested. This makes LED tests deterministic and avoids racing
+     * manual sysfs writes against the production renderer.
+     */
+    private volatile LedState diagnosticOverride = null;
+    private volatile long diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
+
     void start() {
         executor.scheduleWithFixedDelay(this::pollAlertsSafely, 0L, POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
         executor.scheduleAtFixedRate(this::renderLedSafely, 0L, LED_TICK_MS, TimeUnit.MILLISECONDS);
@@ -69,6 +79,35 @@ final class HmiLedController {
             setState(LedState.SERVICE);
         } else if (everConnected && state == LedState.SERVICE && !enabled) {
             setState(LedState.NORMAL);
+        }
+    }
+
+    /** Debug-only caller entry point used by HmiApplication's ADB diagnostic receiver. */
+    boolean setDiagnosticOverride(String requestedState) {
+        String normalized = requestedState == null
+                ? ""
+                : requestedState.trim().toUpperCase(Locale.ROOT);
+
+        if ("CLEAR".equals(normalized)) {
+            LedState previous = diagnosticOverride;
+            diagnosticOverride = null;
+            stateChangedElapsedMs = SystemClock.elapsedRealtime();
+            lastAppliedCommand = -1;
+            Log.i(TAG, "LED DIAGNOSTIC override cleared; previous=" + previous
+                    + ", live=" + state);
+            return true;
+        }
+
+        try {
+            LedState next = LedState.valueOf(normalized);
+            diagnosticOverride = next;
+            diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
+            lastAppliedCommand = -1;
+            Log.i(TAG, "LED DIAGNOSTIC override -> " + next);
+            return true;
+        } catch (IllegalArgumentException error) {
+            Log.w(TAG, "LED DIAGNOSTIC rejected unknown state: " + requestedState);
+            return false;
         }
     }
 
@@ -190,14 +229,20 @@ final class HmiLedController {
         }
         state = next;
         stateChangedElapsedMs = SystemClock.elapsedRealtime();
-        lastAppliedCommand = -1;
+        if (diagnosticOverride == null) {
+            lastAppliedCommand = -1;
+        }
         Log.i(TAG, "LED state: " + previous + " -> " + next);
     }
 
     private void renderLedSafely() {
         try {
-            LedState current = state;
-            long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - stateChangedElapsedMs);
+            LedState override = diagnosticOverride;
+            LedState current = override != null ? override : state;
+            long phaseStartedMs = override != null
+                    ? diagnosticChangedElapsedMs
+                    : stateChangedElapsedMs;
+            long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - phaseStartedMs);
             boolean on = current.isSolid() || ((ageMs / current.blinkHalfPeriodMs) % 2L == 0L);
             int command = on ? current.staticColourCommand : IiyamaLedDriver.CMD_OFF;
             if (command == lastAppliedCommand) {
