@@ -17,46 +17,39 @@ final class IiyamaLedDriver {
     private static final long COMMAND_TIMEOUT_MS = 1500L;
 
     /*
-     * Hardware-validated commands from the original HMI bring-up / VS Code tasks.
-     * These are COMMANDS, not a linear RGB palette.
+     * Hardware-validated vendor commands. These are command/function codes,
+     * not a linear RGB value space.
      */
-    static final int CMD_BRIGHTNESS_UP = 0x00;
-    static final int CMD_BRIGHTNESS_DOWN = 0x01;
+    static final int CMD_UNKNOWN_00 = 0x00;
+    static final int CMD_UNKNOWN_01 = 0x01;
     static final int CMD_OFF = 0x02;
     static final int CMD_ON = 0x03;
     static final int CMD_RED = 0x04;
     static final int CMD_GREEN = 0x05;
     static final int CMD_BLUE = 0x06;
     static final int CMD_WHITE = 0x07;
+    static final int CMD_ORANGE = 0x08;
+    static final int CMD_YELLOW = 0x10;
 
-    /*
-     * Previously observed effect commands. They are intentionally never used by
-     * alert presentation because they animate/change colours by themselves.
-     * 0x0B = colour cycle
-     * 0x0F = white dim/bright effect
-     * 0x13 = dim/bright with colour change
-     * 0x17 = green/blue/red loop
-     */
-    private static final int EFFECT_COLOR_CYCLE_0B = 0x0B;
-    private static final int EFFECT_WHITE_DIM_0F = 0x0F;
-    private static final int EFFECT_DIM_COLOR_CHANGE_13 = 0x13;
-    private static final int EFFECT_RGB_LOOP_17 = 0x17;
+    /* Hardware-validated animated/effect commands. */
+    static final int EFFECT_COLOR_SEQUENCE = 0x0B;
+    static final int EFFECT_WHITE_FADE = 0x0F;
+    static final int EFFECT_MULTICOLOR_FADE = 0x13;
+    static final int EFFECT_COLOR_STEP = 0x17;
 
-    // Until a real static yellow/orange command is identified, never use an effect as a colour.
-    static final int CMD_WARNING = CMD_RED;
-    static final int CMD_ALARM = CMD_RED;
+    static final int CMD_WARNING = CMD_YELLOW;
+    static final int CMD_ALARM = CMD_ORANGE;
 
     private boolean ledEnabled = false;
 
     /**
-     * Mirrors the command model that was validated manually on the panel:
+     * Mirrors the command model validated manually on the panel:
      *
-     *   direct colour: echo w 0x04..0x07 > ... | su
-     *   off:           echo w 0x02 > ... | su
-     *   after OFF:     ON (0x03) first, then the selected static colour
+     *   direct static colour -> one vendor colour command
+     *   off                  -> 0x02
+     *   first colour after OFF -> 0x03 ON, then the colour
      *
-     * Crucially, 0x03 is NOT sent before every colour change and no 0x08..0x17
-     * effect command is ever used as a static alert colour.
+     * 0x03 is not repeated while the LED is already enabled.
      */
     synchronized boolean writeCommand(int command) {
         if (command == CMD_OFF) {
@@ -73,12 +66,9 @@ final class IiyamaLedDriver {
             return false;
         }
 
-        boolean ok;
-        if (ledEnabled) {
-            ok = executeRootCommands(command);
-        } else {
-            ok = executeRootCommands(CMD_ON, command);
-        }
+        boolean ok = ledEnabled
+                ? executeRootCommands(command)
+                : executeRootCommands(CMD_ON, command);
 
         if (ok) {
             ledEnabled = true;
@@ -90,7 +80,9 @@ final class IiyamaLedDriver {
         return command == CMD_RED
                 || command == CMD_GREEN
                 || command == CMD_BLUE
-                || command == CMD_WHITE;
+                || command == CMD_WHITE
+                || command == CMD_ORANGE
+                || command == CMD_YELLOW;
     }
 
     private boolean executeRootCommands(int... commands) {
