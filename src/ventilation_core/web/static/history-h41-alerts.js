@@ -234,4 +234,4 @@ async function historyH41PollArchive() {
 historyH41StripAlertsPageArchive();
 historyH41EnsureArchiveSection();
 historyH41PollArchive();
-window.setInterval(historyH41PollArchive, HISTORY_H41_ALERT_POLL_MS);
+const historyH41PollTimer = window.setInterval(historyH41PollArchive, HISTORY_H41_ALERT_POLL_MS);
