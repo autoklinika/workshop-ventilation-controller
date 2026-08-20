@@ -26,6 +26,7 @@ class AlertDeploymentTest(unittest.TestCase):
             unit,
         )
         self.assertIn("WVC_ALERT_STORE_ALLOW_VOLATILE_FALLBACK=1", unit)
+        self.assertIn("WVC_ALERT_STORE_REQUIRED_MOUNT=/srv/wvc-data", unit)
         self.assertIn(
             "--automation-db /var/lib/workshop-ventilation/automation.sqlite3",
             unit,
