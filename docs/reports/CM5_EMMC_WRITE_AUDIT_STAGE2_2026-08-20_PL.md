@@ -108,11 +108,37 @@ Fizyczne zapisy do `mmcblk0`:
 
 Ten równoważnik nie jest estymacją wear. Pomiar był krótki i wykonany niedługo po restarcie, więc obejmuje journal ext4 oraz aktywność startową systemu. W szczególności `jbd2/mmcblk0p2-8` raportował 868352 B operacji zapisu w tym oknie.
 
-## Pozostały plik `systemd-timesyncd`
+## Walidacja RTC
 
-`/var/lib/systemd/timesync/clock` jest zerobajtowym plikiem, którego mtime systemd-timesyncd aktualizuje w celu zachowania przybliżonej monotoniczności czasu pomiędzy rebootami. Nie jest to historia aplikacyjna WVC.
+Walidacja wykonana po restarcie potwierdziła poprawne działanie sprzętowego RTC CM5:
 
-Nie przenosimy ani nie wyłączamy tego mechanizmu bez osobnej walidacji RTC. CM5 posiada sprzętowy RTC, ale przed zmianą polityki czasu należy potwierdzić runtime RTC oraz zachowanie po utracie zasilania/baterii. Stabilność znaczników czasu telemetrycznych i harmonogramów ma wyższy priorytet niż eliminacja tego pojedynczego zapisu metadanych.
+- `/dev/rtc -> rtc0`
+- sterownik: `rpi-rtc soc@107c000000:rpi_rtc`
+- kernel zarejestrował `rtc0`
+- przy starcie kernel ustawił system clock z RTC na `2026-08-20T15:32:43 UTC`
+- `timedatectl` raportował zgodne czasy systemowy i RTC
+- `System clock synchronized: yes`
+- `NTP service: active`
+- RTC jest utrzymywany w UTC (`RTC in local TZ: no`)
+- aktywny serwer NTP: `2.debian.pool.ntp.org`, stratum 2
+- podczas walidacji offset NTP wynosił około `-3.287 ms`
+
+Brak programu `hwclock` w userspace nie ma wpływu na wynik walidacji; urządzenie `/dev/rtc0`, sysfs, kernel oraz `timedatectl` potwierdziły działanie RTC.
+
+## Decyzja dotycząca `/var/lib/systemd/timesync/clock`
+
+`/var/lib/systemd/timesync/clock` pozostaje na eMMC.
+
+Jest to zerobajtowy systemowy plik timestamp, którego `mtime` jest aktualizowany przez `systemd-timesyncd`. Mechanizm stanowi dodatkowe zabezpieczenie monotoniczności czasu pomiędzy rebootami i jest niezależny od historii aplikacyjnej WVC.
+
+Pomimo poprawnego działania RTC nie przenosimy tego pliku do RAM i nie wyłączamy mechanizmu `systemd-timesyncd`, ponieważ:
+
+1. zapis jest bardzo mały i rzadki w porównaniu z usuniętymi write-pathami,
+2. poprawny czas ma bezpośrednie znaczenie dla telemetryki, harmonogramów i diagnostyki,
+3. mechanizm daje dodatkowe zabezpieczenie na wypadek przyszłego problemu z RTC lub jego podtrzymaniem,
+4. dalsza optymalizacja tego pojedynczego zapisu nie daje praktycznie istotnej korzyści endurance eMMC.
+
+Stage 2 uznaje ten zapis za **akceptowalny systemowy write-path**.
 
 ## Narzędzia Stage 2
 
@@ -120,16 +146,18 @@ Nie przenosimy ani nie wyłączamy tego mechanizmu bez osobnej walidacji RTC. CM
 - `tools/validate_cm5_emmc_write_hardening_stage2.sh`
 - `tools/audit_cm5_emmc_runtime.py`
 
-Audyt runtime raportuje teraz uptime i ostrzega, że ekstrapolacja z okna krótszego niż 1 h ma znaczenie diagnostyczne, a nie endurance/wear.
+Audyt runtime raportuje uptime i ostrzega, że ekstrapolacja z okna krótszego niż 1 h ma znaczenie diagnostyczne, a nie endurance/wear.
 
-## Wniosek
+## Wniosek końcowy
 
-Stage 2 osiągnął cel aplikacyjny:
+Stage 2 osiągnął cel i zostaje zamknięty jako hardware-validated:
 
-1. historyczne i wysokozapisowe dane WVC pozostają na SN770,
+1. historyczne i wysokozapisowe dane WVC znajdują się na SN770,
 2. DHCP lease jest w RAM,
 3. VS Code Remote Server działa z NVMe,
 4. brak regularnych zapisów aplikacyjnych WVC na eMMC podczas pomiaru,
 5. `automation.sqlite3` i `zigbee-roles.json` pozostają świadomie jako low-write configuration,
-6. jedyną wykrytą zmianą pliku na eMMC po Stage 2 był systemowy `/var/lib/systemd/timesync/clock`,
-7. `main` pozostaje bez zmian do czasu osobnej, jednoznacznej zgody na merge.
+6. sprzętowy RTC działa poprawnie i ustawia czas systemowy podczas bootu,
+7. `/var/lib/systemd/timesync/clock` pozostaje świadomie jako akceptowalny systemowy mechanizm bezpieczeństwa czasu,
+8. nie ma potrzeby dalszego agresywnego ograniczania zapisów eMMC w obecnej architekturze,
+9. `main` pozostaje bez zmian do czasu osobnej, jednoznacznej zgody na merge.
