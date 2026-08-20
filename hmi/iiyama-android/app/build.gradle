@@ -29,8 +29,8 @@ android {
         applicationId = 'pl.autoklinika.workshopventilation.hmi'
         minSdk = 33
         targetSdk = 33
-        versionCode = 6
-        versionName = '0.4.2-service-menu'
+        versionCode = 7
+        versionName = '0.5.0-led-alert-stage1'
 
         // Stage 3 values are retained only as a one-way migration fallback.
         // Stage 4 normal service credentials are managed locally on the HMI.
