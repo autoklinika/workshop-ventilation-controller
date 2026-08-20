@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import sqlite3
 from pathlib import Path
 from threading import RLock
@@ -17,14 +16,11 @@ class SqliteAlertStore:
     writes. Occurrence-only growth is batched by AlertRegistry; the final exact
     count is written together with the CLEARED transition.
 
-    Cleared incidents are retained for 30 days. Active incidents are never
-    removed by retention, regardless of how long they have been active. Physical
-    pruning runs at startup, on lifecycle transitions and at most once per UTC
-    day when history is read; the read path also filters the 30-day window so an
-    expired cleared record is never exposed while waiting for the next prune.
+    Alert history is intentionally not pruned automatically. The project keeps
+    the full local journal while the ventilation system is being characterized;
+    retention will be reviewed only after at least one year of operational data
+    has been collected.
     """
-
-    HISTORY_RETENTION_DAYS = 30
 
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
@@ -36,7 +32,6 @@ class SqliteAlertStore:
             check_same_thread=False,
         )
         self._connection.row_factory = sqlite3.Row
-        self._last_prune_date = None
         with self._lock:
             self._connection.execute("PRAGMA journal_mode=WAL")
             self._connection.execute("PRAGMA synchronous=FULL")
@@ -61,13 +56,8 @@ class SqliteAlertStore:
                     WHERE cleared_at IS NULL;
                 CREATE INDEX IF NOT EXISTS alerts_history_order
                     ON alerts(alert_id DESC);
-                CREATE INDEX IF NOT EXISTS alerts_cleared_at
-                    ON alerts(cleared_at);
                 """
             )
-            now = datetime.now(timezone.utc)
-            self._prune_history_unlocked(now)
-            self._last_prune_date = now.date()
             self._connection.commit()
 
     @property
@@ -82,33 +72,12 @@ class SqliteAlertStore:
             return tuple(self._row_to_record(row) for row in rows)
 
     def list_history(self, limit: int) -> tuple[AlertRecord, ...]:
-        now = datetime.now(timezone.utc)
-        cutoff = self._history_cutoff(now)
         with self._lock:
-            self._maybe_prune_history_unlocked(now)
             rows = self._connection.execute(
-                """
-                SELECT *
-                FROM alerts
-                WHERE cleared_at IS NULL OR cleared_at >= ?
-                ORDER BY alert_id DESC
-                LIMIT ?
-                """,
-                (cutoff, limit),
+                "SELECT * FROM alerts ORDER BY alert_id DESC LIMIT ?",
+                (limit,),
             ).fetchall()
             return tuple(self._row_to_record(row) for row in rows)
-
-    def prune_history(self, *, now: datetime | None = None) -> int:
-        """Delete cleared incidents older than retention; active alerts survive."""
-        effective_now = now or datetime.now(timezone.utc)
-        if effective_now.tzinfo is None or effective_now.utcoffset() is None:
-            raise ValueError("alert retention time must be timezone-aware")
-        effective_now = effective_now.astimezone(timezone.utc)
-        with self._lock:
-            deleted = self._prune_history_unlocked(effective_now)
-            self._last_prune_date = effective_now.date()
-            self._connection.commit()
-            return deleted
 
     def create(self, signal: AlertSignal, active_since: str) -> AlertRecord:
         with self._lock:
@@ -130,9 +99,6 @@ class SqliteAlertStore:
                     signal.occurrences,
                 ),
             )
-            now = datetime.now(timezone.utc)
-            self._prune_history_unlocked(now)
-            self._last_prune_date = now.date()
             self._connection.commit()
             return self._get(int(cursor.lastrowid))
 
@@ -147,7 +113,7 @@ class SqliteAlertStore:
                 """,
                 (
                     signal.code.value,
-                    signal.source,
+                    signal.source.value if hasattr(signal.source, "value") else signal.source,
                     signal.severity.value,
                     signal.message,
                     signal.detail,
@@ -199,46 +165,14 @@ class SqliteAlertStore:
                 """,
                 (cleared_at, occurrences, alert_id),
             )
-            if cursor.rowcount != 1:
-                self._connection.rollback()
-                raise ValueError(f"Unknown alert id: {alert_id}")
-            record = self._get(alert_id)
-            now = datetime.now(timezone.utc)
-            self._prune_history_unlocked(now)
-            self._last_prune_date = now.date()
             self._connection.commit()
-            return record
+            if cursor.rowcount != 1:
+                raise ValueError(f"Unknown alert id: {alert_id}")
+            return self._get(alert_id)
 
     def close(self) -> None:
         with self._lock:
             self._connection.close()
-
-    @classmethod
-    def _history_cutoff(cls, now: datetime) -> str:
-        if now.tzinfo is None or now.utcoffset() is None:
-            raise ValueError("alert retention time must be timezone-aware")
-        return (
-            now.astimezone(timezone.utc) - timedelta(days=cls.HISTORY_RETENTION_DAYS)
-        ).isoformat()
-
-    def _maybe_prune_history_unlocked(self, now: datetime) -> None:
-        today = now.astimezone(timezone.utc).date()
-        if self._last_prune_date == today:
-            return
-        self._prune_history_unlocked(now)
-        self._last_prune_date = today
-        self._connection.commit()
-
-    def _prune_history_unlocked(self, now: datetime) -> int:
-        cutoff = self._history_cutoff(now)
-        cursor = self._connection.execute(
-            """
-            DELETE FROM alerts
-            WHERE cleared_at IS NOT NULL AND cleared_at < ?
-            """,
-            (cutoff,),
-        )
-        return int(cursor.rowcount)
 
     def _get(self, alert_id: int) -> AlertRecord:
         row = self._connection.execute(
