@@ -28,6 +28,10 @@ const historyH43State = {
   indexSignature: null,
 };
 
+if (typeof historyH41PollTimer !== "undefined") {
+  window.clearInterval(historyH41PollTimer);
+}
+
 function historyH43Post(path, body) {
   return fetch(path, {
     method: "POST",
