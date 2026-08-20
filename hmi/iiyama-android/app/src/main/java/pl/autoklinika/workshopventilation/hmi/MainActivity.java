@@ -338,23 +338,43 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         try {
             ActivityManager activityManager =
                     (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+
             if (activityManager != null
                     && activityManager.getLockTaskModeState()
                     != ActivityManager.LOCK_TASK_MODE_NONE) {
                 stopLockTask();
             }
+
+            if (devicePolicyManager != null
+                    && devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
+                devicePolicyManager.setLockTaskPackages(
+                        deviceAdminComponent,
+                        new String[]{}
+                );
+                deviceOwnerPolicyConfigured = false;
+                Log.i(SERVICE_TAG, "Lock task allowlist suspended for service mode");
+            }
+
+            if (activityManager != null
+                    && activityManager.getLockTaskModeState()
+                    != ActivityManager.LOCK_TASK_MODE_NONE) {
+                throw new IllegalStateException("Lock Task remained active after service unlock");
+            }
         } catch (RuntimeException error) {
             serviceExitActive = false;
+            deviceOwnerPolicyConfigured = false;
             Log.e(SERVICE_TAG, "Unable to leave Android Lock Task Mode", error);
             Toast.makeText(this, "Nie udało się wyjść z kiosku", Toast.LENGTH_LONG).show();
-            enforceKioskNow();
+            configureDeviceOwnerPolicies();
+            enterLockTaskIfPermitted();
+            scheduleKioskEnforcement();
             return;
         }
 
         showSystemBars();
 
         Intent serviceIntent = new Intent(this, ServiceAccessActivity.class);
-        serviceIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        serviceIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         serviceIntent.putExtra("auth_method", method);
 
         try {
@@ -363,6 +383,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
             Toast.makeText(this, "Tryb serwisowy", Toast.LENGTH_SHORT).show();
         } catch (RuntimeException error) {
             serviceExitActive = false;
+            deviceOwnerPolicyConfigured = false;
             Log.e(SERVICE_TAG, "Unable to open local service screen", error);
             Toast.makeText(this, "Nie udało się otworzyć trybu serwisowego", Toast.LENGTH_LONG).show();
             scheduleImmersiveMode();
