@@ -4,6 +4,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Gradle = 'C:\Android\gradle\gradle-9.4.1\bin\gradle.bat'
 $Sdk = "$env:LOCALAPPDATA\Android\Sdk"
 $LocalProperties = Join-Path $ProjectRoot 'local.properties'
+$AndroidStudioJbr = 'C:\Program Files\Android\Android Studio\jbr'
 
 if (-not (Test-Path $Gradle)) {
     throw "Gradle not found: $Gradle"
@@ -17,6 +18,14 @@ if (-not (Test-Path $LocalProperties)) {
     $SdkGradlePath = $Sdk -replace '\\','/'
     "sdk.dir=$SdkGradlePath" | Set-Content $LocalProperties -Encoding ASCII
     Write-Host "Created local.properties for SDK: $Sdk"
+}
+
+$PreviousJavaHome = $env:JAVA_HOME
+if (Test-Path $AndroidStudioJbr) {
+    $env:JAVA_HOME = $AndroidStudioJbr
+    Write-Host "Using Android Studio JBR: $AndroidStudioJbr"
+} elseif (-not $env:JAVA_HOME) {
+    throw "JAVA_HOME is not set and Android Studio JBR was not found: $AndroidStudioJbr"
 }
 
 Push-Location $ProjectRoot
@@ -35,4 +44,5 @@ try {
 }
 finally {
     Pop-Location
+    $env:JAVA_HOME = $PreviousJavaHome
 }
