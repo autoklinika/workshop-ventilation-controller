@@ -1,5 +1,6 @@
 .gradle/
 local.properties
+service-access.properties
 build/
 app/build/
 .idea/
