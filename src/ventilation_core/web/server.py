@@ -95,9 +95,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "sidebar.css", "v2-weather.css",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -140,6 +140,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h42_alert_js = (self.server.static_root / "history-h42-alert-folders.js").resolve()
             if h42_alert_js.parent == self.server.static_root and h42_alert_js.is_file():
                 content += b"\n\n" + h42_alert_js.read_bytes()
+            h43_alert_js = (self.server.static_root / "history-h43-alert-pagination.js").resolve()
+            if h43_alert_js.parent == self.server.static_root and h43_alert_js.is_file():
+                content += b"\n\n" + h43_alert_js.read_bytes()
         elif relative == "ai-detail.css":
             for name in ("zone-detail.css", "history.css"):
                 module = (self.server.static_root / name).resolve()
@@ -160,6 +163,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h42_alert_css = (self.server.static_root / "history-h42-alert-folders.css").resolve()
             if h42_alert_css.parent == self.server.static_root and h42_alert_css.is_file():
                 content += b"\n\n" + h42_alert_css.read_bytes()
+            h43_alert_css = (self.server.static_root / "history-h43-alert-pagination.css").resolve()
+            if h43_alert_css.parent == self.server.static_root and h43_alert_css.is_file():
+                content += b"\n\n" + h43_alert_css.read_bytes()
 
         content_type, _ = mimetypes.guess_type(candidate.name)
         if content_type is None:
