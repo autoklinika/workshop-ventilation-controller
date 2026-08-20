@@ -26,9 +26,12 @@ import java.util.concurrent.TimeUnit;
  * - after a previously healthy connection becomes stale, local HMI communication loss
  *   has priority and is shown as red fast blink;
  * - highest active alert priority wins;
- * - ACK never lowers alert priority or changes its color; it only changes the local LED
- *   pattern from blinking to solid;
+ * - ACK never lowers alert priority or changes its presentation colour; it only changes
+ *   the local LED pattern from blinking to solid;
  * - local service / Android mode is blue only when there is no active alert.
+ *
+ * Only hardware-validated STATIC iiyama colours are used here: red, green, blue, white.
+ * Vendor effect commands such as 0x0B/0x0F/0x13/0x17 are never used for alerts.
  */
 final class HmiLedController {
 
@@ -50,7 +53,7 @@ final class HmiLedController {
     private volatile boolean everConnected = false;
     private volatile long lastSuccessfulPollElapsedMs = 0L;
     private volatile long stateChangedElapsedMs = SystemClock.elapsedRealtime();
-    private volatile int lastAppliedCode = -1;
+    private volatile int lastAppliedCommand = -1;
 
     void start() {
         executor.scheduleWithFixedDelay(this::pollAlertsSafely, 0L, POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
@@ -60,8 +63,6 @@ final class HmiLedController {
 
     void setLocalServiceMode(boolean enabled) {
         localServiceMode = enabled;
-        // Re-resolve immediately from the last successful transport state on next poll.
-        // Between polls, no alert is downgraded; service mode only affects an otherwise normal state.
         if (everConnected && state == LedState.NORMAL && enabled) {
             setState(LedState.SERVICE);
         } else if (everConnected && state == LedState.SERVICE && !enabled) {
@@ -176,8 +177,6 @@ final class HmiLedController {
             case "info":
                 return 1;
             default:
-                // Current production API uses warning/critical. An unknown active severity
-                // is not treated as NORMAL; conservatively surface it as WARNING.
                 return 2;
         }
     }
@@ -189,7 +188,7 @@ final class HmiLedController {
         }
         state = next;
         stateChangedElapsedMs = SystemClock.elapsedRealtime();
-        lastAppliedCode = -1;
+        lastAppliedCommand = -1;
         Log.i(TAG, "LED state: " + previous + " -> " + next);
     }
 
@@ -198,12 +197,12 @@ final class HmiLedController {
             LedState current = state;
             long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - stateChangedElapsedMs);
             boolean on = current.isSolid() || ((ageMs / current.blinkHalfPeriodMs) % 2L == 0L);
-            int code = on ? current.colorCode : IiyamaLedDriver.CODE_OFF;
-            if (code == lastAppliedCode) {
+            int command = on ? current.staticColourCommand : IiyamaLedDriver.CMD_OFF;
+            if (command == lastAppliedCommand) {
                 return;
             }
-            if (driver.writeCode(code)) {
-                lastAppliedCode = code;
+            if (driver.writeCommand(command)) {
+                lastAppliedCommand = command;
             }
         } catch (RuntimeException error) {
             Log.e(TAG, "Unable to render RGB LED state", error);
@@ -211,24 +210,24 @@ final class HmiLedController {
     }
 
     enum LedState {
-        STARTUP_UNKNOWN(IiyamaLedDriver.CODE_WHITE, 1000L),
-        COMMUNICATION_LOST(IiyamaLedDriver.CODE_RED, 250L),
-        NORMAL(IiyamaLedDriver.CODE_GREEN, 0L),
-        SERVICE(IiyamaLedDriver.CODE_BLUE, 0L),
-        INFO_ACK(IiyamaLedDriver.CODE_BLUE, 0L),
-        INFO_UNACK(IiyamaLedDriver.CODE_BLUE, 1500L),
-        WARNING_ACK(IiyamaLedDriver.CODE_WARNING_FALLBACK, 0L),
-        WARNING_UNACK(IiyamaLedDriver.CODE_WARNING_FALLBACK, 1000L),
-        ALARM_ACK(IiyamaLedDriver.CODE_ALARM_FALLBACK, 0L),
-        ALARM_UNACK(IiyamaLedDriver.CODE_ALARM_FALLBACK, 500L),
-        CRITICAL_ACK(IiyamaLedDriver.CODE_RED, 0L),
-        CRITICAL_UNACK(IiyamaLedDriver.CODE_RED, 250L);
+        STARTUP_UNKNOWN(IiyamaLedDriver.CMD_WHITE, 1000L),
+        COMMUNICATION_LOST(IiyamaLedDriver.CMD_RED, 250L),
+        NORMAL(IiyamaLedDriver.CMD_GREEN, 0L),
+        SERVICE(IiyamaLedDriver.CMD_BLUE, 0L),
+        INFO_ACK(IiyamaLedDriver.CMD_BLUE, 0L),
+        INFO_UNACK(IiyamaLedDriver.CMD_BLUE, 1500L),
+        WARNING_ACK(IiyamaLedDriver.CMD_WARNING, 0L),
+        WARNING_UNACK(IiyamaLedDriver.CMD_WARNING, 1000L),
+        ALARM_ACK(IiyamaLedDriver.CMD_ALARM, 0L),
+        ALARM_UNACK(IiyamaLedDriver.CMD_ALARM, 500L),
+        CRITICAL_ACK(IiyamaLedDriver.CMD_RED, 0L),
+        CRITICAL_UNACK(IiyamaLedDriver.CMD_RED, 250L);
 
-        final int colorCode;
+        final int staticColourCommand;
         final long blinkHalfPeriodMs;
 
-        LedState(int colorCode, long blinkHalfPeriodMs) {
-            this.colorCode = colorCode;
+        LedState(int staticColourCommand, long blinkHalfPeriodMs) {
+            this.staticColourCommand = staticColourCommand;
             this.blinkHalfPeriodMs = blinkHalfPeriodMs;
         }
 
