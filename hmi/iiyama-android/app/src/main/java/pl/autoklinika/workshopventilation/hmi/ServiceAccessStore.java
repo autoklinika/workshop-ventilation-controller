@@ -99,6 +99,8 @@ final class ServiceAccessStore {
         );
 
         if (valid) {
+            // One-way migration: after the first valid Stage 3 PIN entry, Stage 4 stores
+            // only the Keystore-backed HMAC value in private app storage.
             setPin(pin);
         }
         return valid;
@@ -192,8 +194,14 @@ final class ServiceAccessStore {
             return;
         }
 
+        String raw = BuildConfig.SERVICE_NFC_UIDS == null ? "" : BuildConfig.SERVICE_NFC_UIDS.trim();
+        if (raw.isEmpty()) {
+            // Do not mark migration complete. A later local build may still carry the
+            // Stage 3 bootstrap values from service-access.properties.
+            return;
+        }
+
         List<CardEntry> cards = readCards();
-        String raw = BuildConfig.SERVICE_NFC_UIDS == null ? "" : BuildConfig.SERVICE_NFC_UIDS;
         long now = System.currentTimeMillis();
         int migrated = 0;
 
@@ -292,7 +300,7 @@ final class ServiceAccessStore {
         );
         generator.init(new KeyGenParameterSpec.Builder(
                 PIN_KEY_ALIAS,
-                KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY
+                KeyProperties.PURPOSE_SIGN
         ).setDigests(KeyProperties.DIGEST_SHA256).build());
         return generator.generateKey();
     }
