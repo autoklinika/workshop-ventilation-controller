@@ -44,6 +44,17 @@ function Send-DiagnosticState {
     Start-Sleep -Milliseconds 750
 }
 
+function Restore-LiveControl {
+    try {
+        Write-Host ""
+        Write-Host "===== RESTORE LIVE ALERT CONTROL ====="
+        Send-DiagnosticState "CLEAR"
+        Start-Sleep -Seconds 1
+    } catch {
+        Write-Warning "Nie udało się automatycznie wysłać CLEAR: $($_.Exception.Message)"
+    }
+}
+
 Write-Host "===== IIYAMA ALERT LED - DETERMINISTIC DIAGNOSTIC ====="
 Write-Host ""
 Write-Host "Ten test NIE zmienia alertów na CM5."
@@ -74,39 +85,38 @@ Start-Sleep -Seconds 2
 
 $aborted = $false
 
-foreach ($test in $tests) {
-    if ($aborted) { break }
+try {
+    foreach ($test in $tests) {
+        if ($aborted) { break }
 
-    Write-Host ""
-    Write-Host "============================================================"
-    Write-Host "STATE:    $($test.State)"
-    Write-Host "EXPECTED: $($test.Expected)"
-    Write-Host "============================================================"
+        Write-Host ""
+        Write-Host "============================================================"
+        Write-Host "STATE:    $($test.State)"
+        Write-Host "EXPECTED: $($test.Expected)"
+        Write-Host "============================================================"
 
-    Send-DiagnosticState $test.State
+        Send-DiagnosticState $test.State
 
-    Write-Host "Obserwuj pasek minimum kilka pełnych cykli."
-    Write-Host "P = PASS   F = FAIL   Q = przerwij"
+        Write-Host "Obserwuj pasek minimum kilka pełnych cykli."
+        Write-Host "P = PASS   F = FAIL   Q = przerwij"
 
-    while ($true) {
-        $key = [Console]::ReadKey($true)
-        switch ($key.KeyChar) {
-            'p' { Write-ResultLine "RESULT state=$($test.State) PASS expected='$($test.Expected)'"; break }
-            'P' { Write-ResultLine "RESULT state=$($test.State) PASS expected='$($test.Expected)'"; break }
-            'f' { Write-ResultLine "RESULT state=$($test.State) FAIL expected='$($test.Expected)'"; break }
-            'F' { Write-ResultLine "RESULT state=$($test.State) FAIL expected='$($test.Expected)'"; break }
-            'q' { Write-ResultLine "ABORT state=$($test.State)"; $aborted = $true; break }
-            'Q' { Write-ResultLine "ABORT state=$($test.State)"; $aborted = $true; break }
-            default { continue }
+        while ($true) {
+            $key = [Console]::ReadKey($true)
+            switch ($key.KeyChar) {
+                'p' { Write-ResultLine "RESULT state=$($test.State) PASS expected='$($test.Expected)'"; break }
+                'P' { Write-ResultLine "RESULT state=$($test.State) PASS expected='$($test.Expected)'"; break }
+                'f' { Write-ResultLine "RESULT state=$($test.State) FAIL expected='$($test.Expected)'"; break }
+                'F' { Write-ResultLine "RESULT state=$($test.State) FAIL expected='$($test.Expected)'"; break }
+                'q' { Write-ResultLine "ABORT state=$($test.State)"; $aborted = $true; break }
+                'Q' { Write-ResultLine "ABORT state=$($test.State)"; $aborted = $true; break }
+                default { continue }
+            }
+            break
         }
-        break
     }
+} finally {
+    Restore-LiveControl
 }
-
-Write-Host ""
-Write-Host "===== RESTORE LIVE ALERT CONTROL ====="
-Send-DiagnosticState "CLEAR"
-Start-Sleep -Seconds 1
 
 Write-Host ""
 Write-Host "===== WvcHmiLed LOGS FROM THIS RUN ====="
