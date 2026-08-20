@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
+from typing import Any, Protocol
 
 from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.application.service import VentilationService
 from ventilation_core.domain.alerts import AlertRecord, AlertSignal
 from ventilation_core.domain.models import AlarmCode, AlarmSeverity, CoreState
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+class SystemPowerMonitor(Protocol):
+    def poll(self) -> Any: ...
+    def state(self) -> Any: ...
+    def close(self) -> None: ...
 
 
 class AlertingVentilationService(VentilationService):
@@ -16,6 +27,7 @@ class AlertingVentilationService(VentilationService):
         *args: object,
         alert_registry: AlertRegistry,
         required_tacho_channels: tuple[str, ...] = (),
+        system_power_monitor: SystemPowerMonitor | None = None,
         **kwargs: object,
     ) -> None:
         unsupported = set(required_tacho_channels) - {"supply", "extract"}
@@ -23,6 +35,7 @@ class AlertingVentilationService(VentilationService):
             raise ValueError(f"Unsupported required TACHO channels: {sorted(unsupported)}")
         self._system_alerts = alert_registry
         self._required_tacho_channels = tuple(required_tacho_channels)
+        self._system_power_monitor = system_power_monitor
         super().__init__(*args, **kwargs)
         self._sync_dac_only(super().state())
 
@@ -30,7 +43,15 @@ class AlertingVentilationService(VentilationService):
         return self._with_system_alerts(super().state())
 
     def health_check(self) -> CoreState:
+        # Keep the authoritative hardware/DAC health path first.  System power
+        # diagnostics are read-only and must never delay that safety check.
         super().health_check()
+        if self._system_power_monitor is not None:
+            try:
+                self._system_power_monitor.poll()
+            except Exception:
+                # Power diagnostics must never interrupt the control health loop.
+                LOGGER.exception("System power monitor poll failed")
         raw = super().state()
         self._sync_alerts(raw)
         return self._with_system_alerts(raw)
@@ -68,7 +89,14 @@ class AlertingVentilationService(VentilationService):
         try:
             super().close()
         finally:
-            self._system_alerts.close()
+            try:
+                self._system_alerts.close()
+            finally:
+                if self._system_power_monitor is not None:
+                    try:
+                        self._system_power_monitor.close()
+                    except Exception:
+                        LOGGER.exception("Failed to close system power monitor")
 
     def _with_system_alerts(self, state: CoreState) -> CoreState:
         return replace(state, active_alarms=self._system_alerts.active_alarm_states())
@@ -90,6 +118,46 @@ class AlertingVentilationService(VentilationService):
     def _extra_alert_signals(self, state: CoreState) -> list[AlertSignal]:
         """Extension hook for subsystem-specific alerts owned by core."""
         return []
+
+    def _system_power_alert_signal(self) -> AlertSignal | None:
+        monitor = self._system_power_monitor
+        if monitor is None:
+            return None
+        try:
+            power = monitor.state()
+        except Exception:
+            LOGGER.exception("Unable to read system power monitor state")
+            return None
+
+        if getattr(power, "undervoltage_now", None) is not True:
+            return None
+
+        mask = getattr(power, "throttled_mask", None)
+        mask_text = "unknown" if mask is None else f"0x{int(mask):x}"
+        occurred = getattr(power, "undervoltage_occurred", None) is True
+        available = getattr(power, "available", False) is True
+        last_error = getattr(power, "last_error", None)
+
+        detail_parts = [
+            f"Raspberry Pi firmware get_throttled={mask_text}; bit 0 UNDER-VOLTAGE jest aktywny"
+        ]
+        if occurred:
+            detail_parts.append("bit 16 potwierdza wystąpienie undervoltage od ostatniego bootu")
+        if not available:
+            detail_parts.append(
+                "ostatni poprawny odczyt wskazywał undervoltage; alert pozostaje aktywny do poprawnego odczytu napięcia"
+            )
+            if last_error:
+                detail_parts.append(f"błąd monitora: {last_error}")
+
+        return AlertSignal(
+            key="system:undervoltage",
+            code=AlarmCode.SYSTEM_UNDERVOLTAGE,
+            source="system_power",
+            severity=AlarmSeverity.CRITICAL,
+            message="CM5: zbyt niskie napięcie zasilania",
+            detail="; ".join(detail_parts),
+        )
 
     def _sync_alerts(self, state: CoreState) -> None:
         signals: list[AlertSignal] = []
@@ -129,6 +197,10 @@ class AlertingVentilationService(VentilationService):
                     occurrences=max(1, state.consecutive_hardware_failures),
                 )
             )
+
+        system_power_signal = self._system_power_alert_signal()
+        if system_power_signal is not None:
+            signals.append(system_power_signal)
 
         sensor_bus = state.sensor_bus
         if sensor_bus is not None:

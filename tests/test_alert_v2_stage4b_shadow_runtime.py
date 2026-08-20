@@ -168,7 +168,7 @@ class AlertV2Stage4BShadowRuntimeTests(unittest.TestCase):
         self.assertEqual(service_commands, 1)
         self.assertEqual(runtime.write_commands_sent, 0)
         self.assertFalse(snapshot["safety"]["control_policy_applied"])
-        self.assertEqual(snapshot["policy"]["alert_count"], 49)
+        self.assertEqual(snapshot["policy"]["alert_count"], 50)
         self.assertEqual(snapshot["alert_v2"]["unmapped_active_alerts"], 0)
         self.assertEqual(snapshot["alert_v2"]["active_weight"], 3)
         self.assertEqual(snapshot["alert_v2"]["hmi_color"], "orange")
