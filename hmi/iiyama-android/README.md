@@ -10,26 +10,43 @@ Stage 4 builds on the validated native Android dedicated-device kiosk:
 - HMI starts automatically after `BOOT_COMPLETED`,
 - Android Lock Task returns automatically after boot,
 - iiyama vendor kiosk is not used,
-- service exit works by an allowed NFC card or by 5 taps on the active `PULPIT` tile followed by the service PIN,
-- after authentication a native offline `ServiceAccessActivity` opens with Lock Task disabled,
-- service cards can be added by touching them to the panel, renamed and removed locally,
-- the service PIN can be changed locally,
-- Android Settings can be opened from the service screen,
-- returning to HMI re-arms Lock Task automatically.
+- service entry works by an allowed NFC card or by 5 taps on the active `PULPIT` tile followed by the normal service PIN,
+- successful NFC/PIN authentication opens a native two-tile service menu while kiosk Lock Task remains active,
+- `ANDROID` deliberately leaves Lock Task and opens the Android launcher,
+- `USTAWIENIA` keeps the kiosk locked and requires a second, fixed administrator PIN,
+- only after that fixed administrator PIN is accepted can service NFC cards and the normal service PIN be edited,
+- returning to HMI keeps or restores Lock Task automatically.
 
-The service screen, PIN validation and NFC service-card allowlist do not depend on CM5, WebGUI or network connectivity.
+The service menu, PIN validation and NFC service-card allowlist do not depend on CM5, WebGUI or network connectivity.
 
-## Service credential storage
+## Credential model
 
-Stage 4 stores service configuration in app-private Android storage.
+There are two different PIN roles.
 
-- NFC UIDs and labels: private `SharedPreferences` JSON.
-- Service PIN: never stored in plaintext. A HMAC-SHA256 verification value is generated with a key held by Android Keystore.
-- Existing Stage 3 build-time card UIDs are imported once on first Stage 4 start.
-- Existing Stage 3 PIN remains available only as a migration fallback; after the first successful PIN verification it is re-saved using the Stage 4 Keystore path.
-- Updating the APK does not require re-entering locally managed cards/PIN.
+### Normal service PIN
 
-`service-access.properties` remains ignored by git and is retained only so a Stage 3-configured hardware unit can migrate without losing access.
+The normal service PIN is one of the two ways to enter the service menu. It can be changed locally from the protected service-settings editor.
+
+Stage 4 stores the normal service PIN in app-private Android storage. The PIN is never stored in plaintext; its verifier is protected with Android Keystore. NFC UIDs and labels are kept in private app storage.
+
+### Fixed administrator PIN
+
+The `USTAWIENIA` tile requires a separate administrator PIN. This PIN:
+
+- must be different from the normal service PIN,
+- has no change option anywhere in the HMI,
+- is compiled into a given APK only as a salted SHA-256 verifier,
+- is supplied locally from ignored `service-access.properties`, so the credential itself is not committed to Git.
+
+Configure it before a local hardware build with:
+
+```powershell
+.\tools\configure-admin-settings-pin.ps1
+```
+
+The script asks for the administrator PIN twice using masked input and updates only its local verifier while preserving existing service migration values.
+
+`service-access.properties` remains ignored by git.
 
 ## Normal kiosk behavior
 
@@ -44,7 +61,7 @@ The native Android shell:
 - retries kiosk enforcement during the iiyama Android boot transition,
 - starts after boot via `BootReceiver`.
 
-Expected kiosk state:
+Expected normal state:
 
 ```text
 mLockTaskModeState=LOCKED
@@ -52,31 +69,50 @@ mLockTaskPackages (userId:packages)=
   u0:[pl.autoklinika.workshopventilation.hmi]
 ```
 
-## Service exit methods
+## Service entry methods
 
 ### NFC
 
-An NFC UID stored in the local service-card list leaves Lock Task immediately and opens the local service screen.
+A service NFC UID opens the two-tile service menu. Lock Task stays `LOCKED` at this point.
 
 ### PIN
 
-While the `PULPIT` view is active, tap the `PULPIT` navigation tile 5 times within 4 seconds. The native PIN dialog appears. A valid PIN leaves Lock Task and opens the local service screen.
+While the `PULPIT` view is active, tap the `PULPIT` navigation tile 5 times within 4 seconds. Enter the normal service PIN. A valid PIN opens the same two-tile service menu and Lock Task stays `LOCKED`.
 
-After 5 invalid PIN attempts the PIN entry is blocked for 30 seconds.
+After 5 invalid normal service PIN attempts the entry is blocked for 30 seconds.
 
-## Local service screen
+## Two-tile service menu
 
-Available actions:
+### ANDROID
+
+`ANDROID` is the only service-menu action that deliberately leaves the kiosk.
+
+Expected transition:
+
+```text
+LOCKED + HMI allowlisted
+    -> ANDROID
+NONE + empty Lock Task allowlist
+    -> Android launcher
+```
+
+The HMI task is removed after opening Android. When the HMI application is launched again, Device Owner policy and Lock Task are restored.
+
+### USTAWIENIA
+
+`USTAWIENIA` does not leave Lock Task. It first displays a native fixed-administrator-PIN dialog.
+
+After successful administrator authentication the local editor allows:
 
 - `+ DODAJ KARTĘ` → touch the new card → enter a label → save,
 - rename a card,
 - remove a card,
 - view UID and last-use timestamp,
-- change service PIN,
-- open Android Settings,
-- `WRÓĆ DO HMI` → return to HMI and automatically re-arm kiosk mode.
+- change the normal service PIN.
 
-A last card cannot be removed when no service PIN is configured.
+The fixed administrator PIN itself cannot be changed from this editor.
+
+A last service card cannot be removed when no normal service PIN is configured.
 
 ## Device Owner
 
@@ -86,7 +122,7 @@ Component:
 pl.autoklinika.workshopventilation.hmi/.KioskDeviceAdminReceiver
 ```
 
-Device Owner is provisioned only once. Do not run `dpm set-device-owner` again when updating Stage 3 → Stage 4.
+Device Owner is provisioned only once. Do not run `dpm set-device-owner` again when updating the APK.
 
 Validation:
 
@@ -102,37 +138,29 @@ The validation APK is still marked `android:testOnly="true"` so recovery remains
 ```powershell
 cd C:\PROJEKTY\wvc-iiyama-kiosk
 
-git fetch origin
-git switch -c agent/iiyama-android-kiosk-stage4-service-access `
-  --track origin/agent/iiyama-android-kiosk-stage4-service-access
+git switch agent/iiyama-android-kiosk-stage4-service-access
+git pull --ff-only origin agent/iiyama-android-kiosk-stage4-service-access
 
 cd hmi\iiyama-android
+
+.\tools\configure-admin-settings-pin.ps1
 .\tools\build-debug.ps1
 .\tools\deploy-debug.ps1
 ```
 
-If the local Stage 4 branch already exists:
+`deploy-debug.ps1` uses `adb install -r -t`; app-private service cards and the normal service PIN are preserved across this update path.
 
-```powershell
-git switch agent/iiyama-android-kiosk-stage4-service-access
-git pull --ff-only origin agent/iiyama-android-kiosk-stage4-service-access
-```
+## Revised Stage 4 hardware validation
 
-`deploy-debug.ps1` uses `adb install -r -t`; app-private Stage 4 service settings are preserved across this update path.
-
-## Stage 4 hardware validation
-
-1. Update the Stage 3 hardware with the Stage 4 APK without reprovisioning Device Owner.
-2. Verify the existing service card still exits the kiosk.
-3. Verify the existing service PIN still exits the kiosk.
-4. Verify the local service screen opens and Lock Task is `NONE` while it is active.
-5. Add a second NFC card using only the HMI UI.
-6. Return to HMI and verify the new card opens service mode.
-7. Rename the card and verify the label persists after reboot.
-8. Change the service PIN locally and verify the old PIN no longer works while the new PIN does.
-9. Remove a test card and verify it no longer opens service mode.
-10. Open Android Settings from the service screen and return to the service screen.
-11. Choose `WRÓĆ DO HMI` and verify Lock Task returns to `LOCKED`.
-12. Reboot the panel and verify HMI autostart + `LOCKED` still work and Stage 4 card/PIN changes persist.
+1. Update the APK without reprovisioning Device Owner.
+2. Verify an allowed NFC card opens the two-tile service menu and Lock Task remains `LOCKED`.
+3. Verify `5× PULPIT + normal service PIN` opens the same menu and Lock Task remains `LOCKED`.
+4. Select `USTAWIENIA`; verify a wrong fixed administrator PIN is rejected.
+5. Verify the correct fixed administrator PIN opens the card/PIN editor.
+6. Verify existing card-management and normal service-PIN editing still work.
+7. Return to the service menu and select `ANDROID`.
+8. Verify Lock Task changes to `NONE`, the allowlist becomes empty and the Android launcher opens.
+9. Launch HMI again and verify Lock Task returns to `LOCKED` with HMI allowlisted.
+10. Reboot and verify HMI autostart + `LOCKED` still work.
 
 Do not merge this branch into `main` without explicit project-owner approval.
