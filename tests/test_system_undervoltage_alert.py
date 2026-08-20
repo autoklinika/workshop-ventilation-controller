@@ -91,6 +91,19 @@ class SystemUndervoltageAlertTest(unittest.TestCase):
         self.assertTrue(historical_only.undervoltage_occurred)
         self.assertEqual(historical_only.throttled_mask, 0x10000)
 
+    def test_real_cm5_latched_mask_0x50000_is_not_current_undervoltage(self) -> None:
+        runner = RunnerSequence(
+            SimpleNamespace(returncode=0, stdout="throttled=0x50000\n", stderr=""),
+        )
+        monitor = RaspberryPiSystemPowerMonitor(runner=runner)
+
+        state = monitor.poll()
+
+        self.assertTrue(state.available)
+        self.assertFalse(state.undervoltage_now)
+        self.assertTrue(state.undervoltage_occurred)
+        self.assertEqual(state.throttled_mask, 0x50000)
+
     def test_monitor_does_not_treat_latched_history_bit_as_active_undervoltage(self) -> None:
         monitor = FakePowerMonitor(
             SystemPowerState(
