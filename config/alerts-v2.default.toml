@@ -1,5 +1,5 @@
 schema_version = 1
-policy_version = "2026-08-18.1"
+policy_version = "2026-08-20.1"
 policy_name = "Workshop Ventilation Controller - AlertV2 default policy"
 description = "Domyślna, deklaratywna macierz wag, reakcji i kolorów HMI dla AlertV2."
 runtime_path = "/etc/workshop-ventilation/alerts-v2.toml"
@@ -71,7 +71,7 @@ title = "Brak komunikacji z CM5"
 message = "Panel HMI nie otrzymuje poprawnych danych z CM5. Sterowanie z GUI jest zablokowane do czasu odzyskania komunikacji."
 
 # -----------------------------------------------------------------------------
-# CM5 / core
+# CM5 / core / zasilanie
 # -----------------------------------------------------------------------------
 
 [alerts.CORE_PROCESS_RESTARTED]
@@ -88,6 +88,21 @@ correlation_group = "core_health"
 correlation_priority = 70
 title = "Ventilation Core został ponownie uruchomiony"
 message = "Wykryto nieoczekiwany restart procesu ventilation-core. System kontynuuje pracę po odzyskaniu usługi."
+
+[alerts.SYSTEM_UNDERVOLTAGE]
+enabled = true
+owner = "system"
+category = "power"
+weight = 4
+severity = "critical"
+reaction = "continue_degraded"
+scope = "global"
+affects_control = false
+hmi_color = "red"
+correlation_group = "system_power"
+correlation_priority = 100
+title = "Zbyt niskie napięcie zasilania CM5"
+message = "Firmware Raspberry Pi wykrył bieżący stan undervoltage. Sprawdź zasilacz, przewody, połączenia i obciążenie toru 5 V."
 
 # -----------------------------------------------------------------------------
 # DAC / wyjścia 0-10 V
