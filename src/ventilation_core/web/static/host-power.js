@@ -5,6 +5,15 @@
   let overlay = null;
   let actionInFlight = false;
 
+  function ensureStylesheet() {
+    if (document.getElementById("hostPowerStylesheet")) return;
+    const link = document.createElement("link");
+    link.id = "hostPowerStylesheet";
+    link.rel = "stylesheet";
+    link.href = "/host-power.css";
+    document.head.appendChild(link);
+  }
+
   function ensurePowerTile() {
     let tile = document.getElementById("hostPowerNav");
     if (tile) return tile;
@@ -128,6 +137,7 @@
     }
   }
 
+  ensureStylesheet();
   ensurePowerTile();
   ensureModal();
 })();
