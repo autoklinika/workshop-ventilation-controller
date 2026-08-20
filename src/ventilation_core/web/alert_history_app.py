@@ -7,23 +7,30 @@ from .app import ApiResponse, WebApplication
 
 
 class AlertHistoryWebApplication(WebApplication):
-    """WebApplication extension for read-only, paged alert history.
+    """WebApplication extension for read-only, paged alert history and service diagnostics.
 
     Current/active alert operations still go through ventilation-core. Historical
     browsing is served from a separate read-only view of the same core-owned
     SQLite journal so the browser never downloads the whole multi-year register.
+    SERVICE diagnostics are supplied by a separate read-only backend provider and
+    never expose a generic shell or control-command proxy to the browser.
     """
 
     def __init__(
         self,
         *args: Any,
         alert_history: SqliteAlertHistoryReader | None = None,
+        service_status: Any | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._alert_history = alert_history
+        self._service_status_provider = service_status
 
     def handle(self, method: str, path: str, body: Any = None) -> ApiResponse:
+        if method == "GET" and path == "/api/v1/service/status":
+            return self._service_status()
+
         if method == "POST" and path == "/api/v1/history/alerts/days":
             try:
                 return self._alert_history_days(body)
@@ -41,6 +48,38 @@ class AlertHistoryWebApplication(WebApplication):
                 return ApiResponse(503, {"ok": False, "error": str(exc)})
 
         return super().handle(method, path, body)
+
+    def _service_status(self) -> ApiResponse:
+        provider = self._service_status_provider
+        if provider is None:
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "service": {
+                        "available": False,
+                        "configured": False,
+                        "read_only": True,
+                        "error": "service diagnostics provider is not configured",
+                    },
+                },
+            )
+        try:
+            snapshot = provider.get_snapshot()
+        except Exception as exc:
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "service": {
+                        "available": False,
+                        "configured": True,
+                        "read_only": True,
+                        "error": str(exc),
+                    },
+                },
+            )
+        return ApiResponse(200, {"ok": True, "service": snapshot})
 
     def _alert_history_days(self, body: Any) -> ApiResponse:
         provider = self._alert_history
