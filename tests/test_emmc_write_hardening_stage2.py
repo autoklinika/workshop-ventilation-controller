@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -51,7 +52,7 @@ class EmmcWriteHardeningStage2Tests(unittest.TestCase):
         script = (
             ROOT / "tools/apply_cm5_emmc_write_hardening_stage2.sh"
         ).read_text(encoding="utf-8")
-        self.assertIn("/srv/wvc-data/development/vscode-server", script)
+        self.assertIn('VSCODE_TARGET="$DATA_ROOT/development/vscode-server"', script)
         self.assertIn("systemctl restart wvc-sensor-dhcp.service", script)
         self.assertIn("systemctl restart wvc-service-agent.service", script)
         self.assertNotIn("systemctl restart ventilation-core.service", script)
@@ -79,10 +80,12 @@ class EmmcWriteHardeningStage2Tests(unittest.TestCase):
         self.assertNotIn("write_text(", audit)
 
     def test_stage2_cleanup_preserves_low_write_core_configuration(self) -> None:
-        cleanup = (
-            ROOT / "tools/cleanup_cm5_emmc_rollback_stage2.sh"
-        ).read_text(encoding="utf-8")
-        self.assertIn("/srv/wvc-data/rollback/emmc-stage1-20260820", cleanup)
+        cleanup_path = ROOT / "tools/cleanup_cm5_emmc_rollback_stage2.sh"
+        cleanup = cleanup_path.read_text(encoding="utf-8")
+        self.assertIn(
+            'ARCHIVE_ROOT="$DATA_ROOT/rollback/emmc-stage1-20260820"',
+            cleanup,
+        )
         self.assertIn("cmp -s", cleanup)
         self.assertIn("diff -qr", cleanup)
         self.assertIn("SHA256SUMS", cleanup)
@@ -90,6 +93,16 @@ class EmmcWriteHardeningStage2Tests(unittest.TestCase):
         self.assertIn("zigbee-roles.json", cleanup)
         self.assertNotIn("systemctl restart ventilation-core.service", cleanup)
         self.assertNotIn("systemctl stop ventilation-core.service", cleanup)
+
+    def test_stage2_cleanup_has_valid_bash_syntax(self) -> None:
+        cleanup_path = ROOT / "tools/cleanup_cm5_emmc_rollback_stage2.sh"
+        result = subprocess.run(
+            ["bash", "-n", str(cleanup_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
