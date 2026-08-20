@@ -9,6 +9,7 @@ from ventilation_core.service_heartbeat import HeartbeatError, NodeKey, load_nod
 from ventilation_core.service_ota import OtaCoordinator, ServiceOtaError
 
 LOGGER = logging.getLogger("wvc.service_agent")
+RUNTIME_LEASES_PATH = Path("/run/wvc-sensor-service/dnsmasq-wvc.leases")
 
 
 class OtaServiceAgent(ServiceAgent):
@@ -24,7 +25,11 @@ class OtaServiceAgent(ServiceAgent):
         stale_after_seconds: float,
         network_probe_interval_seconds: float = 5.0,
     ) -> None:
-        self._ota = OtaCoordinator(keys=keys, state_dir=state_dir)
+        self._ota = OtaCoordinator(
+            keys=keys,
+            state_dir=state_dir,
+            leases_path=RUNTIME_LEASES_PATH,
+        )
         super().__init__(
             keys=keys,
             runtime_dir=runtime_dir,
