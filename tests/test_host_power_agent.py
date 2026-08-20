@@ -40,7 +40,10 @@ class HostPowerAgentTest(unittest.TestCase):
                 if launched:
                     break
                 time.sleep(0.01)
-            self.assertEqual(launched, [("/usr/bin/systemctl", "reboot")])
+            self.assertEqual(
+                launched,
+                [("/usr/bin/systemctl", "--no-block", "reboot")],
+            )
 
             stop.set()
             thread.join(timeout=2.0)
@@ -72,8 +75,8 @@ class HostPowerAgentTest(unittest.TestCase):
         self.assertNotIn("shell=True", source)
         self.assertNotIn("os.system", source)
         self.assertNotIn("eval(", source)
-        self.assertIn('(\"/usr/bin/systemctl\", \"poweroff\")', source)
-        self.assertIn('(\"/usr/bin/systemctl\", \"reboot\")', source)
+        self.assertIn('(\"/usr/bin/systemctl\", \"--no-block\", \"poweroff\")', source)
+        self.assertIn('(\"/usr/bin/systemctl\", \"--no-block\", \"reboot\")', source)
 
 
 if __name__ == "__main__":
