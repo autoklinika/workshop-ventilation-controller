@@ -53,7 +53,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     private ServiceAccessStore serviceAccessStore;
     private boolean deviceOwnerPolicyConfigured = false;
     private boolean pageReady = false;
-    private boolean serviceExitActive = false;
+    private boolean serviceMenuActive = false;
     private boolean servicePinDialogVisible = false;
     private String pendingNfcEvent = null;
     private String lastUid = null;
@@ -64,12 +64,10 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         serviceAccessStore = new ServiceAccessStore(this);
-        devicePolicyManager =
-                (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+        devicePolicyManager = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
         deviceAdminComponent = new ComponentName(this, KioskDeviceAdminReceiver.class);
         configureDeviceOwnerPolicies();
 
@@ -90,9 +88,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
-        settings.setUserAgentString(
-                settings.getUserAgentString() + " WorkshopVentilationHmi/0.4"
-        );
+        settings.setUserAgentString(settings.getUserAgentString() + " WorkshopVentilationHmi/0.4");
 
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false);
         WebView.setWebContentsDebuggingEnabled(true);
@@ -112,13 +108,11 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-
                 Uri uri = Uri.parse(url);
                 if (!isAllowedUri(uri)) {
                     pageReady = false;
                     return;
                 }
-
                 HmiWebProfile.apply(view);
                 HmiServiceGestureProfile.apply(view);
                 pageReady = true;
@@ -131,17 +125,11 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                     WebResourceRequest request,
                     WebResourceError error) {
                 super.onReceivedError(view, request, error);
-
                 if (!request.isForMainFrame()) {
                     return;
                 }
-
                 pageReady = false;
-                Toast.makeText(
-                        MainActivity.this,
-                        "Brak połączenia z CM5 — ponawiam...",
-                        Toast.LENGTH_SHORT
-                ).show();
+                Toast.makeText(MainActivity.this, "Brak połączenia z CM5 — ponawiam...", Toast.LENGTH_SHORT).show();
                 webView.postDelayed(() -> webView.loadUrl(HMI_URL), 3000L);
             }
         });
@@ -155,48 +143,41 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void configureDeviceOwnerPolicies() {
-        if (serviceExitActive || deviceOwnerPolicyConfigured) {
+        if (serviceMenuActive) {
             return;
         }
-
-        if (devicePolicyManager == null
-                || !devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
+        if (devicePolicyManager == null || !devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
             Log.i(TAG, "Device Owner not active; Android lock task remains disabled");
+            return;
+        }
+        if (deviceOwnerPolicyConfigured && devicePolicyManager.isLockTaskPermitted(getPackageName())) {
             return;
         }
 
         try {
-            devicePolicyManager.setLockTaskPackages(
-                    deviceAdminComponent,
-                    new String[]{getPackageName()}
-            );
-            devicePolicyManager.setLockTaskFeatures(
-                    deviceAdminComponent,
-                    DevicePolicyManager.LOCK_TASK_FEATURE_NONE
-            );
+            devicePolicyManager.setLockTaskPackages(deviceAdminComponent, new String[]{getPackageName()});
+            devicePolicyManager.setLockTaskFeatures(deviceAdminComponent, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
             deviceOwnerPolicyConfigured = true;
             Log.i(TAG, "Device Owner policy configured; package allowlisted for lock task");
         } catch (RuntimeException error) {
+            deviceOwnerPolicyConfigured = false;
             Log.e(TAG, "Unable to configure Device Owner kiosk policy", error);
         }
     }
 
     private void enterLockTaskIfPermitted() {
-        if (serviceExitActive) {
+        if (serviceMenuActive) {
             return;
         }
-
         if (devicePolicyManager == null
                 || !devicePolicyManager.isDeviceOwnerApp(getPackageName())
                 || !devicePolicyManager.isLockTaskPermitted(getPackageName())) {
             return;
         }
 
-        ActivityManager activityManager =
-                (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         if (activityManager != null
-                && activityManager.getLockTaskModeState()
-                != ActivityManager.LOCK_TASK_MODE_NONE) {
+                && activityManager.getLockTaskModeState() != ActivityManager.LOCK_TASK_MODE_NONE) {
             return;
         }
 
@@ -209,7 +190,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void enforceKioskNow() {
-        if (serviceExitActive) {
+        if (serviceMenuActive) {
             return;
         }
         configureDeviceOwnerPolicies();
@@ -220,7 +201,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         View decorView = getWindow().getDecorView();
         for (long delayMs : KIOSK_RETRY_DELAYS_MS) {
             decorView.postDelayed(() -> {
-                if (isFinishing() || isDestroyed() || serviceExitActive) {
+                if (isFinishing() || isDestroyed() || serviceMenuActive) {
                     return;
                 }
                 enforceKioskNow();
@@ -232,17 +213,15 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         if (uri == null) {
             return false;
         }
-
         return ALLOWED_SCHEME.equalsIgnoreCase(uri.getScheme())
                 && ALLOWED_HOST.equals(uri.getHost())
                 && uri.getPort() == ALLOWED_PORT;
     }
 
     private void showServicePinDialog() {
-        if (servicePinDialogVisible || serviceExitActive) {
+        if (servicePinDialogVisible || serviceMenuActive) {
             return;
         }
-
         if (!serviceAccessStore.isPinConfigured()) {
             Log.w(SERVICE_TAG, "Service PIN requested but no PIN is configured yet");
             Toast.makeText(this, "PIN serwisowy nie jest skonfigurowany", Toast.LENGTH_SHORT).show();
@@ -252,19 +231,13 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         long now = SystemClock.elapsedRealtime();
         if (now < pinLockoutUntilElapsedMs) {
             long seconds = Math.max(1L, (pinLockoutUntilElapsedMs - now + 999L) / 1000L);
-            Toast.makeText(
-                    this,
-                    "Zbyt wiele prób. Spróbuj za " + seconds + " s",
-                    Toast.LENGTH_SHORT
-            ).show();
+            Toast.makeText(this, "Zbyt wiele prób. Spróbuj za " + seconds + " s", Toast.LENGTH_SHORT).show();
             return;
         }
 
         EditText input = new EditText(this);
         input.setSingleLine(true);
-        input.setInputType(
-                InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        );
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
         input.setHint("PIN");
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -279,17 +252,12 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         dialog.setOnDismissListener(ignored -> servicePinDialogVisible = false);
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
                 .setOnClickListener(button -> {
-                    String pin = input.getText().toString();
                     boolean valid;
                     try {
-                        valid = serviceAccessStore.verifyPin(pin);
+                        valid = serviceAccessStore.verifyPin(input.getText().toString());
                     } catch (RuntimeException error) {
                         Log.e(SERVICE_TAG, "Unable to verify service PIN", error);
-                        Toast.makeText(
-                                MainActivity.this,
-                                "Nie udało się zweryfikować PIN-u",
-                                Toast.LENGTH_LONG
-                        ).show();
+                        Toast.makeText(MainActivity.this, "Nie udało się zweryfikować PIN-u", Toast.LENGTH_LONG).show();
                         return;
                     }
 
@@ -297,123 +265,58 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                         failedPinAttempts = 0;
                         pinLockoutUntilElapsedMs = 0L;
                         dialog.dismiss();
-                        exitKioskToServiceMode("PIN");
+                        openServiceMenu("PIN");
                         return;
                     }
 
                     failedPinAttempts++;
                     input.setText("");
                     input.setError("Nieprawidłowy PIN");
-
                     if (failedPinAttempts >= MAX_PIN_ATTEMPTS) {
                         failedPinAttempts = 0;
-                        pinLockoutUntilElapsedMs =
-                                SystemClock.elapsedRealtime() + PIN_LOCKOUT_MS;
+                        pinLockoutUntilElapsedMs = SystemClock.elapsedRealtime() + PIN_LOCKOUT_MS;
                         Log.w(SERVICE_TAG, "Service PIN temporarily locked after failed attempts");
                         dialog.dismiss();
-                        Toast.makeText(
-                                MainActivity.this,
-                                "Zbyt wiele prób. Blokada na 30 s",
-                                Toast.LENGTH_LONG
-                        ).show();
+                        Toast.makeText(MainActivity.this, "Zbyt wiele prób. Blokada na 30 s", Toast.LENGTH_LONG).show();
                     }
                 }));
 
         dialog.show();
         input.requestFocus();
         if (dialog.getWindow() != null) {
-            dialog.getWindow().setSoftInputMode(
-                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
-            );
+            dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
         }
     }
 
-    private void exitKioskToServiceMode(String method) {
-        if (serviceExitActive) {
+    private void openServiceMenu(String method) {
+        if (serviceMenuActive) {
             return;
         }
+        serviceMenuActive = true;
 
-        serviceExitActive = true;
-
-        try {
-            ActivityManager activityManager =
-                    (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-
-            if (activityManager != null
-                    && activityManager.getLockTaskModeState()
-                    != ActivityManager.LOCK_TASK_MODE_NONE) {
-                stopLockTask();
-            }
-
-            if (devicePolicyManager != null
-                    && devicePolicyManager.isDeviceOwnerApp(getPackageName())) {
-                devicePolicyManager.setLockTaskPackages(
-                        deviceAdminComponent,
-                        new String[]{}
-                );
-                deviceOwnerPolicyConfigured = false;
-                Log.i(SERVICE_TAG, "Lock task allowlist suspended for service mode");
-            }
-
-            if (activityManager != null
-                    && activityManager.getLockTaskModeState()
-                    != ActivityManager.LOCK_TASK_MODE_NONE) {
-                throw new IllegalStateException("Lock Task remained active after service unlock");
-            }
-        } catch (RuntimeException error) {
-            serviceExitActive = false;
-            deviceOwnerPolicyConfigured = false;
-            Log.e(SERVICE_TAG, "Unable to leave Android Lock Task Mode", error);
-            Toast.makeText(this, "Nie udało się wyjść z kiosku", Toast.LENGTH_LONG).show();
-            configureDeviceOwnerPolicies();
-            enterLockTaskIfPermitted();
-            scheduleKioskEnforcement();
-            return;
-        }
-
-        showSystemBars();
-
-        Intent serviceIntent = new Intent(this, ServiceAccessActivity.class);
-        serviceIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        Intent serviceIntent = new Intent(this, ServiceModeActivity.class);
+        serviceIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
         serviceIntent.putExtra("auth_method", method);
 
         try {
             startActivity(serviceIntent);
-            Log.i(SERVICE_TAG, "Service exit granted via " + method + "; local service screen opened");
-            Toast.makeText(this, "Tryb serwisowy", Toast.LENGTH_SHORT).show();
+            Log.i(SERVICE_TAG, "Service menu opened via " + method + "; kiosk remains locked");
         } catch (RuntimeException error) {
-            serviceExitActive = false;
-            deviceOwnerPolicyConfigured = false;
-            Log.e(SERVICE_TAG, "Unable to open local service screen", error);
+            serviceMenuActive = false;
+            Log.e(SERVICE_TAG, "Unable to open service menu", error);
             Toast.makeText(this, "Nie udało się otworzyć trybu serwisowego", Toast.LENGTH_LONG).show();
-            scheduleImmersiveMode();
             enforceKioskNow();
             scheduleKioskEnforcement();
         }
     }
 
-    private void showSystemBars() {
-        View decorView = getWindow().getDecorView();
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = decorView.getWindowInsetsController();
-            if (controller != null) {
-                controller.show(
-                        WindowInsets.Type.statusBars()
-                                | WindowInsets.Type.navigationBars()
-                );
-            }
-            return;
-        }
-        decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
-
-        if (serviceExitActive) {
-            serviceExitActive = false;
-            Log.i(SERVICE_TAG, "HMI resumed after service mode; kiosk re-armed");
+        if (serviceMenuActive) {
+            serviceMenuActive = false;
+            deviceOwnerPolicyConfigured = false;
+            Log.i(SERVICE_TAG, "HMI resumed after service menu; kiosk state verified");
         }
 
         scheduleImmersiveMode();
@@ -423,9 +326,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         if (nfcAdapter == null || !nfcAdapter.isEnabled()) {
             return;
         }
-
-        int flags = NfcAdapter.FLAG_READER_NFC_A
-                | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK;
+        int flags = NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK;
         nfcAdapter.enableReaderMode(this, this, flags, null);
     }
 
@@ -440,8 +341,7 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-
-        if (hasFocus && !serviceExitActive) {
+        if (hasFocus && !serviceMenuActive) {
             scheduleImmersiveMode();
             enforceKioskNow();
             scheduleKioskEnforcement();
@@ -452,16 +352,14 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     public void onTagDiscovered(Tag tag) {
         byte[] rawUid = tag.getId();
         String uid = toHexCompact(rawUid);
-
         if (uid.isEmpty() || isDebounced(uid)) {
             return;
         }
 
         Log.i(SERVICE_TAG, "NFC UID scanned: " + uid);
-
         if (serviceAccessStore.isServiceCard(uid)) {
             serviceAccessStore.recordCardUse(uid);
-            runOnUiThread(() -> exitKioskToServiceMode("NFC:" + uid));
+            runOnUiThread(() -> openServiceMenu("NFC:" + uid));
             return;
         }
 
@@ -471,19 +369,10 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
             detail.put("uid_display", toHexSpaced(rawUid));
             detail.put("source", "nfc");
             detail.put("timestamp_ms", System.currentTimeMillis());
-
-            String javascript =
-                    "window.dispatchEvent(new CustomEvent('wvc:nfc-scan',{detail:"
-                            + detail
-                            + "}));";
+            String javascript = "window.dispatchEvent(new CustomEvent('wvc:nfc-scan',{detail:" + detail + "}));";
 
             runOnUiThread(() -> {
-                Toast.makeText(
-                        MainActivity.this,
-                        "NFC: " + uid,
-                        Toast.LENGTH_SHORT
-                ).show();
-
+                Toast.makeText(MainActivity.this, "NFC: " + uid, Toast.LENGTH_SHORT).show();
                 if (pageReady) {
                     webView.evaluateJavascript(javascript, null);
                 } else {
@@ -491,21 +380,15 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
                 }
             });
         } catch (Exception ignored) {
-            runOnUiThread(() -> Toast.makeText(
-                    MainActivity.this,
-                    "Błąd odczytu NFC",
-                    Toast.LENGTH_SHORT
-            ).show());
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Błąd odczytu NFC", Toast.LENGTH_SHORT).show());
         }
     }
 
     private boolean isDebounced(String uid) {
         long now = SystemClock.elapsedRealtime();
-
         if (uid.equals(lastUid) && now - lastScanElapsedMs < NFC_DEBOUNCE_MS) {
             return true;
         }
-
         lastUid = uid;
         lastScanElapsedMs = now;
         return false;
@@ -523,7 +406,6 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         if (data == null) {
             return "";
         }
-
         StringBuilder out = new StringBuilder();
         for (byte value : data) {
             out.append(String.format(Locale.US, "%02X", value & 0xFF));
@@ -535,7 +417,6 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
         if (data == null) {
             return "";
         }
-
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < data.length; i++) {
             if (i > 0) {
@@ -547,30 +428,22 @@ public class MainActivity extends Activity implements NfcAdapter.ReaderCallback 
     }
 
     private void scheduleImmersiveMode() {
-        View decorView = getWindow().getDecorView();
-        decorView.post(this::enterImmersiveMode);
+        getWindow().getDecorView().post(this::enterImmersiveMode);
     }
 
     private void enterImmersiveMode() {
-        if (serviceExitActive) {
+        if (serviceMenuActive) {
             return;
         }
-
         View decorView = getWindow().getDecorView();
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             WindowInsetsController controller = decorView.getWindowInsetsController();
             if (controller != null) {
-                controller.hide(
-                        WindowInsets.Type.statusBars()
-                                | WindowInsets.Type.navigationBars()
-                );
-                controller.setSystemBarsBehavior(
-                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                );
+                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             }
             return;
         }
-
         decorView.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
