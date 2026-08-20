@@ -26,6 +26,7 @@ from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActu
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
 from ventilation_core.infrastructure.sqlite_schedule_store import SqliteScheduleStore
+from ventilation_core.infrastructure.system_power_monitor import RaspberryPiSystemPowerMonitor
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
 from ventilation_core.infrastructure.zigbee_capability_monitor import CapabilityManagedZigbeeMqttMonitor
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import ZigbeeDeviceConfig, ZigbeeMqttConfig
@@ -84,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--command-timeout", type=float, default=3.0)
     parser.add_argument("--health-interval", type=float, default=1.0)
     parser.add_argument("--hardware-failure-threshold", type=int, default=3)
+    parser.add_argument("--system-power-command", default="/usr/bin/vcgencmd")
+    parser.add_argument("--system-power-timeout", type=float, default=0.5)
+    parser.add_argument("--disable-system-power-monitor", action="store_true")
 
     parser.add_argument("--sensor-port", default="/dev/ttyAMA0")
     parser.add_argument("--sensor-addresses", type=parse_sensor_addresses, default=(1, 2))
@@ -137,6 +141,7 @@ async def run_core(args: argparse.Namespace) -> None:
     aero_bus = None
     tacho = None
     zigbee = None
+    system_power_monitor = None
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
@@ -166,6 +171,13 @@ async def run_core(args: argparse.Namespace) -> None:
             address=args.address,
             timeout_seconds=args.command_timeout,
         )
+
+        if not args.disable_system_power_monitor:
+            system_power_monitor = RaspberryPiSystemPowerMonitor(
+                command=(args.system_power_command, "get_throttled"),
+                timeout_seconds=args.system_power_timeout,
+            )
+
         if not args.disable_sensor_bus:
             sensor_bus = ProcessSensorBus(
                 SensorBusConfig(
@@ -252,6 +264,7 @@ async def run_core(args: argparse.Namespace) -> None:
             schedule_manager=schedule_manager,
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
+            system_power_monitor=system_power_monitor,
             shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
         )
         alert_policy_manager = RuntimeAlertPolicyManager(args.alert_policy)
@@ -279,6 +292,11 @@ async def run_core(args: argparse.Namespace) -> None:
                 "AlertV2 Service Plane correlation enabled read-only socket=%s; control policy remains disabled",
                 args.service_agent_socket,
             )
+        if system_power_monitor is not None:
+            LOGGER.info(
+                "Raspberry Pi system power monitor enabled read-only command=%s get_throttled",
+                args.system_power_command,
+            )
         server = CoreServer(
             service=service,
             socket_path=args.socket,
@@ -305,15 +323,19 @@ async def run_core(args: argparse.Namespace) -> None:
                                 sensor_bus.close()
                         finally:
                             try:
-                                if actuator is not None:
-                                    actuator.close()
+                                if system_power_monitor is not None:
+                                    system_power_monitor.close()
                             finally:
                                 try:
-                                    if schedule_manager is not None:
-                                        schedule_manager.close()
+                                    if actuator is not None:
+                                        actuator.close()
                                 finally:
-                                    if alert_registry is not None:
-                                        alert_registry.close()
+                                    try:
+                                        if schedule_manager is not None:
+                                            schedule_manager.close()
+                                    finally:
+                                        if alert_registry is not None:
+                                            alert_registry.close()
         raise
 
     loop = asyncio.get_running_loop()
