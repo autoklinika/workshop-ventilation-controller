@@ -9,6 +9,7 @@ from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.domain.alerts import AlertSignal
 from ventilation_core.domain.models import AlarmCode, AlarmSeverity
 from ventilation_core.infrastructure.sqlite_alert_store import (
+    REQUIRED_MOUNT_ENV,
     VOLATILE_FALLBACK_ENV,
     SqliteAlertStore,
 )
@@ -107,6 +108,7 @@ class SqliteAlertStoreTest(unittest.TestCase):
             target = blocker / "alerts.sqlite3"
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop(VOLATILE_FALLBACK_ENV, None)
+                os.environ.pop(REQUIRED_MOUNT_ENV, None)
                 with self.assertRaises(OSError):
                     SqliteAlertStore(target)
 
@@ -122,7 +124,12 @@ class SqliteAlertStoreTest(unittest.TestCase):
                 severity=AlarmSeverity.CRITICAL,
                 message="Undervoltage",
             )
-            with patch.dict(os.environ, {VOLATILE_FALLBACK_ENV: "1"}):
+            with patch.dict(
+                os.environ,
+                {VOLATILE_FALLBACK_ENV: "1"},
+                clear=False,
+            ):
+                os.environ.pop(REQUIRED_MOUNT_ENV, None)
                 store = SqliteAlertStore(target)
                 self.assertFalse(store.persistent)
                 self.assertTrue(store.using_volatile_fallback)
@@ -133,6 +140,48 @@ class SqliteAlertStoreTest(unittest.TestCase):
                 self.assertFalse(registry.history()[0].active)
                 registry.close()
             self.assertFalse(target.exists())
+
+    def test_missing_required_mount_uses_ram_without_writing_under_mountpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mount_root = Path(temp_dir) / "wvc-data"
+            mount_root.mkdir()
+            target = mount_root / "workshop-ventilation" / "alerts.sqlite3"
+            with patch.dict(
+                os.environ,
+                {
+                    VOLATILE_FALLBACK_ENV: "1",
+                    REQUIRED_MOUNT_ENV: str(mount_root),
+                },
+                clear=False,
+            ):
+                store = SqliteAlertStore(target)
+                self.assertFalse(store.persistent)
+                self.assertTrue(store.using_volatile_fallback)
+                store.close()
+            self.assertFalse(target.exists())
+            self.assertFalse(target.parent.exists())
+
+    def test_required_mount_allows_persistent_store_when_really_mounted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mount_root = Path(temp_dir) / "wvc-data"
+            mount_root.mkdir()
+            target = mount_root / "workshop-ventilation" / "alerts.sqlite3"
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        VOLATILE_FALLBACK_ENV: "1",
+                        REQUIRED_MOUNT_ENV: str(mount_root),
+                    },
+                    clear=False,
+                ),
+                patch("os.path.ismount", return_value=True),
+            ):
+                store = SqliteAlertStore(target)
+                self.assertTrue(store.persistent)
+                self.assertFalse(store.using_volatile_fallback)
+                store.close()
+            self.assertTrue(target.exists())
 
 
 if __name__ == "__main__":
