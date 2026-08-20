@@ -20,11 +20,11 @@ final class IiyamaLedDriver {
     static final int CODE_GREEN = 0x05;
     static final int CODE_BLUE = 0x06;
     static final int CODE_WHITE = 0x07;
+    static final int CODE_YELLOW = 0x0B;
 
-    // 0x08..0x17 are additional vendor palette colors, but yellow/orange have not yet
-    // been identified on this exact panel. Until hardware palette calibration is done,
-    // WARNING/ALARM fail conspicuously to red instead of guessing an unverified code.
-    static final int CODE_WARNING_FALLBACK = CODE_RED;
+    // Orange has not yet been identified on this exact panel. Until hardware palette
+    // calibration is complete, ALARM fails conspicuously to red instead of guessing.
+    static final int CODE_WARNING_FALLBACK = CODE_YELLOW;
     static final int CODE_ALARM_FALLBACK = CODE_RED;
 
     private Process rootShell;
@@ -51,6 +51,11 @@ final class IiyamaLedDriver {
     }
 
     private void writeCommand(int code) throws IOException {
+        // The vendor interface expects the LED engine to be enabled before setting a color.
+        rootInput.write("echo w 0x03 > " + SYSFS);
+        rootInput.newLine();
+        rootInput.flush();
+
         String command = String.format(Locale.US, "echo w 0x%02X > %s", code & 0xFF, SYSFS);
         rootInput.write(command);
         rootInput.newLine();
