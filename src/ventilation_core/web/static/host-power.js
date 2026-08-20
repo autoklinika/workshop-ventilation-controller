@@ -59,8 +59,6 @@
             <h2 id="hostPowerTitle">ZASILANIE SYSTEMU</h2>
           </div>
         </div>
-        <p class="v2-host-power-description">Wybierz operację dla sterownika CM5.</p>
-        <p class="v2-host-power-note">Operacja zostanie wykonana przez system Linux. Wyłączenie zatrzyma CM5 do czasu ponownego włączenia zasilania; restart uruchomi system ponownie.</p>
         <p id="hostPowerStatus" class="v2-host-power-status"></p>
         <div class="v2-host-power-actions">
           <button id="hostPowerShutdown" class="v2-host-power-action shutdown" type="button">WYŁĄCZ</button>
@@ -117,7 +115,7 @@
 
     actionInFlight = true;
     setButtonsDisabled(true);
-    setStatus(action === "shutdown" ? "Wysyłanie polecenia wyłączenia…" : "Wysyłanie polecenia restartu…");
+    setStatus(action === "shutdown" ? "Trwa wyłączanie…" : "Trwa restart…");
 
     try {
       const response = await fetch(POWER_ENDPOINT, {
@@ -129,11 +127,10 @@
       if (!response.ok || payload.ok !== true || payload.accepted !== true || payload.action !== action) {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
-      setStatus(action === "shutdown" ? "Polecenie przyjęte. CM5 wyłącza się…" : "Polecenie przyjęte. CM5 restartuje się…");
     } catch (error) {
       actionInFlight = false;
       setButtonsDisabled(false);
-      setStatus(`Nie udało się wykonać operacji: ${String(error.message || error)}`, true);
+      setStatus(`Błąd: ${String(error.message || error)}`, true);
     }
   }
 
