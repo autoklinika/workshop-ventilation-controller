@@ -13,6 +13,7 @@ from .alert_history_app import AlertHistoryWebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
 from .server import WebUiHttpServer
+from .service_status import ServiceStatusProvider
 from .weather import FileWeatherProvider
 
 
@@ -79,6 +80,14 @@ def main() -> int:
             "workshop-ventilation-cm5-01",
         ),
     )
+    service_status = ServiceStatusProvider(
+        core,
+        telemetry_database=args.telemetry_database,
+        alert_database=args.alert_database,
+        advisory=advisory,
+        ai_server_host=os.getenv("WVC_AI_SERVER_HOST", "192.168.1.55"),
+        ai_server_port=int(os.getenv("WVC_AI_SERVER_PORT", "8080")),
+    )
     app = AlertHistoryWebApplication(
         core,
         WebUiConfig.from_environment(),
@@ -86,11 +95,12 @@ def main() -> int:
         history,
         advisory,
         alert_history=alert_history,
+        service_status=service_status,
     )
     server = WebUiHttpServer((args.host, args.port), app, static_root)
 
     logging.getLogger(__name__).info(
-        "web UI listening on http://%s:%d using core socket %s; history=%s; alert_history=%s; weather_snapshot=%s; ai_advisory_cache=%s",
+        "web UI listening on http://%s:%d using core socket %s; history=%s; alert_history=%s; weather_snapshot=%s; ai_advisory_cache=%s; service_dashboard=read-only",
         args.host,
         args.port,
         args.socket,
