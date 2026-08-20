@@ -24,7 +24,9 @@ ReadWritePaths=/var/lib/workshop-ventilation
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# SERVICE dashboard reads routing/address state through the read-only `ip -j` interface.
+# `ip` uses rtnetlink, so AF_NETLINK must be allowed alongside the existing socket families.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=true
 MemoryDenyWriteExecute=true
 UMask=0027
