@@ -20,12 +20,11 @@ final class IiyamaLedDriver {
     static final int CODE_GREEN = 0x05;
     static final int CODE_BLUE = 0x06;
     static final int CODE_WHITE = 0x07;
+    static final int CODE_ORANGE = 0x08;
     static final int CODE_YELLOW = 0x0B;
 
-    // Orange has not yet been identified on this exact panel. Until hardware palette
-    // calibration is complete, ALARM fails conspicuously to red instead of guessing.
     static final int CODE_WARNING_FALLBACK = CODE_YELLOW;
-    static final int CODE_ALARM_FALLBACK = CODE_RED;
+    static final int CODE_ALARM_FALLBACK = CODE_ORANGE;
 
     private Process rootShell;
     private BufferedWriter rootInput;
