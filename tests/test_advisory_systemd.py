@@ -16,10 +16,13 @@ class AdvisorySystemdUnitTest(unittest.TestCase):
         self.assertIn("User=wentylacja", unit)
         self.assertIn("Group=wentylacja", unit)
 
-    def test_advisory_service_writes_only_separate_cache(self) -> None:
+    def test_advisory_service_writes_only_nvme_cache(self) -> None:
         unit = UNIT_PATH.read_text(encoding="utf-8")
-        self.assertIn("StateDirectory=workshop-ventilation", unit)
-        self.assertIn("/var/lib/workshop-ventilation/ai-advisory.json", unit)
+        self.assertNotIn("StateDirectory=workshop-ventilation", unit)
+        self.assertIn("RequiresMountsFor=/srv/wvc-data", unit)
+        self.assertIn("ExecStartPre=/usr/bin/mountpoint -q /srv/wvc-data", unit)
+        self.assertIn("/srv/wvc-data/workshop-ventilation/ai-advisory.json", unit)
+        self.assertNotIn("/var/lib/workshop-ventilation/ai-advisory.json", unit)
         self.assertNotIn("ventilation-core.sock", unit)
         self.assertNotIn("telemetry.sqlite3", unit)
 

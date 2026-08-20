@@ -1,12 +1,17 @@
+import os
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.domain.alerts import AlertSignal
 from ventilation_core.domain.models import AlarmCode, AlarmSeverity
-from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
+from ventilation_core.infrastructure.sqlite_alert_store import (
+    VOLATILE_FALLBACK_ENV,
+    SqliteAlertStore,
+)
 
 
 class SqliteAlertStoreTest(unittest.TestCase):
@@ -94,6 +99,40 @@ class SqliteAlertStoreTest(unittest.TestCase):
             self.assertFalse(history[0].active)
             self.assertIsNotNone(history[0].cleared_at)
             registry.close()
+
+    def test_unavailable_persistent_path_fails_without_explicit_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blocker = Path(temp_dir) / "not-a-directory"
+            blocker.write_text("block", encoding="utf-8")
+            target = blocker / "alerts.sqlite3"
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(VOLATILE_FALLBACK_ENV, None)
+                with self.assertRaises(OSError):
+                    SqliteAlertStore(target)
+
+    def test_explicit_volatile_fallback_keeps_alert_lifecycle_in_ram(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blocker = Path(temp_dir) / "not-a-directory"
+            blocker.write_text("block", encoding="utf-8")
+            target = blocker / "alerts.sqlite3"
+            signal = AlertSignal(
+                key="system:undervoltage",
+                code=AlarmCode.SYSTEM_UNDERVOLTAGE,
+                source="system_power",
+                severity=AlarmSeverity.CRITICAL,
+                message="Undervoltage",
+            )
+            with patch.dict(os.environ, {VOLATILE_FALLBACK_ENV: "1"}):
+                store = SqliteAlertStore(target)
+                self.assertFalse(store.persistent)
+                self.assertTrue(store.using_volatile_fallback)
+                registry = AlertRegistry(store)
+                record = registry.reconcile([signal])[0]
+                self.assertTrue(record.active)
+                registry.reconcile([])
+                self.assertFalse(registry.history()[0].active)
+                registry.close()
+            self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":

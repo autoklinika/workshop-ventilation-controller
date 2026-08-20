@@ -1,7 +1,8 @@
 [Unit]
 Description=WVC authenticated KAmod service heartbeat receiver
-After=network.target wvc-sensor-firewall.service wvc-sensor-dhcp.service
+After=network.target wvc-sensor-firewall.service wvc-sensor-dhcp.service local-fs.target
 Wants=wvc-sensor-firewall.service wvc-sensor-dhcp.service
+RequiresMountsFor=/srv/wvc-data
 
 [Service]
 Type=simple
@@ -10,17 +11,18 @@ Group=wentylacja
 WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
 Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
 RuntimeDirectory=wvc-service-heartbeat
 RuntimeDirectoryMode=0750
-StateDirectory=wvc-service-heartbeat
-StateDirectoryMode=0700
-ExecStart=/usr/bin/python3 -m ventilation_core.service_heartbeat --bind 10.55.0.1 --port 45551 --keys /etc/wvc-service-heartbeat/keys.json --runtime-dir /run/wvc-service-heartbeat --state-dir /var/lib/wvc-service-heartbeat --stale-after 35 --log-level INFO
+ExecStartPre=/usr/bin/mountpoint -q /srv/wvc-data
+ExecStart=/usr/bin/python3 -m ventilation_core.service_heartbeat --bind 10.55.0.1 --port 45551 --keys /etc/wvc-service-heartbeat/keys.json --runtime-dir /run/wvc-service-heartbeat --state-dir /srv/wvc-data/wvc-service-heartbeat --stale-after 35 --log-level INFO
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=/srv/wvc-data/wvc-service-heartbeat
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

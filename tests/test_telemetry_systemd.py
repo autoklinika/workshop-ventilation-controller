@@ -16,10 +16,13 @@ class TelemetrySystemdUnitTest(unittest.TestCase):
         self.assertIn("User=wentylacja", unit)
         self.assertIn("Group=wentylacja", unit)
 
-    def test_telemetry_service_has_separate_state_directory(self) -> None:
+    def test_telemetry_service_uses_fail_closed_nvme_data_tier(self) -> None:
         unit = UNIT_PATH.read_text(encoding="utf-8")
-        self.assertIn("StateDirectory=workshop-ventilation", unit)
-        self.assertIn("/var/lib/workshop-ventilation/telemetry.sqlite3", unit)
+        self.assertNotIn("StateDirectory=workshop-ventilation", unit)
+        self.assertIn("RequiresMountsFor=/srv/wvc-data", unit)
+        self.assertIn("ExecStartPre=/usr/bin/mountpoint -q /srv/wvc-data", unit)
+        self.assertIn("/srv/wvc-data/workshop-ventilation/telemetry.sqlite3", unit)
+        self.assertNotIn("--database /var/lib/workshop-ventilation/telemetry.sqlite3", unit)
 
     def test_remote_sink_environment_file_is_optional(self) -> None:
         unit = UNIT_PATH.read_text(encoding="utf-8")

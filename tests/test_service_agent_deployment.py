@@ -13,7 +13,10 @@ class ServiceAgentDeploymentTests(unittest.TestCase):
 
         self.assertIn("ExecStart=/usr/bin/python3 -m ventilation_core.service_agent_ota", unit)
         self.assertIn("RuntimeDirectory=wvc-service-agent", unit)
-        self.assertIn("StateDirectory=wvc-service-heartbeat", unit)
+        self.assertNotIn("StateDirectory=wvc-service-heartbeat", unit)
+        self.assertIn("RequiresMountsFor=/srv/wvc-data", unit)
+        self.assertIn("--state-dir /srv/wvc-data/wvc-service-heartbeat", unit)
+        self.assertIn("ReadWritePaths=/srv/wvc-data/wvc-service-heartbeat", unit)
         self.assertIn("RestrictAddressFamilies=AF_INET AF_UNIX", unit)
         self.assertIn("NoNewPrivileges=true", unit)
         self.assertIn("ProtectSystem=strict", unit)
