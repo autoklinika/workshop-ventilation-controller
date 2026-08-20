@@ -2,18 +2,16 @@ package pl.autoklinika.workshopventilation.hmi;
 
 import android.util.Log;
 
-import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 /** Low-level iiyama TW1025LASC-B3PNR RGB bar driver. */
 final class IiyamaLedDriver {
 
     private static final String TAG = "WvcHmiLed";
     private static final String SYSFS = "/sys/devices/platform/led_con_h/zigbee_reset";
-    private static final long ENABLE_SETTLE_MS = 100L;
+    private static final long COMMAND_TIMEOUT_MS = 1200L;
 
     // Hardware-validated vendor commands.
     static final int CODE_OFF = 0x02;
@@ -28,92 +26,64 @@ final class IiyamaLedDriver {
     static final int CODE_WARNING_FALLBACK = CODE_YELLOW;
     static final int CODE_ALARM_FALLBACK = CODE_ORANGE;
 
-    private Process rootShell;
-    private BufferedWriter rootInput;
-    private boolean ledEnabled = false;
-
+    /**
+     * Execute every vendor transition as one atomic root-shell transaction.
+     *
+     * The panel expects COLOR to be preceded by LED ON. Keeping a long-lived shell and
+     * splitting ON/COLOR into separate writes proved unreliable on real hardware after
+     * an ACK transition: the vendor LED engine could remain in its colour-cycle mode.
+     *
+     * Therefore:
+     *   OFF   -> one command containing only 0x02
+     *   COLOR -> one `su -c` command containing `0x03 && COLOR`
+     *
+     * This matches the hardware command sequence validated manually on the iiyama.
+     */
     synchronized boolean writeCode(int code) {
+        String command;
+        if (code == CODE_OFF) {
+            command = rawCommand(CODE_OFF);
+        } else {
+            command = rawCommand(CODE_ON) + " && " + rawCommand(code);
+        }
+
+        Process process = null;
         try {
-            ensureRootShell();
-            writeCommand(code);
-            return true;
-        } catch (IOException error) {
-            Log.w(TAG, "LED root shell write failed; retrying once", error);
-            closeRootShell();
-            try {
-                ensureRootShell();
-                writeCommand(code);
-                return true;
-            } catch (IOException retryError) {
-                Log.e(TAG, "LED root shell unavailable", retryError);
-                closeRootShell();
+            process = new ProcessBuilder("su", "-c", command)
+                    .redirectErrorStream(true)
+                    .start();
+
+            boolean finished = process.waitFor(COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                Log.e(TAG, "Timed out writing iiyama RGB code 0x" + String.format(Locale.US, "%02X", code));
                 return false;
             }
-        }
-    }
 
-    private void writeCommand(int code) throws IOException {
-        if (code == CODE_OFF) {
-            writeRawCode(CODE_OFF);
-            ledEnabled = false;
-            return;
-        }
+            int exit = process.exitValue();
+            if (exit != 0) {
+                Log.e(TAG, "iiyama RGB command failed exit=" + exit + " code=0x"
+                        + String.format(Locale.US, "%02X", code));
+                return false;
+            }
 
-        // The vendor interface needs LED ON before a color is selected. Do this only
-        // when the engine is actually off. Sending 0x03 before every command can leave
-        // the panel in its vendor color-cycle mode if the following color write arrives
-        // too quickly, which was observed during ACK transitions on real hardware.
-        if (!ledEnabled) {
-            writeRawCode(CODE_ON);
-            waitForEnableSettle();
-            ledEnabled = true;
-        }
-
-        writeRawCode(code);
-    }
-
-    private void writeRawCode(int code) throws IOException {
-        String command = String.format(Locale.US, "echo w 0x%02X > %s", code & 0xFF, SYSFS);
-        rootInput.write(command);
-        rootInput.newLine();
-        rootInput.flush();
-    }
-
-    private void waitForEnableSettle() throws IOException {
-        try {
-            Thread.sleep(ENABLE_SETTLE_MS);
+            Log.d(TAG, "RGB write code=0x" + String.format(Locale.US, "%02X", code));
+            return true;
+        } catch (IOException error) {
+            Log.e(TAG, "Unable to start root command for iiyama RGB bar", error);
+            return false;
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            throw new IOException("Interrupted while enabling iiyama RGB bar", error);
-        }
-    }
-
-    private void ensureRootShell() throws IOException {
-        if (rootShell != null && rootShell.isAlive() && rootInput != null) {
-            return;
-        }
-        closeRootShell();
-        rootShell = new ProcessBuilder("su")
-                .redirectErrorStream(true)
-                .start();
-        rootInput = new BufferedWriter(new OutputStreamWriter(
-                rootShell.getOutputStream(), StandardCharsets.UTF_8));
-        ledEnabled = false;
-        Log.i(TAG, "Persistent root shell opened for iiyama RGB bar");
-    }
-
-    private void closeRootShell() {
-        ledEnabled = false;
-        if (rootInput != null) {
-            try {
-                rootInput.close();
-            } catch (IOException ignored) {
+            Log.e(TAG, "Interrupted while writing iiyama RGB bar", error);
+            return false;
+        } finally {
+            if (process != null) {
+                process.destroy();
             }
-            rootInput = null;
         }
-        if (rootShell != null) {
-            rootShell.destroy();
-            rootShell = null;
-        }
+    }
+
+    private static String rawCommand(int code) {
+        return String.format(Locale.US, "echo w 0x%02X > %s", code & 0xFF, SYSFS);
     }
 }
