@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="/home/wentylacja/workshop-ventilation-controller"
 DATA_ROOT="/srv/wvc-data"
+WEB_ENV_FILE="/etc/default/wvc-web-ui"
+WEB_ENV_BACKUP="/etc/default/wvc-web-ui.pre-nvme-migration.bak"
 APPLY=0
 
 usage() {
@@ -11,7 +13,8 @@ Usage: sudo ./tools/migrate_cm5_persistent_data_to_nvme.sh [--apply]
 
 Without --apply this script performs only preflight checks.
 With --apply it safely stops WVC writers, copies existing persistent history to
-/srv/wvc-data, installs the NVMe-aware systemd units, and restores services.
+/srv/wvc-data, installs the NVMe-aware systemd units, repairs existing WebGUI
+data-path overrides in /etc/default/wvc-web-ui, and restores services.
 Legacy source files remain on eMMC as a rollback snapshot and are not deleted.
 EOF
 }
@@ -98,6 +101,31 @@ copy_if_exists() {
   fi
 }
 
+upsert_env_value() {
+  local file="$1" key="$2" value="$3" tmp
+  [[ -f "$file" ]] || return 0
+
+  tmp="$(mktemp "${file}.tmp.XXXXXX")"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found=0 }
+    $0 ~ "^[[:space:]]*" key "=" {
+      if (!found) {
+        print key "=" value
+        found=1
+      }
+      next
+    }
+    { print }
+    END {
+      if (!found) print key "=" value
+    }
+  ' "$file" >"$tmp"
+
+  chown --reference="$file" "$tmp"
+  chmod --reference="$file" "$tmp"
+  mv -f "$tmp" "$file"
+}
+
 for name in alerts.sqlite3 alerts.sqlite3-wal alerts.sqlite3-shm telemetry.sqlite3 telemetry.sqlite3-wal telemetry.sqlite3-shm ai-advisory.json weather.json; do
   copy_if_exists "/var/lib/workshop-ventilation/$name" "$DATA_ROOT/workshop-ventilation/"
 done
@@ -122,6 +150,21 @@ done
 install -m 0644 "$ROOT/deploy/cm5/zigbee/mosquitto/wvc-zigbee-local.conf" /etc/mosquitto/conf.d/wvc-zigbee-local.conf
 install -d -m 0755 /etc/systemd/journald.conf.d
 install -m 0644 "$ROOT/deploy/cm5/storage/90-wvc-emmc-protection.conf" /etc/systemd/journald.conf.d/90-wvc-emmc-protection.conf
+
+# EnvironmentFile is loaded after Environment= entries in the WebGUI unit, so
+# an old /etc/default/wvc-web-ui can silently override the NVMe paths. Preserve
+# the site's host/port/zone settings and repair only the four data-path keys.
+if [[ -f "$WEB_ENV_FILE" ]]; then
+  if [[ ! -e "$WEB_ENV_BACKUP" ]]; then
+    cp -a "$WEB_ENV_FILE" "$WEB_ENV_BACKUP"
+    echo "backup: $WEB_ENV_FILE -> $WEB_ENV_BACKUP"
+  fi
+  upsert_env_value "$WEB_ENV_FILE" "WVC_WEB_TELEMETRY_DATABASE" "$DATA_ROOT/workshop-ventilation/telemetry.sqlite3"
+  upsert_env_value "$WEB_ENV_FILE" "WVC_WEB_ALERT_DATABASE" "$DATA_ROOT/workshop-ventilation/alerts.sqlite3"
+  upsert_env_value "$WEB_ENV_FILE" "WVC_WEB_WEATHER_SNAPSHOT" "$DATA_ROOT/workshop-ventilation/weather.json"
+  upsert_env_value "$WEB_ENV_FILE" "WVC_WEB_AI_ADVISORY_CACHE" "$DATA_ROOT/workshop-ventilation/ai-advisory.json"
+  echo "updated WebGUI data-path overrides in $WEB_ENV_FILE"
+fi
 
 systemctl daemon-reload
 systemctl restart systemd-journald

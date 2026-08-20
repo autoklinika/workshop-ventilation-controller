@@ -12,7 +12,7 @@ class NvmeDataTierDeploymentTest(unittest.TestCase):
         self.assertIn("--apply", text)
         self.assertIn("REFUSING: selected device backs the root filesystem", text)
         self.assertIn("mkfs.ext4", text)
-        self.assertIn("LABEL=\"WVC_DATA\"", text)
+        self.assertIn('LABEL="WVC_DATA"', text)
         self.assertIn("/srv/wvc-data", text)
         self.assertIn("defaults,noatime,nofail,x-systemd.device-timeout=10s", text)
         self.assertIn("fstrim.timer", text)
@@ -27,6 +27,39 @@ class NvmeDataTierDeploymentTest(unittest.TestCase):
         self.assertNotIn('copy_if_exists "/var/lib/workshop-ventilation/zigbee-roles.json"', text)
         self.assertIn("safe baseline: STOP / 0 V", text)
         self.assertIn("Legacy eMMC files were intentionally retained", text)
+
+    def test_migration_repairs_existing_webui_environment_overrides(self) -> None:
+        text = (ROOT / "tools/migrate_cm5_persistent_data_to_nvme.sh").read_text(encoding="utf-8")
+        self.assertIn('WEB_ENV_FILE="/etc/default/wvc-web-ui"', text)
+        self.assertIn('WEB_ENV_BACKUP="/etc/default/wvc-web-ui.pre-nvme-migration.bak"', text)
+        self.assertIn("upsert_env_value()", text)
+        self.assertIn('cp -a "$WEB_ENV_FILE" "$WEB_ENV_BACKUP"', text)
+        for key, suffix in (
+            ("WVC_WEB_TELEMETRY_DATABASE", "telemetry.sqlite3"),
+            ("WVC_WEB_ALERT_DATABASE", "alerts.sqlite3"),
+            ("WVC_WEB_WEATHER_SNAPSHOT", "weather.json"),
+            ("WVC_WEB_AI_ADVISORY_CACHE", "ai-advisory.json"),
+        ):
+            self.assertIn(
+                f'upsert_env_value "$WEB_ENV_FILE" "{key}" '
+                f'"$DATA_ROOT/workshop-ventilation/{suffix}"',
+                text,
+            )
+
+    def test_validator_checks_webui_override_and_effective_process_environment(self) -> None:
+        text = (ROOT / "tools/validate_cm5_nvme_data.sh").read_text(encoding="utf-8")
+        self.assertIn('WEB_ENV_FILE="/etc/default/wvc-web-ui"', text)
+        self.assertIn("check_env_file_value()", text)
+        self.assertIn("check_process_env_value()", text)
+        self.assertIn('WEB_PID="$(systemctl show -p MainPID --value wvc-web-ui.service', text)
+        self.assertIn('tr \'\\0\' \'\\n\' <"/proc/$WEB_PID/environ"', text)
+        for key in (
+            "WVC_WEB_TELEMETRY_DATABASE",
+            "WVC_WEB_ALERT_DATABASE",
+            "WVC_WEB_WEATHER_SNAPSHOT",
+            "WVC_WEB_AI_ADVISORY_CACHE",
+        ):
+            self.assertIn(key, text)
 
     def test_writer_units_fail_closed_when_nvme_mount_is_missing(self) -> None:
         for name in (
