@@ -51,7 +51,7 @@ if ! nmcli -t -f GENERAL.DEVICE device show "$IFACE" >/dev/null 2>&1; then
     exit 1
 fi
 
-install -d -m 0755 /etc/dnsmasq.d /etc/nftables.d /var/lib/misc
+install -d -m 0755 /etc/dnsmasq.d /etc/nftables.d
 install -m 0644 \
     "$REPO_ROOT/deploy/cm5/wifi/dnsmasq/wvc-sensor-service.conf" \
     /etc/dnsmasq.d/wvc-sensor-service.conf
