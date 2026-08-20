@@ -100,8 +100,8 @@ if ($devices.Count -gt 1) {
 $Serial = $devices[0]
 Write-Host "[ADB] Using device: $Serial"
 
-Write-Host '[3/4] Installing debug APK...'
-& $Adb -s $Serial install -r $Apk | Out-Host
+Write-Host '[3/4] Installing debug/test APK...'
+& $Adb -s $Serial install -r -t $Apk | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "ADB install failed with exit code $LASTEXITCODE"
 }
