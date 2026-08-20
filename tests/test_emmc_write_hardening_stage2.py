@@ -78,6 +78,19 @@ class EmmcWriteHardeningStage2Tests(unittest.TestCase):
         self.assertNotIn("unlink(", audit)
         self.assertNotIn("write_text(", audit)
 
+    def test_stage2_cleanup_preserves_low_write_core_configuration(self) -> None:
+        cleanup = (
+            ROOT / "tools/cleanup_cm5_emmc_rollback_stage2.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("/srv/wvc-data/rollback/emmc-stage1-20260820", cleanup)
+        self.assertIn("cmp -s", cleanup)
+        self.assertIn("diff -qr", cleanup)
+        self.assertIn("SHA256SUMS", cleanup)
+        self.assertIn("automation.sqlite3", cleanup)
+        self.assertIn("zigbee-roles.json", cleanup)
+        self.assertNotIn("systemctl restart ventilation-core.service", cleanup)
+        self.assertNotIn("systemctl stop ventilation-core.service", cleanup)
+
 
 if __name__ == "__main__":
     unittest.main()
