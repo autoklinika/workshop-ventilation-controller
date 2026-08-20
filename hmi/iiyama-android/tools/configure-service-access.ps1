@@ -34,11 +34,27 @@ try {
 }
 
 $target = Join-Path $PSScriptRoot '..\service-access.properties'
-@(
+$adminHash = ''
+if (Test-Path $target) {
+    foreach ($line in Get-Content $target) {
+        if ($line -match '^adminSettingsPinSha256=(.*)$') {
+            $adminHash = $Matches[1].Trim()
+        }
+    }
+}
+
+$lines = @(
     "servicePinSha256=$hash"
     "serviceNfcUids=$normalizedUid"
-) | Set-Content -Path $target -Encoding ascii
+)
+if (-not [string]::IsNullOrWhiteSpace($adminHash)) {
+    $lines += "adminSettingsPinSha256=$adminHash"
+}
+$lines | Set-Content -Path $target -Encoding ascii
 
 Write-Host "Service access configured locally: $target"
 Write-Host "NFC UID: $normalizedUid"
 Write-Host 'PIN zapisany wyłącznie jako salted SHA-256.'
+if (-not [string]::IsNullOrWhiteSpace($adminHash)) {
+    Write-Host 'Stały PIN ustawień zachowany.'
+}
