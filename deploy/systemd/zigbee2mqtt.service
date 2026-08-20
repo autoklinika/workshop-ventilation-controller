@@ -2,9 +2,10 @@
 Description=Zigbee2MQTT for Workshop Ventilation Controller
 Documentation=https://www.zigbee2mqtt.io/
 Wants=network-online.target
-After=network-online.target mosquitto.service
+After=network-online.target mosquitto.service local-fs.target
 Requires=mosquitto.service
-ConditionPathExists=/var/lib/zigbee2mqtt/configuration.yaml
+RequiresMountsFor=/srv/wvc-data
+ConditionPathExists=/srv/wvc-data/zigbee2mqtt/configuration.yaml
 
 [Service]
 Type=notify
@@ -13,7 +14,8 @@ Group=wentylacja
 SupplementaryGroups=dialout
 WorkingDirectory=/opt/zigbee2mqtt
 Environment=NODE_ENV=production
-Environment=ZIGBEE2MQTT_DATA=/var/lib/zigbee2mqtt
+Environment=ZIGBEE2MQTT_DATA=/srv/wvc-data/zigbee2mqtt
+ExecStartPre=/usr/bin/mountpoint -q /srv/wvc-data
 ExecStart=/usr/bin/node index.js
 Restart=on-failure
 RestartSec=5
@@ -27,7 +29,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
-ReadWritePaths=/var/lib/zigbee2mqtt
+ReadWritePaths=/srv/wvc-data/zigbee2mqtt
 UMask=0027
 
 [Install]

@@ -364,7 +364,7 @@ class ServiceDashboardStage1Test(unittest.TestCase):
         )
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "infrastructure" / "sqlite_alert_store.py"),
-            "6467e5d7da7d7c7706957f59df433fac8896b08b",
+            "8a232fe46142186e9564ba53c8b43f5ca6bf14a1",
         )
 
     def test_ai_telemetry_send_logic_remains_byte_for_byte_unchanged(self) -> None:

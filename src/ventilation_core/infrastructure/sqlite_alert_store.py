@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 import sqlite3
 from pathlib import Path
 from threading import RLock
@@ -8,13 +10,54 @@ from ventilation_core.domain.alerts import AlertRecord, AlertSignal
 from ventilation_core.domain.models import AlarmCode, AlarmSeverity
 
 
+LOGGER = logging.getLogger(__name__)
+VOLATILE_FALLBACK_ENV = "WVC_ALERT_STORE_ALLOW_VOLATILE_FALLBACK"
+REQUIRED_MOUNT_ENV = "WVC_ALERT_STORE_REQUIRED_MOUNT"
+
+
+def _volatile_fallback_enabled() -> bool:
+    return os.getenv(VOLATILE_FALLBACK_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _required_mount() -> Path | None:
+    raw = os.getenv(REQUIRED_MOUNT_ENV, "").strip()
+    return Path(raw) if raw else None
+
+
+def _validate_required_mount(path: Path) -> None:
+    required = _required_mount()
+    if required is None:
+        return
+
+    target = path.resolve(strict=False)
+    mount_root = required.resolve(strict=False)
+    try:
+        target.relative_to(mount_root)
+    except ValueError:
+        return
+
+    if not os.path.ismount(mount_root):
+        raise OSError(
+            f"required persistent-data mount is not mounted: {mount_root}"
+        )
+
+
 class SqliteAlertStore:
     """Persistent alert journal owned by ventilation-core.
 
     Writes occur only on lifecycle transitions or when alert details materially
-    change, so normal 1 Hz health supervision does not generate continuous eMMC
-    writes. Occurrence-only growth is batched by AlertRegistry; the final exact
-    count is written together with the CLEARED transition.
+    change. Production stores the journal on the NVMe data tier. If that tier is
+    unavailable, ``WVC_ALERT_STORE_ALLOW_VOLATILE_FALLBACK=1`` allows the core
+    to continue with an in-memory alert journal instead of falling back to eMMC
+    or refusing to start. ``WVC_ALERT_STORE_REQUIRED_MOUNT`` prevents the
+    underlying mountpoint directory on eMMC from being mistaken for a mounted
+    data tier. The fallback is intentionally explicit and logged at CRITICAL
+    severity.
 
     Alert history is intentionally not pruned automatically. The project keeps
     the full local journal while the ventilation system is being characterized;
@@ -24,14 +67,45 @@ class SqliteAlertStore:
 
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = RLock()
-        self._connection = sqlite3.connect(
-            self._path,
+        self._persistent = True
+        self._connection: sqlite3.Connection | None = None
+
+        try:
+            _validate_required_mount(self._path)
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._connection = self._open_connection(self._path)
+            self._initialize_schema()
+        except (OSError, sqlite3.Error) as exc:
+            if self._connection is not None:
+                try:
+                    self._connection.close()
+                except sqlite3.Error:
+                    pass
+                self._connection = None
+            if not _volatile_fallback_enabled():
+                raise
+            self._persistent = False
+            LOGGER.critical(
+                "Persistent alert journal unavailable at %s; using volatile RAM fallback: %s",
+                self._path,
+                exc,
+            )
+            self._connection = self._open_connection(":memory:")
+            self._initialize_schema()
+
+    @staticmethod
+    def _open_connection(path: Path | str) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            path,
             timeout=5.0,
             check_same_thread=False,
         )
-        self._connection.row_factory = sqlite3.Row
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _initialize_schema(self) -> None:
+        assert self._connection is not None
         with self._lock:
             self._connection.execute("PRAGMA journal_mode=WAL")
             self._connection.execute("PRAGMA synchronous=FULL")
@@ -64,16 +138,29 @@ class SqliteAlertStore:
     def path(self) -> Path:
         return self._path
 
+    @property
+    def persistent(self) -> bool:
+        return self._persistent
+
+    @property
+    def using_volatile_fallback(self) -> bool:
+        return not self._persistent
+
+    @property
+    def _db(self) -> sqlite3.Connection:
+        assert self._connection is not None
+        return self._connection
+
     def list_active(self) -> tuple[AlertRecord, ...]:
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._db.execute(
                 "SELECT * FROM alerts WHERE cleared_at IS NULL ORDER BY alert_id ASC"
             ).fetchall()
             return tuple(self._row_to_record(row) for row in rows)
 
     def list_history(self, limit: int) -> tuple[AlertRecord, ...]:
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._db.execute(
                 "SELECT * FROM alerts ORDER BY alert_id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -81,7 +168,7 @@ class SqliteAlertStore:
 
     def create(self, signal: AlertSignal, active_since: str) -> AlertRecord:
         with self._lock:
-            cursor = self._connection.execute(
+            cursor = self._db.execute(
                 """
                 INSERT INTO alerts (
                     alert_key, code, source, severity, message, detail,
@@ -99,12 +186,12 @@ class SqliteAlertStore:
                     signal.occurrences,
                 ),
             )
-            self._connection.commit()
+            self._db.commit()
             return self._get(int(cursor.lastrowid))
 
     def update_active(self, record: AlertRecord, signal: AlertSignal) -> AlertRecord:
         with self._lock:
-            self._connection.execute(
+            self._db.execute(
                 """
                 UPDATE alerts
                    SET code = ?, source = ?, severity = ?, message = ?, detail = ?,
@@ -121,12 +208,12 @@ class SqliteAlertStore:
                     record.alert_id,
                 ),
             )
-            self._connection.commit()
+            self._db.commit()
             return self._get(record.alert_id)
 
     def acknowledge(self, alert_id: int, acknowledged_at: str) -> AlertRecord:
         with self._lock:
-            cursor = self._connection.execute(
+            cursor = self._db.execute(
                 """
                 UPDATE alerts
                    SET acknowledged_at = COALESCE(acknowledged_at, ?)
@@ -134,7 +221,7 @@ class SqliteAlertStore:
                 """,
                 (acknowledged_at, alert_id),
             )
-            self._connection.commit()
+            self._db.commit()
             if cursor.rowcount != 1:
                 existing = self._find(alert_id)
                 if existing is None:
@@ -156,7 +243,7 @@ class SqliteAlertStore:
                 existing.occurrences,
                 final_occurrences or existing.occurrences,
             )
-            cursor = self._connection.execute(
+            cursor = self._db.execute(
                 """
                 UPDATE alerts
                    SET cleared_at = COALESCE(cleared_at, ?),
@@ -165,17 +252,19 @@ class SqliteAlertStore:
                 """,
                 (cleared_at, occurrences, alert_id),
             )
-            self._connection.commit()
+            self._db.commit()
             if cursor.rowcount != 1:
                 raise ValueError(f"Unknown alert id: {alert_id}")
             return self._get(alert_id)
 
     def close(self) -> None:
         with self._lock:
-            self._connection.close()
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
 
     def _get(self, alert_id: int) -> AlertRecord:
-        row = self._connection.execute(
+        row = self._db.execute(
             "SELECT * FROM alerts WHERE alert_id = ?",
             (alert_id,),
         ).fetchone()
@@ -184,7 +273,7 @@ class SqliteAlertStore:
         return self._row_to_record(row)
 
     def _find(self, alert_id: int) -> AlertRecord | None:
-        row = self._connection.execute(
+        row = self._db.execute(
             "SELECT * FROM alerts WHERE alert_id = ?",
             (alert_id,),
         ).fetchone()

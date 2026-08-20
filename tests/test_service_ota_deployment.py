@@ -78,13 +78,15 @@ class ServiceOtaDeploymentTests(unittest.TestCase):
         self.assertNotIn("tcp dport 45552", nft)
         self.assertIn('iifname "wlan0" drop', nft)
 
-    def test_systemd_runs_ota_capable_agent(self) -> None:
+    def test_systemd_runs_ota_capable_agent_on_nvme_state(self) -> None:
         unit = (
             ROOT / "deploy/systemd/wvc-service-agent.service"
         ).read_text(encoding="utf-8")
         self.assertIn("-m ventilation_core.service_agent_ota", unit)
         self.assertIn("RestrictAddressFamilies=AF_INET AF_UNIX", unit)
-        self.assertIn("StateDirectory=wvc-service-heartbeat", unit)
+        self.assertNotIn("StateDirectory=wvc-service-heartbeat", unit)
+        self.assertIn("RequiresMountsFor=/srv/wvc-data", unit)
+        self.assertIn("--state-dir /srv/wvc-data/wvc-service-heartbeat", unit)
 
     def test_workflow_uploads_bootstrap_artifact(self) -> None:
         workflow = (

@@ -25,7 +25,7 @@ class WebUiSystemdNetlinkTest(unittest.TestCase):
         self.assertIn("NoNewPrivileges=true", text)
         self.assertIn("ProtectSystem=strict", text)
         self.assertIn("ProtectHome=read-only", text)
-        self.assertIn("ReadWritePaths=/var/lib/workshop-ventilation", text)
+        self.assertIn("ReadWritePaths=-/srv/wvc-data/workshop-ventilation", text)
 
 
 if __name__ == "__main__":
