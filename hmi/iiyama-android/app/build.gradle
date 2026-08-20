@@ -28,9 +28,11 @@ android {
         applicationId = 'pl.autoklinika.workshopventilation.hmi'
         minSdk = 33
         targetSdk = 33
-        versionCode = 3
-        versionName = '0.3.0-service-exit-stage3'
+        versionCode = 4
+        versionName = '0.4.0-service-access-stage4'
 
+        // Stage 3 values are retained only as a one-way migration fallback.
+        // Stage 4 changes are stored locally on the HMI and do not require APK rebuilds.
         buildConfigField 'String', 'SERVICE_PIN_SHA256', '"' + servicePinSha256 + '"'
         buildConfigField 'String', 'SERVICE_NFC_UIDS', '"' + serviceNfcUids + '"'
     }
