@@ -6,8 +6,9 @@ $ErrorActionPreference = "Stop"
 $adb = "C:\Android\platform-tools\adb.exe"
 $sysfs = "/sys/devices/platform/led_con_h/zigbee_reset"
 
-function Send-Led {
+function Send-LedCode {
     param([string]$Code)
+
     Write-Host "  -> $Code"
     & $adb -s $Device shell "printf 'echo w $Code > $sysfs\nexit\n' | su" | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -15,34 +16,66 @@ function Send-Led {
     }
 }
 
-function Test-ColorFade {
+function Get-CustomRgbCode {
     param(
-        [string]$ColorCode,
-        [string]$ColorName
+        [int]$Red,
+        [int]$Green,
+        [int]$Blue
+    )
+
+    if ($Red -lt 0 -or $Red -gt 255 -or
+        $Green -lt 0 -or $Green -gt 255 -or
+        $Blue -lt 0 -or $Blue -gt 255) {
+        throw "RGB musi być w zakresie 0..255"
+    }
+
+    return ("0x66{0:X2}{1:X2}{2:X2}" -f $Red, $Green, $Blue)
+}
+
+function Send-CustomRgb {
+    param(
+        [int]$Red,
+        [int]$Green,
+        [int]$Blue
+    )
+
+    Send-LedCode (Get-CustomRgbCode $Red $Green $Blue)
+}
+
+function Test-CustomColor {
+    param(
+        [string]$Name,
+        [int]$Red,
+        [int]$Green,
+        [int]$Blue
     )
 
     Write-Host ""
     Write-Host "========================================"
-    Write-Host "$ColorName [$ColorCode] -> FADE [0x0F]"
+    Write-Host "$Name  RGB($Red,$Green,$Blue)"
     Write-Host "========================================"
 
-    Send-Led "0x02"
-    Start-Sleep -Milliseconds 500
-    Send-Led "0x03"
-    Start-Sleep -Milliseconds 300
-    Send-Led $ColorCode
+    Send-CustomRgb $Red $Green $Blue
+    Read-Host "Sprawdź kolor. ENTER = test FADE OUT / IN"
 
-    Write-Host ""
-    Write-Host "Najpierw obejrzyj kolor statyczny."
-    Read-Host "ENTER = uruchom 0x0F"
+    # Software fade based on the vendor-documented custom command 0x66RRGGBB.
+    # We deliberately do NOT use vendor effect 0x0F because it always selects
+    # its own white STROBE/FADE presentation instead of fading the current colour.
+    $levels = @(255, 224, 192, 160, 128, 96, 64, 32, 8, 0, 8, 32, 64, 96, 128, 160, 192, 224, 255)
 
-    Send-Led "0x0F"
-    Write-Host ""
-    Write-Host "Obserwuj czy FADE zachowuje $ColorName, czy przechodzi na biały."
-    Read-Host "ENTER = następny test"
+    foreach ($level in $levels) {
+        $r = [int][math]::Round($Red * $level / 255.0)
+        $g = [int][math]::Round($Green * $level / 255.0)
+        $b = [int][math]::Round($Blue * $level / 255.0)
+        Send-CustomRgb $r $g $b
+        Start-Sleep -Milliseconds 90
+    }
+
+    Read-Host "Czy kolor płynnie wygasł i wrócił bez przejścia na biały? ENTER = dalej"
 }
 
-Write-Host "===== IIYAMA: CZY 0x0F FADE ZACHOWUJE AKTUALNY KOLOR? ====="
+Write-Host "===== IIYAMA: CUSTOM RGB 0x66RRGGBB + SOFTWARE FADE ====="
+Write-Host "Dokumentacja producenta podaje format: 0x66RRGGBB (RR/GG/BB = 0..255)."
 
 & $adb connect $Device | Out-Host
 Start-Sleep -Milliseconds 500
@@ -51,11 +84,16 @@ if ($state -ne "device") {
     throw "ADB device $Device niedostępny. Stan: '$state'"
 }
 
-Test-ColorFade "0x04" "CZERWONY"
-Test-ColorFade "0x08" "POMARAŃCZOWY"
-Test-ColorFade "0x10" "ŻÓŁTY"
+Send-LedCode "0x02"
+Start-Sleep -Milliseconds 300
+Send-LedCode "0x03"
+Start-Sleep -Milliseconds 300
+
+Test-CustomColor "CZERWONY" 255 0 0
+Test-CustomColor "POMARAŃCZOWY" 255 128 0
+Test-CustomColor "ŻÓŁTY" 255 255 0
 
 Write-Host ""
 Write-Host "LED OFF"
-Send-Led "0x02"
+Send-LedCode "0x02"
 Write-Host "===== KONIEC ====="
