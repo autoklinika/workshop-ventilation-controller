@@ -72,6 +72,48 @@
     return "v2-service-muted";
   }
 
+  function semanticClass(state) {
+    if (state === "ok") return "v2-service-good";
+    if (state === "warning") return "v2-service-warn";
+    if (state === "critical") return "v2-service-bad";
+    return "v2-service-muted";
+  }
+
+  function localizeSystemdState(value) {
+    const labels = {
+      active: "AKTYWNA",
+      inactive: "NIEAKTYWNA",
+      failed: "BŁĄD",
+      activating: "URUCHAMIANIE",
+      deactivating: "ZATRZYMYWANIE",
+      reloading: "PRZEŁADOWANIE",
+    };
+    return labels[value] || valueOrDash(value);
+  }
+
+  function localizeSystemdSubstate(value) {
+    const labels = {
+      running: "DZIAŁA",
+      exited: "ZAKOŃCZONA",
+      dead: "ZATRZYMANA",
+      failed: "BŁĄD",
+      start: "START",
+      stop: "STOP",
+      auto_restarting: "RESTART",
+    };
+    return labels[value] || valueOrDash(value);
+  }
+
+  function localizeHmiColor(value) {
+    const labels = {
+      green: "ZIELONY",
+      yellow: "ŻÓŁTY",
+      orange: "POMARAŃCZOWY",
+      red: "CZERWONY",
+    };
+    return labels[value] || valueOrDash(value);
+  }
+
   function makeKv(rows) {
     const dl = document.createElement("dl");
     dl.className = "v2-service-kv";
@@ -208,9 +250,9 @@
       ["Dysk / użyte", `${formatBytes(storage.used_bytes)} / ${formatBytes(storage.total_bytes)} (${valueOrDash(storage.used_percent)}%)`],
       ["get_throttled", power.mask_hex || power.raw, power.undervoltage_now === true ? "v2-service-bad" : power.available === true ? "v2-service-good" : "v2-service-muted"],
       ["Undervoltage TERAZ", formatBool(power.undervoltage_now), power.undervoltage_now === true ? "v2-service-bad" : boolClass(power.undervoltage_now === false ? true : null)],
-      ["Undervoltage od boot", formatBool(power.undervoltage_occurred)],
+      ["Undervoltage od boot", formatBool(power.undervoltage_occurred), power.undervoltage_occurred === true ? "v2-service-warn" : boolClass(power.undervoltage_occurred === false ? true : null)],
       ["Throttling TERAZ", formatBool(power.throttled_now), power.throttled_now === true ? "v2-service-bad" : boolClass(power.throttled_now === false ? true : null)],
-      ["Throttling od boot", formatBool(power.throttled_occurred)],
+      ["Throttling od boot", formatBool(power.throttled_occurred), power.throttled_occurred === true ? "v2-service-warn" : boolClass(power.throttled_occurred === false ? true : null)],
       ["Czas systemowy", formatDate(system && system.system_time)],
     ]));
     return panel;
@@ -234,7 +276,7 @@
       ["AlertV2 SHA", v2.policy_sha256],
       ["control_policy_applied", formatBool(v2.control_policy_applied), v2.control_policy_applied === false ? "v2-service-good" : v2.control_policy_applied === true ? "v2-service-warn" : "v2-service-muted"],
       ["Najwyższa waga", v2.highest_active_weight],
-      ["Kolor HMI", v2.hmi_color],
+      ["Kolor HMI", localizeHmiColor(v2.hmi_color)],
     ]));
     return panel;
   }
@@ -251,8 +293,8 @@
       const tr = document.createElement("tr");
       const values = [
         service.unit,
-        service.available === false ? "NIEDOSTĘPNA" : service.active_state,
-        service.sub_state,
+        service.available === false ? "NIEDOSTĘPNA" : localizeSystemdState(service.active_state),
+        localizeSystemdSubstate(service.sub_state),
         service.pid,
         formatDuration(service.uptime_seconds),
         service.restarts,
@@ -317,15 +359,17 @@
     tachoCard.innerHTML = "<h3>TACHO</h3>";
     const supply = tacho && typeof tacho.supply === "object" ? tacho.supply : {};
     const extract = tacho && typeof tacho.extract === "object" ? tacho.extract : {};
+    const supplyStatus = supply && typeof supply.service_status === "object" ? supply.service_status : {};
+    const extractStatus = extract && typeof extract.service_status === "object" ? extract.service_status : {};
     tachoCard.appendChild(makeKv([
       ["Monitor ready", formatBool(tacho.ready), boolClass(tacho.ready)],
       ["Worker", formatBool(tacho.worker_alive), boolClass(tacho.worker_alive)],
       ["Nawiew GPIO", supply.line_name],
       ["Nawiew Hz / RPM", `${formatNumber(supply.frequency_hz, 1)} / ${formatNumber(supply.rpm, 0)}`],
-      ["Nawiew valid", formatBool(supply.valid), boolClass(supply.valid)],
+      ["Nawiew valid", supplyStatus.text, semanticClass(supplyStatus.state)],
       ["Wyciąg GPIO", extract.line_name],
       ["Wyciąg Hz / RPM", `${formatNumber(extract.frequency_hz, 1)} / ${formatNumber(extract.rpm, 0)}`],
-      ["Wyciąg valid", formatBool(extract.valid), boolClass(extract.valid)],
+      ["Wyciąg valid", extractStatus.text, semanticClass(extractStatus.state)],
       ["Błąd", tacho.last_error],
     ]));
     subgrid.appendChild(tachoCard);
