@@ -30,8 +30,10 @@ import java.util.concurrent.TimeUnit;
  *   the local LED pattern from blinking to solid;
  * - local service / Android mode is blue only when there is no active alert.
  *
- * Only hardware-validated STATIC iiyama colours are used here: red, green, blue, white.
- * Vendor effect commands such as 0x0B/0x0F/0x13/0x17 are never used for alerts.
+ * Hardware-validated static palette on the target B3 panel:
+ * green=NORMAL, blue=INFO/SERVICE, yellow=WARNING, orange=ALARM, red=CRITICAL.
+ * White is reserved for startup/unknown. Vendor animation commands such as
+ * 0x0B/0x0F/0x13/0x17 are never used for alerts because they own/change colour.
  */
 final class HmiLedController {
 
@@ -216,10 +218,10 @@ final class HmiLedController {
         SERVICE(IiyamaLedDriver.CMD_BLUE, 0L),
         INFO_ACK(IiyamaLedDriver.CMD_BLUE, 0L),
         INFO_UNACK(IiyamaLedDriver.CMD_BLUE, 1500L),
-        WARNING_ACK(IiyamaLedDriver.CMD_WARNING, 0L),
-        WARNING_UNACK(IiyamaLedDriver.CMD_WARNING, 1000L),
-        ALARM_ACK(IiyamaLedDriver.CMD_ALARM, 0L),
-        ALARM_UNACK(IiyamaLedDriver.CMD_ALARM, 500L),
+        WARNING_ACK(IiyamaLedDriver.CMD_YELLOW, 0L),
+        WARNING_UNACK(IiyamaLedDriver.CMD_YELLOW, 1000L),
+        ALARM_ACK(IiyamaLedDriver.CMD_ORANGE, 0L),
+        ALARM_UNACK(IiyamaLedDriver.CMD_ORANGE, 500L),
         CRITICAL_ACK(IiyamaLedDriver.CMD_RED, 0L),
         CRITICAL_UNACK(IiyamaLedDriver.CMD_RED, 250L);
 
