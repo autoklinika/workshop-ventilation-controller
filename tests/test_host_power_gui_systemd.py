@@ -38,6 +38,18 @@ class HostPowerGuiSystemdTest(unittest.TestCase):
         self.assertIn('"host-power.css"', server)
         self.assertIn('host_power_js = (self.server.static_root / "host-power.js").resolve()', server)
 
+    def test_power_modal_reloads_after_cm5_goes_offline_and_recovers(self) -> None:
+        js = (STATIC / "host-power.js").read_text(encoding="utf-8")
+
+        self.assertIn('window.addEventListener("cm5-watchdog-offline"', js)
+        self.assertIn('window.addEventListener("cm5-watchdog-online"', js)
+        self.assertIn("awaitingHostRecovery", js)
+        self.assertIn("hostCommunicationLost = true", js)
+        self.assertIn("if (!awaitingHostRecovery || !hostCommunicationLost) return;", js)
+        self.assertIn("window.location.reload();", js)
+        self.assertIn("armRecoveryReload(action);", js)
+        self.assertIn("clearRecoveryReload();", js)
+
     def test_privileged_agent_unit_is_local_hardened_and_not_network_exposed(self) -> None:
         unit = (ROOT / "deploy" / "systemd" / "wvc-host-power.service").read_text(encoding="utf-8")
         web_unit = (ROOT / "deploy" / "systemd" / "wvc-web-ui.service").read_text(encoding="utf-8")
