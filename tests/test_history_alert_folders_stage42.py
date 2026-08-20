@@ -33,18 +33,18 @@ def signal(key: str) -> AlertSignal:
 
 
 class HistoryAlertFoldersStage42Test(unittest.TestCase):
-    def test_alert_store_keeps_only_30_days_of_cleared_history(self) -> None:
+    def test_alert_store_keeps_old_cleared_history_without_auto_prune(self) -> None:
         now = datetime.now(timezone.utc)
         with tempfile.TemporaryDirectory() as tempdir:
             store = SqliteAlertStore(Path(tempdir) / "alerts.sqlite3")
 
             old = store.create(
                 signal("old-cleared"),
-                active_since=(now - timedelta(days=40)).isoformat(),
+                active_since=(now - timedelta(days=450)).isoformat(),
             )
             store.clear(
                 old.alert_id,
-                (now - timedelta(days=31)).isoformat(),
+                (now - timedelta(days=400)).isoformat(),
             )
 
             recent = store.create(
@@ -58,30 +58,27 @@ class HistoryAlertFoldersStage42Test(unittest.TestCase):
 
             active = store.create(
                 signal("old-active"),
-                active_since=(now - timedelta(days=90)).isoformat(),
+                active_since=(now - timedelta(days=900)).isoformat(),
             )
 
             history = store.list_history(100)
             ids = {record.alert_id for record in history}
-            self.assertNotIn(old.alert_id, ids)
+            self.assertIn(old.alert_id, ids)
             self.assertIn(recent.alert_id, ids)
             self.assertIn(active.alert_id, ids)
             self.assertEqual(store.list_active()[0].alert_id, active.alert_id)
-            self.assertEqual(store.HISTORY_RETENTION_DAYS, 30)
+            self.assertFalse(hasattr(store, "HISTORY_RETENTION_DAYS"))
+            self.assertFalse(hasattr(store, "prune_history"))
             store.close()
 
-    def test_explicit_prune_never_deletes_active_alerts(self) -> None:
-        now = datetime(2026, 8, 20, 0, 0, tzinfo=timezone.utc)
-        with tempfile.TemporaryDirectory() as tempdir:
-            store = SqliteAlertStore(Path(tempdir) / "alerts.sqlite3")
-            active = store.create(
-                signal("long-running-active"),
-                active_since=(now - timedelta(days=120)).isoformat(),
-            )
-            deleted = store.prune_history(now=now)
-            self.assertGreaterEqual(deleted, 0)
-            self.assertEqual(store.list_active()[0].alert_id, active.alert_id)
-            store.close()
+    def test_alert_store_source_has_no_destructive_retention_delete(self) -> None:
+        source = (
+            ROOT / "src" / "ventilation_core" / "infrastructure" / "sqlite_alert_store.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("not pruned automatically", source)
+        self.assertNotIn("DELETE FROM alerts", source)
+        self.assertNotIn("HISTORY_RETENTION_DAYS", source)
+        self.assertNotIn("_history_cutoff", source)
 
     def test_history_alert_tile_replaces_chart_with_date_folders(self) -> None:
         js = (STATIC / "history-h42-alert-folders.js").read_text(encoding="utf-8")
@@ -91,6 +88,10 @@ class HistoryAlertFoldersStage42Test(unittest.TestCase):
         self.assertIn('document.createElement("details")', js)
         self.assertIn("historyH42GroupByDate", js)
         self.assertIn("alert.cleared_at", js)
+        self.assertIn('title.textContent = "Historia alertów · pełny rejestr"', js)
+        self.assertIn('state.textContent = "PEŁNY REJESTR"', js)
+        self.assertNotIn("RETENCJA 30 DNI", js)
+        self.assertNotIn("ostatnie 30 dni", js)
         self.assertNotIn("30 * 24 * 60", js)
         self.assertNotIn("Date.now() -", js)
 
