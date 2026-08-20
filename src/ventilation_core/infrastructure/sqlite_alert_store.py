@@ -12,6 +12,7 @@ from ventilation_core.domain.models import AlarmCode, AlarmSeverity
 
 LOGGER = logging.getLogger(__name__)
 VOLATILE_FALLBACK_ENV = "WVC_ALERT_STORE_ALLOW_VOLATILE_FALLBACK"
+REQUIRED_MOUNT_ENV = "WVC_ALERT_STORE_REQUIRED_MOUNT"
 
 
 def _volatile_fallback_enabled() -> bool:
@@ -23,6 +24,29 @@ def _volatile_fallback_enabled() -> bool:
     }
 
 
+def _required_mount() -> Path | None:
+    raw = os.getenv(REQUIRED_MOUNT_ENV, "").strip()
+    return Path(raw) if raw else None
+
+
+def _validate_required_mount(path: Path) -> None:
+    required = _required_mount()
+    if required is None:
+        return
+
+    target = path.resolve(strict=False)
+    mount_root = required.resolve(strict=False)
+    try:
+        target.relative_to(mount_root)
+    except ValueError:
+        return
+
+    if not os.path.ismount(mount_root):
+        raise OSError(
+            f"required persistent-data mount is not mounted: {mount_root}"
+        )
+
+
 class SqliteAlertStore:
     """Persistent alert journal owned by ventilation-core.
 
@@ -30,8 +54,10 @@ class SqliteAlertStore:
     change. Production stores the journal on the NVMe data tier. If that tier is
     unavailable, ``WVC_ALERT_STORE_ALLOW_VOLATILE_FALLBACK=1`` allows the core
     to continue with an in-memory alert journal instead of falling back to eMMC
-    or refusing to start. The fallback is intentionally explicit and logged at
-    CRITICAL severity.
+    or refusing to start. ``WVC_ALERT_STORE_REQUIRED_MOUNT`` prevents the
+    underlying mountpoint directory on eMMC from being mistaken for a mounted
+    data tier. The fallback is intentionally explicit and logged at CRITICAL
+    severity.
 
     Alert history is intentionally not pruned automatically. The project keeps
     the full local journal while the ventilation system is being characterized;
@@ -46,6 +72,7 @@ class SqliteAlertStore:
         self._connection: sqlite3.Connection | None = None
 
         try:
+            _validate_required_mount(self._path)
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._connection = self._open_connection(self._path)
             self._initialize_schema()
