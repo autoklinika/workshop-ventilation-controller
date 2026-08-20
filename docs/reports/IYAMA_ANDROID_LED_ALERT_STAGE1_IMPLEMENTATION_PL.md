@@ -37,7 +37,7 @@ Na docelowym panelu potwierdzono:
 
 ```text
 0x02 = OFF
-0x03 = ON
+0x03 = LED ON
 0x04 = RED
 0x05 = GREEN
 0x06 = BLUE
@@ -46,7 +46,7 @@ Na docelowym panelu potwierdzono:
 0x0B = YELLOW
 ```
 
-Przed ustawieniem każdego koloru sterownik wysyła `0x03` (LED ON), a dopiero potem kod koloru.
+Sterownik wysyła `LED ON = 0x03` przed każdą komendą koloru.
 
 ## Logika Stage 1
 
@@ -92,6 +92,21 @@ Przed pierwszym poprawnym połączeniem pokazywany jest `STARTUP_UNKNOWN` — bi
 
 Aktywność `MainActivity` ustawia stan lokalny NORMAL, natomiast `ServiceModeActivity` i `ServiceAccessActivity` ustawiają lokalny tryb serwisowy. Po świadomym wyjściu do launchera Android ostatni lokalny stan serwisowy pozostaje niebieski, o ile żaden alert nie ma wyższego priorytetu.
 
+## CI
+
+Finalny HEAD Stage 1 po kalibracji palety:
+
+```text
+4f9c95f3c14155b219e1088ccb2b809cfdec077a
+```
+
+GitHub Actions:
+
+```text
+HMI Android            PASS
+Ventilation Core Tests PASS
+```
+
 ## Testy wymagające panelu
 
 1. build i deploy APK 0.5.0-led-alert-stage1;
@@ -99,14 +114,18 @@ Aktywność `MainActivity` ustawia stan lokalny NORMAL, natomiast `ServiceModeAc
 3. wejście NFC / PIN do menu serwisowego: niebieski, jeżeli brak alertu;
 4. wyjście kafelkiem ANDROID: niebieski, jeżeli brak alertu;
 5. powrót do HMI: zielony;
-6. aktywny WARNING: żółty z wolnym wzorem; po ACK żółty stały;
-7. aktywny ALARM: pomarańczowy z średnim wzorem; po ACK pomarańczowy stały;
-8. aktywny CRITICAL: czerwony szybki; po ACK czerwony stały;
-9. odcięcie komunikacji HMI->CM5 na > 6 s: czerwony szybki;
+6. aktywny WARNING: żółty wolno migający; po ACK żółty stały;
+7. aktywny ALARM: pomarańczowy średnio migający; po ACK pomarańczowy stały;
+8. aktywny CRITICAL: czerwony szybko migający; po ACK czerwony stały;
+9. odcięcie komunikacji HMI->CM5 na > 6 s: czerwony szybko migający;
 10. ponowne połączenie: automatyczny powrót do aktualnego stanu alertów.
 
 ## Status
 
 Implementacja software Stage 1 na gałęzi `agent/iiyama-led-alert-stage1`.
 
-Paleta żółty/pomarańczowy została zwalidowana sprzętowo. Nadal wymagana jest walidacja pełnej logiki alertów na iiyamie przed jakimkolwiek merge do `main`.
+CI: PASS.
+
+Paleta RGB: sprzętowo potwierdzona.
+
+Wymagana pełna walidacja przepływu alertów na iiyamie przed jakimkolwiek merge do `main`.
