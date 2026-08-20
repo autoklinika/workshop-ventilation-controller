@@ -260,7 +260,8 @@ class ServiceStatusProvider:
 
     def _system_snapshot(self) -> dict[str, Any]:
         os_release = _parse_os_release()
-        uptime_seconds = _safe_float(_read_text(Path("/proc/uptime")).split()[0] if _read_text(Path("/proc/uptime")) else None)
+        uptime_text = _read_text(Path("/proc/uptime"))
+        uptime_seconds = _safe_float(uptime_text.split()[0] if uptime_text else None)
         memory = self._memory_snapshot()
         root_storage = self._filesystem_snapshot(Path("/"))
         try:
@@ -671,7 +672,20 @@ class ServiceStatusProvider:
         }
 
     @staticmethod
-    def _hardware_snapshot(core: dict[str, Any]) -> dict[str, Any]:
+    def _tacho_service_status(mode: Any, channel: Any) -> dict[str, str]:
+        if not isinstance(channel, dict):
+            return {"state": "unavailable", "text": "BRAK DANYCH"}
+        valid = channel.get("valid")
+        if mode == "STOP" and valid is False:
+            return {"state": "idle", "text": "N/D — STOP"}
+        if valid is True:
+            return {"state": "ok", "text": "TAK"}
+        if valid is False:
+            return {"state": "warning", "text": "NIE"}
+        return {"state": "unavailable", "text": "—"}
+
+    @classmethod
+    def _hardware_snapshot(cls, core: dict[str, Any]) -> dict[str, Any]:
         state = core.get("raw_state")
         if not isinstance(state, dict):
             return {
@@ -703,12 +717,26 @@ class ServiceStatusProvider:
                         "last_error": node.get("last_error"),
                     }
                 )
+
+        raw_tacho = state.get("tacho") if isinstance(state.get("tacho"), dict) else None
+        tacho: dict[str, Any] | None = None
+        if isinstance(raw_tacho, dict):
+            tacho = dict(raw_tacho)
+            mode = state.get("mode")
+            for channel_name in ("supply", "extract"):
+                raw_channel = raw_tacho.get(channel_name)
+                if not isinstance(raw_channel, dict):
+                    continue
+                channel = dict(raw_channel)
+                channel["service_status"] = cls._tacho_service_status(mode, raw_channel)
+                tacho[channel_name] = channel
+
         return {
             "available": True,
             "sensor_bus": sensor_bus,
             "sen55_nodes": sen55_nodes,
             "aero": state.get("aero_bus") if isinstance(state.get("aero_bus"), dict) else None,
-            "tacho": state.get("tacho") if isinstance(state.get("tacho"), dict) else None,
+            "tacho": tacho,
             "zigbee": state.get("zigbee") if isinstance(state.get("zigbee"), dict) else None,
         }
 
