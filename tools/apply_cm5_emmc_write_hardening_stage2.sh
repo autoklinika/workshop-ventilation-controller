@@ -80,12 +80,9 @@ install -m 0644 \
 
 install -d -m 0755 /run/wvc-sensor-service /var/lib/misc
 
-# Preserve the current lease table in RAM during the transition so OTA fallback
-# remains useful even before clients renew their leases.
-if [[ -f "$OLD_LEASE" && ! -L "$OLD_LEASE" ]]; then
-  cp -a "$OLD_LEASE" "$NEW_LEASE"
-fi
-
+# DHCP leases are intentionally volatile. Do not copy the old lease database:
+# systemd owns /run/wvc-sensor-service through RuntimeDirectory and dnsmasq will
+# repopulate the lease table automatically as sensor nodes renew after restart.
 rm -f "$OLD_LEASE"
 ln -s "$NEW_LEASE" "$OLD_LEASE"
 
