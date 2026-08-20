@@ -1,12 +1,77 @@
 # Workshop Ventilation HMI — iiyama Android
 
-Branch: `agent/iiyama-hmi-stage1`
+Branch: `agent/iiyama-android-kiosk-stage2`
 
-## Stage 1 scope
+## Stage 2 scope — native Android kiosk
 
 This module is the native Android shell for the iiyama ProLite TW1025LASC-B3PNR HMI.
 
-Current scope:
+Stage 2 keeps the Stage 1 WebView/NFC functionality and adds a native Android dedicated-device kiosk path independent of the iiyama Kiosk Mode implementation:
+
+- `DeviceAdminReceiver` suitable for provisioning the package as Android Device Owner,
+- Device Owner allowlisting of the HMI package for Lock Task Mode,
+- `LOCK_TASK_FEATURE_NONE`,
+- automatic entry into Lock Task Mode when Device Owner is active,
+- `BOOT_COMPLETED` receiver that starts the HMI after boot only when the package is Device Owner,
+- `android:lockTaskMode="if_whitelisted"` on `MainActivity`,
+- Stage 2 build marked `android:testOnly="true"` so the Device Owner can be removed during hardware validation,
+- deploy script installs the test build with `adb install -r -t`.
+
+The iiyama Kiosk Mode, iiyama Auto Launch and iiyama Exit Password are not part of the Stage 2 kiosk architecture.
+
+## Safety / development status
+
+Stage 2 is intentionally a validation build. Do not merge it into `main` and do not convert it into a non-test Device Owner build until the dedicated-device behavior has been validated on the physical HMI.
+
+The Stage 2 build intentionally does not yet provide a local service-PIN exit UI. During validation, ADB remains the recovery path. A production service exit will be added only after Lock Task and boot behavior are validated.
+
+## Provisioning preconditions
+
+Before `dpm set-device-owner`:
+
+- only Android user `0` should exist,
+- there must be no Android accounts,
+- there must be no existing Device Owner or Profile Owner,
+- the Stage 2 APK must already be installed.
+
+Expected checks on the current iiyama Android 13 build:
+
+```powershell
+adb shell dpm list-owners
+adb shell pm list users
+adb shell dumpsys account
+```
+
+## Provision as Device Owner
+
+Component:
+
+```text
+pl.autoklinika.workshopventilation.hmi/.KioskDeviceAdminReceiver
+```
+
+Provisioning command:
+
+```powershell
+adb shell dpm set-device-owner --device-owner-only pl.autoklinika.workshopventilation.hmi/.KioskDeviceAdminReceiver
+```
+
+Validation:
+
+```powershell
+adb shell dpm list-owners
+adb shell dumpsys activity activities | grep -A8 -B2 LockTaskController
+```
+
+For this Stage 2 `testOnly` build, rollback is available with:
+
+```powershell
+adb shell dpm remove-active-admin pl.autoklinika.workshopventilation.hmi/.KioskDeviceAdminReceiver
+```
+
+Do not use the rollback command after the project is converted to a production/non-test Device Owner build.
+
+## Existing HMI functionality
 
 - fullscreen / immersive Android activity,
 - WebView loading Workshop Ventilation WebGUI V2,
@@ -17,15 +82,6 @@ Current scope:
 - automatic retry when the main WebGUI frame cannot be loaded,
 - screen kept awake while the HMI is active,
 - BACK button suppressed.
-
-Not implemented in Stage 1:
-
-- CM5-side NFC card database,
-- CM5-side authentication / authorization,
-- RGB LED bridge,
-- RFID 125 kHz bridge,
-- iiyama production kiosk configuration,
-- Android autostart / device-owner policy.
 
 ## NFC event contract
 
@@ -64,19 +120,17 @@ The Android shell does **not** decide whether a card is valid. The target archit
 
 ## Sync branch in VS Code
 
-If the local branch does not exist yet:
-
 ```powershell
 git fetch origin
-git switch --track origin/agent/iiyama-hmi-stage1
+git switch --track origin/agent/iiyama-android-kiosk-stage2
 ```
 
-For subsequent updates:
+If the local branch already exists:
 
 ```powershell
 git fetch origin
-git switch agent/iiyama-hmi-stage1
-git pull --ff-only origin agent/iiyama-hmi-stage1
+git switch agent/iiyama-android-kiosk-stage2
+git pull --ff-only origin agent/iiyama-android-kiosk-stage2
 ```
 
 Then:
@@ -87,21 +141,9 @@ cd hmi\iiyama-android
 
 ## Build
 
-The project intentionally does not commit a Gradle wrapper JAR at this stage. The workshop machine already has Gradle 9.4.1 installed.
-
-Preferred build command:
-
 ```powershell
 .\tools\build-debug.ps1
 ```
-
-The script:
-
-- verifies the known Gradle installation,
-- verifies the Android SDK,
-- creates `local.properties` when needed,
-- runs `assembleDebug`,
-- verifies that the APK was produced.
 
 Expected APK:
 
@@ -111,28 +153,22 @@ app\build\outputs\apk\debug\app-debug.apk
 
 ## Install and launch on iiyama
 
-With the iiyama already visible through ADB:
-
 ```powershell
 .\tools\deploy-debug.ps1
 ```
 
-The script installs the debug APK with `adb install -r` and launches:
+The Stage 2 deploy script uses `adb install -r -t` because the validation APK is deliberately marked `testOnly`.
 
-```text
-pl.autoklinika.workshopventilation.hmi/.MainActivity
-```
+## Stage 2 hardware validation
 
-## Stage 1 validation
-
-1. The WebGUI V2 must fill the display without Chrome UI.
-2. Android system bars should be hidden in immersive mode.
-3. The display must stay awake.
-4. BACK must not exit the HMI.
-5. With CM5 reachable, WebGUI V2 must load from port `18091`.
-6. Present an NFC-A / MIFARE Classic card.
-7. A toast such as `NFC: A42F4CE1` must appear.
-8. A second card must produce a different UID.
-9. Loss of the WebGUI main frame should trigger a retry after 3 seconds.
+1. Install the Stage 2 APK.
+2. Provision `KioskDeviceAdminReceiver` as Device Owner.
+3. Launch the HMI and verify `mLockTaskModeState=LOCKED`.
+4. Verify HOME/BACK/RECENTS cannot leave the HMI.
+5. Verify WebGUI V2 still loads from port `18091`.
+6. Verify NFC scan forwarding still works.
+7. Disable the iiyama Boot App / Kiosk Mode so only the native Android path remains.
+8. Reboot and verify `BootReceiver` starts the HMI and Lock Task Mode returns automatically.
+9. Verify ADB Wi-Fi remains available as the Stage 2 recovery path.
 
 Do not merge this branch into `main` without explicit project-owner approval.
