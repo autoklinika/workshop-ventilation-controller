@@ -235,4 +235,4 @@ Pełny test:
 .\tools\test-led-alert-states-diagnostic.ps1
 ```
 
-Skrypt przechodzi kolejno przez NORMAL, INFO UNACK/ACK, WARNING UNACK/ACK, ALARM UNACK/ACK, CRITICAL UNACK/ACK, COMMUNICATION_LOST, STARTUP_UNKNOWN i SERVICE. Każdy krok wymaga jawnego `P=PASS` albo `F=FAIL`, zapisuje wynik i `WvcHmiLed` logcat do pliku, a na końcu wysyła `CLEAR`, aby oddać LED z powrotem logice live.
+Skrypt przechodzi kolejno przez NORMAL, INFO UNACK/ACK, WARNING UNACK/ACK, ALARM UNACK/ACK, CRITICAL UNACK/ACK, COMMUNICATION_LOST, STARTUP_UNKNOWN i SERVICE. Każdy krok wymaga jawnego `P=PASS` albo `F=FAIL`, zapisuje wynik i `WvcHmiLed` logcat do pliku, a na końcu — także przy przerwaniu — próbuje wysłać `CLEAR`, aby oddać LED z powrotem logice live.
