@@ -89,15 +89,15 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, request_path: str) -> None:
         if request_path in (
-            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/", "/history", "/history/"
+            "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/", "/history", "/history/", "/service", "/service/"
         ):
             relative = "index.html"
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "sidebar.css", "v2-weather.css",
+            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "service-dashboard.css", "sidebar.css", "v2-weather.css",
             "cm5-watchdog.css", "schedule.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "service-dashboard.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "schedule.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -143,6 +143,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h43_alert_js = (self.server.static_root / "history-h43-alert-pagination.js").resolve()
             if h43_alert_js.parent == self.server.static_root and h43_alert_js.is_file():
                 content += b"\n\n" + h43_alert_js.read_bytes()
+            service_js = (self.server.static_root / "service-dashboard.js").resolve()
+            if service_js.parent == self.server.static_root and service_js.is_file():
+                content += b"\n\n" + service_js.read_bytes()
         elif relative == "ai-detail.css":
             for name in ("zone-detail.css", "history.css"):
                 module = (self.server.static_root / name).resolve()
@@ -166,6 +169,9 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             h43_alert_css = (self.server.static_root / "history-h43-alert-pagination.css").resolve()
             if h43_alert_css.parent == self.server.static_root and h43_alert_css.is_file():
                 content += b"\n\n" + h43_alert_css.read_bytes()
+            service_css = (self.server.static_root / "service-dashboard.css").resolve()
+            if service_css.parent == self.server.static_root and service_css.is_file():
+                content += b"\n\n" + service_css.read_bytes()
 
         content_type, _ = mimetypes.guess_type(candidate.name)
         if content_type is None:
