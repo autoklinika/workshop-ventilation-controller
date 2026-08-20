@@ -6,7 +6,7 @@
 
 Finalny raport walidacji: `docs/reports/IYAMA_ANDROID_KIOSK_STAGE4_FINAL_VALIDATION_2026-08-20_PL.md`.
 
-**RGB Alert LED Stage 1 — finalna paleta zakodowana; pełna walidacja alert-flow na sprzęcie oczekuje.**
+**RGB Alert LED Stage 1 — finalna paleta zakodowana; deterministyczna walidacja sprzętowa w toku.**
 
 Raport implementacji: `docs/reports/IYAMA_ANDROID_LED_ALERT_STAGE1_IMPLEMENTATION_PL.md`.
 
@@ -162,8 +162,8 @@ cd hmi\iiyama-android
 Current LED build:
 
 ```text
-versionCode 10
-versionName 0.5.3-led-alert-palette
+versionCode 11
+versionName 0.5.4-led-diagnostic
 ```
 
 ## Stage 4 hardware validation — PASS
@@ -223,10 +223,16 @@ Potwierdzone efekty `0x0B`, `0x0F`, `0x13`, `0x17` nie są używane przez AlertV
 
 Sterownik używa zatem statycznego koloru oraz kontrolowanego programowo ON/OFF dla stanów UNACK. Po OFF wysyła `0x03`, a następnie właściwy statyczny kolor; przy zwykłej zmianie koloru bez OFF nie powtarza `0x03`.
 
-Test palety:
+### Deterministyczna walidacja LED
+
+Ręczne wysyłanie komend bezpośrednio do `zigbee_reset` podczas działania APK może ścigać się z `HmiLedController` i dawać pozornie przypadkowe zmiany koloru/stanu. Dlatego walidacja AlertV2 nie używa już równoległych ręcznych zapisów sysfs.
+
+Debug build ma kontrolowany ADB diagnostic override. Live polling CM5 nadal działa w tle, ale renderer LED pozostaje w jednym wymuszonym stanie aż do komendy `CLEAR`. Funkcja jest rejestrowana tylko dla `BuildConfig.DEBUG`.
+
+Pełny test:
 
 ```powershell
-.\tools\test-led-palette.ps1
+.\tools\test-led-alert-states-diagnostic.ps1
 ```
 
-Skrypt sprawdza kolejno zielony, niebieski, żółty, pomarańczowy, czerwony i biały.
+Skrypt przechodzi kolejno przez NORMAL, INFO UNACK/ACK, WARNING UNACK/ACK, ALARM UNACK/ACK, CRITICAL UNACK/ACK, COMMUNICATION_LOST, STARTUP_UNKNOWN i SERVICE. Każdy krok wymaga jawnego `P=PASS` albo `F=FAIL`, zapisuje wynik i `WvcHmiLed` logcat do pliku, a na końcu wysyła `CLEAR`, aby oddać LED z powrotem logice live.
