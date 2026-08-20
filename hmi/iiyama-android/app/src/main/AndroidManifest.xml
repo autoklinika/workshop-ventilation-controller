@@ -44,8 +44,10 @@
 
         <activity
             android:name=".ServiceAccessActivity"
+            android:excludeFromRecents="true"
             android:exported="false"
-            android:screenOrientation="landscape" />
+            android:screenOrientation="landscape"
+            android:taskAffinity="pl.autoklinika.workshopventilation.hmi.service" />
 
         <activity
             android:name=".MainActivity"
