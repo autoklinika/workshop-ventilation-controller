@@ -17,8 +17,9 @@ final class IiyamaLedDriver {
     private static final long COMMAND_TIMEOUT_MS = 1500L;
 
     /*
-     * Hardware-validated vendor commands. These are command/function codes,
-     * not a linear RGB value space.
+     * Hardware-validated vendor commands on the target B3 panel.
+     * These are command/function codes, not a linear RGB value space.
+     * 0x00/0x01 produced no visible brightness change on this firmware.
      */
     static final int CMD_UNKNOWN_00 = 0x00;
     static final int CMD_UNKNOWN_01 = 0x01;
@@ -31,25 +32,26 @@ final class IiyamaLedDriver {
     static final int CMD_ORANGE = 0x08;
     static final int CMD_YELLOW = 0x10;
 
-    /* Hardware-validated animated/effect commands. */
+    /*
+     * Hardware-validated animated/effect commands. They are intentionally not
+     * used for alert presentation because each effect owns its colour behavior.
+     */
     static final int EFFECT_COLOR_SEQUENCE = 0x0B;
     static final int EFFECT_WHITE_FADE = 0x0F;
     static final int EFFECT_MULTICOLOR_FADE = 0x13;
     static final int EFFECT_COLOR_STEP = 0x17;
-
-    static final int CMD_WARNING = CMD_YELLOW;
-    static final int CMD_ALARM = CMD_ORANGE;
 
     private boolean ledEnabled = false;
 
     /**
      * Mirrors the command model validated manually on the panel:
      *
-     *   direct static colour -> one vendor colour command
-     *   off                  -> 0x02
+     *   direct static colour   -> one vendor colour command
+     *   off                    -> 0x02
      *   first colour after OFF -> 0x03 ON, then the colour
      *
-     * 0x03 is not repeated while the LED is already enabled.
+     * 0x03 is not repeated while the LED is already enabled. Animated vendor
+     * effects are rejected here so an alert can never silently change colour.
      */
     synchronized boolean writeCommand(int command) {
         if (command == CMD_OFF) {
