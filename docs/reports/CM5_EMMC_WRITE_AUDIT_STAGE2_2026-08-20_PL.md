@@ -12,7 +12,7 @@ Po wdrożeniu warstwy danych SN770 sprawdzić, czy normalna praca CM5 nadal gene
 - journald: `Storage=volatile`
 - swap: `/dev/zram0`
 
-## Pomiar runtime
+## Pomiar bazowy przed Stage 2
 
 Czas pomiaru: 180 s.
 
@@ -21,7 +21,7 @@ Fizyczne zapisy na `mmcblk0`:
 - 1784 sektory
 - 913408 B
 - 0.871 MiB / 180 s
-- równoważnik ~418 MiB/dobę przy utrzymaniu identycznego profilu aktywności 24/7
+- krótkookresowy równoważnik ~418 MiB/dobę przy utrzymaniu identycznego profilu aktywności 24/7
 
 Zmodyfikowane regularne pliki na eMMC w czasie pomiaru:
 
@@ -37,7 +37,7 @@ Największe wartości procesowe nie oznaczały zapisów na eMMC:
 - `ventilation_core.telemetry.main`: zapisuje bazę w `/srv/wvc-data/...` na NVMe
 - `jbd2/nvme0n1p1-8`: journal ext4 SN770
 - `ventilation_core.service_agent_ota`: state dir na SN770
-- `ventilation_core.web.main`: unit ma `ProtectSystem=strict`; zapisywalny katalog historii jest na SN770
+- `ventilation_core.web.main`: historia/cache na SN770
 
 Rzeczywistym aktywnym źródłem plików zmienianych na eMMC był VS Code Remote Server.
 
@@ -53,23 +53,25 @@ Konfiguracja przypisania ról Zigbee. Zapis przy zmianie przypisania/upgrade reg
 
 Obie ścieżki pozostają na eMMC, ponieważ są niskozapisową konfiguracją potrzebną podstawowemu core. Przeniesienie zwiększałoby zależność sterowania od NVMe bez istotnej korzyści wear.
 
-## Znaleziony okresowy write-path systemu WVC
+## Stage 2 — usunięte write-pathy
+
+### DHCP leases
 
 `dnsmasq` przechowywał lease DHCP w:
 
 `/var/lib/misc/dnsmasq-wvc.leases`
 
-Lease DHCP jest stanem odtwarzalnym i nie wymaga trwałości przez reboot. Stage 2 przenosi go do:
+Stage 2 przeniósł lease do:
 
 `/run/wvc-sensor-service/dnsmasq-wvc.leases`
 
-`wvc-sensor-dhcp.service` tworzy katalog przez `RuntimeDirectory=wvc-sensor-service`. Dla zgodności starszych narzędzi diagnostycznych dawny path pozostaje wyłącznie symlinkiem do `/run`; zawartość nie jest zapisywana na eMMC.
+`wvc-sensor-dhcp.service` tworzy katalog przez `RuntimeDirectory=wvc-sensor-service`. Dla zgodności dawny path pozostaje wyłącznie symlinkiem do `/run`; zawartość nie jest zapisywana na eMMC.
 
-OTA Service Agent od Stage 2 odczytuje bezpośrednio runtime lease table w `/run`.
+OTA Service Agent od Stage 2 odczytuje runtime lease table bezpośrednio z `/run`.
 
-## VS Code Remote Server
+### VS Code Remote Server
 
-Stage 2 przenosi:
+Stage 2 przeniósł:
 
 `/home/wentylacja/.vscode-server`
 
@@ -77,7 +79,40 @@ na:
 
 `/srv/wvc-data/development/vscode-server`
 
-Ścieżka w home zostaje symlinkiem do NVMe. Dotychczasowy katalog eMMC jest zachowywany jako statyczny rollback snapshot. Po jednym reconnect VS Code Remote żaden aktywny descriptor nie powinien wskazywać rollback copy.
+Ścieżka w home jest symlinkiem do NVMe. Dotychczasowy katalog eMMC został zachowany jako rollback snapshot:
+
+`/home/wentylacja/.vscode-server.emmc-rollback-20260820-172805`
+
+Po pełnym restarcie stare deskryptory zostały zamknięte, a aktywny proces VS Code Remote uruchomił się z `/srv/wvc-data/development/vscode-server/...`.
+
+## Końcowy audyt po Stage 2
+
+Czas pomiaru: 180 s.
+
+Zmodyfikowane pliki na eMMC:
+
+1. `/var/lib/systemd/timesync/clock`
+
+Nie utworzono i nie usunięto żadnych plików na eMMC w czasie pomiaru.
+
+Aktywny VS Code Remote pracował z:
+
+`/srv/wvc-data/development/vscode-server/...`
+
+Fizyczne zapisy do `mmcblk0`:
+
+- 3128 sektorów
+- 1601536 B
+- 1.527 MiB / 180 s
+- krótkookresowy równoważnik 733.1 MiB/dobę
+
+Ten równoważnik nie jest estymacją wear. Pomiar był krótki i wykonany niedługo po restarcie, więc obejmuje journal ext4 oraz aktywność startową systemu. W szczególności `jbd2/mmcblk0p2-8` raportował 868352 B operacji zapisu w tym oknie.
+
+## Pozostały plik `systemd-timesyncd`
+
+`/var/lib/systemd/timesync/clock` jest zerobajtowym plikiem, którego mtime systemd-timesyncd aktualizuje w celu zachowania przybliżonej monotoniczności czasu pomiędzy rebootami. Nie jest to historia aplikacyjna WVC.
+
+Nie przenosimy ani nie wyłączamy tego mechanizmu bez osobnej walidacji RTC. CM5 posiada sprzętowy RTC, ale przed zmianą polityki czasu należy potwierdzić runtime RTC oraz zachowanie po utracie zasilania/baterii. Stabilność znaczników czasu telemetrycznych i harmonogramów ma wyższy priorytet niż eliminacja tego pojedynczego zapisu metadanych.
 
 ## Narzędzia Stage 2
 
@@ -85,12 +120,16 @@ na:
 - `tools/validate_cm5_emmc_write_hardening_stage2.sh`
 - `tools/audit_cm5_emmc_runtime.py`
 
-## Kryterium końcowe
+Audyt runtime raportuje teraz uptime i ostrzega, że ekstrapolacja z okna krótszego niż 1 h ma znaczenie diagnostyczne, a nie endurance/wear.
 
-Po aplikacji i reconnect VS Code Remote:
+## Wniosek
 
-1. validator Stage 2 = PASS,
-2. powtórzony runtime audit nie pokazuje zmian w `~/.vscode-server` na eMMC,
-3. DHCP lease file jest w `/run`,
-4. `ventilation-core.service` pozostaje aktywny i nie jest restartowany przez Stage 2,
-5. `main` pozostaje bez zmian do czasu osobnej, jednoznacznej zgody na merge.
+Stage 2 osiągnął cel aplikacyjny:
+
+1. historyczne i wysokozapisowe dane WVC pozostają na SN770,
+2. DHCP lease jest w RAM,
+3. VS Code Remote Server działa z NVMe,
+4. brak regularnych zapisów aplikacyjnych WVC na eMMC podczas pomiaru,
+5. `automation.sqlite3` i `zigbee-roles.json` pozostają świadomie jako low-write configuration,
+6. jedyną wykrytą zmianą pliku na eMMC po Stage 2 był systemowy `/var/lib/systemd/timesync/clock`,
+7. `main` pozostaje bez zmian do czasu osobnej, jednoznacznej zgody na merge.
