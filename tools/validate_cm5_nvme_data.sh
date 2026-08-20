@@ -40,20 +40,26 @@ check_unit_contains() {
 }
 
 check_env_file_value() {
-  local file="$1" key="$2" expected="$3" actual
+  local file="$1" key="$2" expected="$3" line actual
   [[ -f "$file" ]] || {
     pass "$file absent; WebGUI unit defaults remain authoritative"
     return
   }
-  actual="$(
+
+  line="$(
     grep -E "^[[:space:]]*${key}=" "$file" 2>/dev/null \
-      | tail -n 1 \
-      | cut -d= -f2- || true
+      | tail -n 1 || true
   )"
+  if [[ -z "$line" ]]; then
+    pass "$file does not override $key; WebGUI unit value remains authoritative"
+    return
+  fi
+
+  actual="${line#*=}"
   if [[ "$actual" == "$expected" ]]; then
     pass "$file -> $key=$expected"
   else
-    fail "$file overrides $key with '${actual:-<missing>}' (expected $expected)"
+    fail "$file overrides $key with '$actual' (expected $expected)"
   fi
 }
 
