@@ -47,7 +47,7 @@ while (($#)); do
     shift
 done
 
-for command in curl unzip sha256sum stat od install git sudo systemctl python3; do
+for command in curl sha256sum stat od install git sudo systemctl python3; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "FAIL: missing required command: $command" >&2
         exit 1
@@ -72,7 +72,19 @@ header() {
 }
 
 valid_zip() {
-    [[ -s "$ZIP_PATH" ]] && unzip -tq "$ZIP_PATH" >/dev/null 2>&1
+    [[ -s "$ZIP_PATH" ]] || return 1
+    python3 - "$ZIP_PATH" <<'PY'
+import sys
+import zipfile
+
+path = sys.argv[1]
+if not zipfile.is_zipfile(path):
+    raise SystemExit(1)
+with zipfile.ZipFile(path) as archive:
+    bad = archive.testzip()
+    if bad is not None:
+        raise SystemExit(1)
+PY
 }
 
 find_token() {
@@ -160,8 +172,22 @@ header "DOWNLOAD"
 download_artifact
 
 header "EXTRACT + VERIFY"
-unzip -q "$ZIP_PATH" "$ZIP_MEMBER" -d "$EXTRACT_DIR"
 SOURCE_IMAGE="$EXTRACT_DIR/$ZIP_MEMBER"
+python3 - "$ZIP_PATH" "$ZIP_MEMBER" "$SOURCE_IMAGE" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+zip_path = sys.argv[1]
+member = sys.argv[2]
+out_path = pathlib.Path(sys.argv[3])
+with zipfile.ZipFile(zip_path) as archive:
+    names = archive.namelist()
+    if member not in names:
+        raise SystemExit(f"FAIL: artifact does not contain {member!r}")
+    data = archive.read(member)
+out_path.write_bytes(data)
+PY
 
 ACTUAL_SIZE="$(stat -c '%s' "$SOURCE_IMAGE")"
 ACTUAL_SHA256="$(sha256sum "$SOURCE_IMAGE" | awk '{print $1}')"
@@ -250,16 +276,17 @@ d=json.load(sys.stdin)
 nodes={n.get("node_id"):n for n in d.get("nodes",[])}
 n=nodes.get("sensor-node-2")
 if not n: raise SystemExit("FAIL: sensor-node-2 missing after OTA")
+firmware=n.get("firmware")
 print("node-2 online:    ", n.get("online"))
-print("node-2 firmware:  ", n.get("firmware"))
+print("node-2 firmware:  ", firmware)
 print("node-2 partition: ", n.get("ota_partition"))
 print("node-2 pending:   ", n.get("ota_pending"))
 print("node-2 RS-485:    ", n.get("rs485_ready"))
 print("node-2 Modbus:    ", n.get("modbus_monitor_ready"))
 n1=nodes.get("sensor-node-1")
 if n1: print("node-1 firmware:  ", n1.get("firmware"))
-if n.get("firmware") != expected:
-    raise SystemExit(f"FAIL: firmware {n.get(chr(102)+chr(105)+chr(114)+chr(109)+chr(119)+chr(97)+chr(114)+chr(101))!r} != {expected!r}")
+if firmware != expected:
+    raise SystemExit(f"FAIL: firmware {firmware!r} != {expected!r}")
 if n.get("ota_pending") is not False:
     raise SystemExit("FAIL: diagnostic image still pending")
 print("PASS: diagnostic firmware active and confirmed on sensor-node-2")
