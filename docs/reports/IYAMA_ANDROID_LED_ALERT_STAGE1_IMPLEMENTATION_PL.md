@@ -197,6 +197,22 @@ LED render state=CRITICAL_ACK command=0x04
 RGB write PASS commands=0x03,0x04
 ```
 
+## Walidacja RED ONLY build 0.5.9
+
+Test `tools/test-led-alert-states-diagnostic.ps1 -RedOnly` na docelowym panelu zakończył się pełnym PASS:
+
+```text
+CRITICAL_UNACK     PASS   RED blink 500/500 ms
+CRITICAL_ACK       PASS   RED solid
+COMMUNICATION_LOST PASS   RED blink 500/500 ms
+```
+
+Guard zadziałał dokładnie na wcześniej wadliwej krawędzi. Po `CRITICAL_UNACK` ostatni `OFF` zakończył się o 10:08:51.511. `CRITICAL_ACK` został zaakceptowany o 10:08:51.778. Tick o 10:08:51.900 wykrył `sinceOffMs=388` i świadomie odroczył re-arm. Następny tick o 10:08:52.151 wykonał `0x03+0x04`, driver potwierdził sukces o 10:08:52.265, a obserwacja sprzętowa zakończyła się `CRITICAL_ACK PASS`.
+
+W tym samym teście `CRITICAL_UNACK` i `COMMUNICATION_LOST` zachowały poprawne miganie 500 ms ON / 500 ms OFF, więc guard nie zaburzył wzoru stanów migających.
+
+Po `CLEAR` renderer wrócił do live control. Ponieważ w czasie testu endpoint `192.168.1.64:18091` był niedostępny i HMI nie uzyskał poprawnego snapshotu, stan live wrócił do `STARTUP_UNKNOWN`; jest to zgodne z obecną logiką startową i nie stanowi walidacji komunikacji z core.
+
 ## Odporność transportu
 
 Polling: 2 s.
@@ -216,4 +232,4 @@ versionCode 16
 versionName 0.5.9-led-solid-rearm-guard
 ```
 
-PR #70 pozostaje DRAFT. Następny test sprzętowy powinien obejmować przede wszystkim przejście `CRITICAL_UNACK -> CRITICAL_ACK` (`-RedOnly`). Po jego PASS można powtórzyć pełny test końcowy i dopiero wtedy rozważać zakończenie Stage 1.
+PR #70 pozostaje DRAFT. RED ONLY dla builda 0.5.9 jest sprzętowo zwalidowane. Następny krok to jeden pełny test deterministyczny wszystkich stanów na tym samym buildzie. Oddzielnie należy jeszcze potwierdzić live polling z rzeczywistym `/api/v1/alerts`, gdy CM5 będzie osiągalny z panelu.
