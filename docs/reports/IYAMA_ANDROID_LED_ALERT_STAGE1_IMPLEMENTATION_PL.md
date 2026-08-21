@@ -32,8 +32,8 @@ HMI nie tworzy, nie kasuje i nie potwierdza alertów w core.
 ## Potwierdzone komendy B3
 
 ```text
-0x02 = OFF
-0x03 = ON (znana komenda producenta, ale nieużywana już przez renderer AlertV2)
+0x02 = OFF latch
+0x03 = wake / domyślnie WHITE
 0x04 = RED
 0x05 = GREEN
 0x06 = BLUE
@@ -41,6 +41,16 @@ HMI nie tworzy, nie kasuje i nie potwierdza alertów w core.
 0x08 = ORANGE
 0x10 = YELLOW
 ```
+
+Najważniejszy potwierdzony kontrakt sprzętowy po `0x02 OFF`:
+
+```text
+0x02
+...
+0x03 + COLOR   # natychmiast, w tej samej sesji su
+```
+
+Po `0x02` sam kod koloru nie jest wystarczającym kontraktem do niezawodnego ponownego włączenia paska. `0x03` budzi pasek do stanu białego, a właściwy kolor musi zostać zapisany bezpośrednio po nim w tej samej sesji root shell.
 
 Potwierdzone tryby animowane producenta:
 
@@ -72,40 +82,74 @@ ACK nie obniża priorytetu i nie zmienia koloru.
 
 ## Deterministyczny tryb diagnostyczny
 
-Build debug ma kontrolowany diagnostic override dostępny przez ADB broadcast. Polling CM5 nadal działa w tle, ale fizyczny renderer LED jest przypięty do jednego wskazanego stanu aż do `CLEAR`.
+Build debug ma kontrolowany diagnostic override dostępny przez ADB broadcast. Polling CM5 nadal działa w tle, ale fizyczny renderer LED może zostać przypięty do wskazanego stanu aż do `CLEAR`.
 
-Skrypt:
-
-```powershell
-.\tools\test-led-alert-states-diagnostic.ps1
-```
-
-Test nie używa ręcznych zapisów sysfs równolegle z aplikacją.
-
-## Wyniki pierwszej walidacji deterministycznej
-
-Log z 2026-08-21 potwierdził, że resolver nie generował losowych kodów. Dla INFO/WARNING/ALARM/CRITICAL aplikacja wysyłała oczekiwane komendy kolorów i `0x02 OFF` z zadanymi okresami.
-
-Jednocześnie log ujawnił dwa konkretne problemy implementacyjne:
-
-1. Po każdym `0x02 OFF` driver wysyłał następnie `0x03 ON` i dopiero kolor, np. `0x03,0x10`, `0x03,0x08`, `0x03,0x04`. Oryginalne, wcześniej sprzętowo potwierdzone taski VS Code wykonywały pojedynczy zapis koloru bez poprzedzania go `0x03`. Dodatkowe `0x03` nie było więc częścią znanego dobrego kontraktu sprzętowego.
-2. Przy przełączeniu diagnostic override renderer mógł mieć już rozpoczęty tick poprzedniego stanu. W logu po zaakceptowaniu `STARTUP_UNKNOWN` pojawił się jeszcze jeden zapis starego czerwonego stanu, a dopiero potem biały. To był wyścig pomiędzy zmianą stanu a renderem.
-
-## Korekta build 0.5.5
-
-Build `0.5.5-led-single-command` wprowadza dwie zmiany:
-
-- każdy fizyczny stan LED jest teraz jednym atomowym zapisem: `0x02` albo bezpośrednia komenda koloru; renderer nie używa `0x03`;
-- zmiana stanu, diagnostic override i fizyczny render są serializowane jednym `renderLock`, więc po zaakceptowaniu nowego stanu nie może zostać wypisana komenda starego stanu.
-
-Dodatkowo log zawiera teraz jawne wpisy:
+Dodatkowo dodano debugowy stan `PAUSE`:
 
 ```text
-LED render state=<STATE> command=0xNN
-RGB write PASS command=0xNN
+PAUSE = polling i proces HMI działają dalej, ale HmiLedController nie wykonuje żadnych fizycznych zapisów LED
+CLEAR = przywrócenie normalnego renderera
 ```
 
-Pozwala to jednoznacznie porównać stan logiczny z dokładnie jednym poleceniem wysłanym do sterownika.
+`PAUSE` był konieczny, ponieważ `am force-stop` nie izoluje tego kiosku — proces HMI jest uruchamiany ponownie automatycznie i może ponownie stać się writerem LED.
+
+## Ustalenia z wcześniejszych testów
+
+Pierwszy deterministyczny log ujawnił rzeczywisty race pomiędzy zmianą diagnostic override a rendererem. Został on naprawiony przez wspólny `renderLock`; po zaakceptowaniu nowego stanu nie może już zostać wypisana komenda starego stanu.
+
+W tym samym okresie błędnie uznano sekwencję `0x03 + COLOR` po OFF za zbędną i zbudowano wariant `0.5.5-led-single-command`. Późniejsza walidacja sprzętowa wykazała, że ten wniosek był niepoprawny: problemem nie było samo `0x03`, tylko brak prawdziwej izolacji writerów podczas części testów.
+
+## Izolowana walidacja sprzętowa 2026-08-21
+
+W buildzie `0.5.7-led-diagnostic-pause` renderer aplikacji został zatrzymany przez `PAUSE`, przy zachowaniu procesu HMI i pollingu. Ręczne ADB -> `su` było wtedy jedynym writerem paska.
+
+Wynik:
+
+```text
+REARM_GREEN_03_PLUS_05        PASS
+REARM_RED_STATIC_03_PLUS_04   PASS
+REARM_RED_BLINK_1000MS        PASS
+REARM_RED_BLINK_500MS         PASS
+REARM_RED_BLINK_250MS         FAIL
+```
+
+Podsumowanie sprzętowe:
+
+```text
+greenRearm=True
+redStatic=True
+red1000=True
+red500=True
+red250=False
+```
+
+To potwierdza dwie rzeczy:
+
+1. po `0x02 OFF` ponowne włączenie koloru ma używać atomowej sekwencji `0x03 + COLOR` w jednej sesji `su`;
+2. czerwone miganie jest stabilne przy 500 ms ON / 500 ms OFF, natomiast wariant 250 ms nie jest akceptowany jako poprawny wizualnie na docelowym panelu.
+
+## Korekta build 0.5.8
+
+Build `0.5.8-led-rearm` implementuje potwierdzony kontrakt B3:
+
+- `OFF` -> pojedynczy zapis `0x02`;
+- każdy widoczny kolor -> atomowa sekwencja `0x03 + COLOR` w jednej sesji root shell;
+- `renderLock` pozostaje i nadal serializuje zmianę stanu z fizycznym renderem;
+- `CRITICAL_UNACK` i `COMMUNICATION_LOST` używają 500 ms ON / 500 ms OFF;
+- `CRITICAL_ACK` pozostaje stałym czerwonym;
+- debugowy `PAUSE` pozostaje dostępny do izolowanych testów sprzętowych.
+
+Log drivera dla koloru ma teraz postać:
+
+```text
+RGB write PASS commands=0x03,0x04
+```
+
+a dla OFF:
+
+```text
+RGB write PASS commands=0x02
+```
 
 ## Odporność transportu
 
@@ -122,8 +166,8 @@ Gałąź: `agent/iiyama-led-alert-stage1`.
 Aktualny test build:
 
 ```text
-versionCode 12
-versionName 0.5.5-led-single-command
+versionCode 15
+versionName 0.5.8-led-rearm
 ```
 
-PR #70 pozostaje DRAFT. Wymagana ponowna fizyczna walidacja diagnostyczna na docelowym TW1025LASC-B3PNR przed jakimkolwiek merge do `main`.
+PR #70 pozostaje DRAFT. Przed jakimkolwiek merge do `main` wymagany jest jeszcze pełny test aplikacji na docelowym TW1025LASC-B3PNR: wszystkie kolory, wzory ACK/UNACK oraz powrót do live control.
