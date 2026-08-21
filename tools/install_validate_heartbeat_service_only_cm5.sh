@@ -48,12 +48,13 @@ require_main_source_of_truth() {
 
 fetch_validation_branch() {
     echo "===== FETCH VALIDATION BRANCH ====="
-    sudo -u wentylacja git -C "$ROOT" fetch --prune origin \
-        main \
-        "$BRANCH"
+    # Refresh normal remote-tracking refs instead of relying on FETCH_HEAD.
+    sudo -u wentylacja git -C "$ROOT" fetch --prune origin
 
     [ "$(sudo -u wentylacja git -C "$ROOT" rev-parse origin/main)" = "$EXPECTED_BASE" ] \
         || fail "origin/main moved from validated base $EXPECTED_BASE; rebase/review required"
+    sudo -u wentylacja git -C "$ROOT" rev-parse --verify "origin/$BRANCH" >/dev/null \
+        || fail "validation branch is missing on origin: $BRANCH"
 
     if [ -e "$WT" ]; then
         sudo -u wentylacja git -C "$ROOT" worktree remove --force "$WT" 2>/dev/null || true
