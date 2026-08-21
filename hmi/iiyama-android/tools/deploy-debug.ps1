@@ -3,7 +3,9 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Adb = 'C:\Android\platform-tools\adb.exe'
 $Apk = Join-Path $ProjectRoot 'app\build\outputs\apk\debug\app-debug.apk'
-$Component = 'pl.autoklinika.workshopventilation.hmi/.MainActivity'
+$Gradle = Join-Path $ProjectRoot 'app\build.gradle'
+$Package = 'pl.autoklinika.workshopventilation.hmi'
+$Component = "$Package/.MainActivity"
 
 function Get-ReadyAdbDevices {
     $lines = & $Adb devices
@@ -57,6 +59,44 @@ function Try-ReconnectWirelessAdb {
     return @()
 }
 
+function Get-ExpectedBuildVersion {
+    if (-not (Test-Path $Gradle)) {
+        throw "Gradle file not found: $Gradle"
+    }
+
+    $text = Get-Content -Raw $Gradle
+    $nameMatch = [regex]::Match($text, "versionName\s*=\s*'([^']+)'")
+    $codeMatch = [regex]::Match($text, 'versionCode\s*=\s*(\d+)')
+    if (-not $nameMatch.Success -or -not $codeMatch.Success) {
+        throw 'Unable to read versionName/versionCode from app\build.gradle'
+    }
+
+    [pscustomobject]@{
+        Name = $nameMatch.Groups[1].Value
+        Code = [int]$codeMatch.Groups[1].Value
+    }
+}
+
+function Get-InstalledBuildVersion {
+    param([string]$Serial)
+
+    $dump = (& $Adb -s $Serial shell dumpsys package $Package 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to read installed package metadata for $Package"
+    }
+
+    $nameMatch = [regex]::Match($dump, 'versionName=([^\r\n\s]+)')
+    $codeMatch = [regex]::Match($dump, 'versionCode=(\d+)')
+    if (-not $nameMatch.Success -or -not $codeMatch.Success) {
+        throw "Unable to parse installed version for $Package"
+    }
+
+    [pscustomobject]@{
+        Name = $nameMatch.Groups[1].Value.Trim()
+        Code = [int]$codeMatch.Groups[1].Value
+    }
+}
+
 if (-not (Test-Path $Adb)) {
     throw "ADB not found: $Adb"
 }
@@ -65,17 +105,20 @@ if (-not (Test-Path $Apk)) {
     throw "APK not found: $Apk. Run tools\build-debug.ps1 first."
 }
 
+$expected = Get-ExpectedBuildVersion
+
 Write-Host '===== WORKSHOP VENTILATION HMI DEPLOY ====='
-Write-Host "APK: $Apk"
+Write-Host "APK:      $Apk"
+Write-Host "Expected: versionCode $($expected.Code), versionName $($expected.Name)"
 Write-Host
 
-Write-Host '[1/4] Starting/checking ADB server...'
+Write-Host '[1/5] Starting/checking ADB server...'
 & $Adb start-server | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "ADB server failed with exit code $LASTEXITCODE"
 }
 
-Write-Host '[2/4] Looking for the iiyama ADB device...'
+Write-Host '[2/5] Looking for the iiyama ADB device...'
 $devices = @(Get-ReadyAdbDevices)
 if ($devices.Count -eq 0) {
     $devices = @(Try-ReconnectWirelessAdb)
@@ -100,18 +143,26 @@ if ($devices.Count -gt 1) {
 $Serial = $devices[0]
 Write-Host "[ADB] Using device: $Serial"
 
-Write-Host '[3/4] Installing debug/test APK...'
+Write-Host '[3/5] Installing debug/test APK...'
 & $Adb -s $Serial install -r -t $Apk | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "ADB install failed with exit code $LASTEXITCODE"
 }
 
-Write-Host '[4/4] Launching Workshop Ventilation HMI...'
-& $Adb -s $Serial shell am force-stop 'pl.autoklinika.workshopventilation.hmi' | Out-Null
+Write-Host '[4/5] Verifying installed APK version...'
+$installed = Get-InstalledBuildVersion -Serial $Serial
+Write-Host "Installed: versionCode $($installed.Code), versionName $($installed.Name)"
+if ($installed.Code -ne $expected.Code -or $installed.Name -ne $expected.Name) {
+    throw "STALE APK DETECTED. Source expects $($expected.Code)/$($expected.Name), but panel has $($installed.Code)/$($installed.Name). Re-run .\tools\build-debug.ps1 and deploy again."
+}
+Write-Host '[APK] Version verification: PASS' -ForegroundColor Green
+
+Write-Host '[5/5] Launching Workshop Ventilation HMI...'
+& $Adb -s $Serial shell am force-stop $Package | Out-Null
 & $Adb -s $Serial shell am start -W -n $Component | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "HMI launch failed with exit code $LASTEXITCODE"
 }
 
 Write-Host
-Write-Host 'Workshop Ventilation HMI installed and launched.' -ForegroundColor Green
+Write-Host 'Workshop Ventilation HMI installed, verified and launched.' -ForegroundColor Green
