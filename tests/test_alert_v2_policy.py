@@ -13,6 +13,14 @@ from ventilation_core.alertctl import main as alertctl_main
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY = REPO_ROOT / "config" / "alerts-v2.default.toml"
+CRITICAL_COMMUNICATION_CODES = (
+    "SENSOR_BUS_UNAVAILABLE",
+    "SENSOR_NODE_UNAVAILABLE",
+    "KAMOD_RS485_NOT_READY",
+    "KAMOD_SENSOR_STATE_ERROR",
+    "KAMOD_NODE_UNAVAILABLE",
+    "AERO_BUS_UNAVAILABLE",
+)
 
 
 def _mutate_alert(text: str, code: str, old: str, new: str) -> str:
@@ -48,7 +56,7 @@ class AlertV2PolicyTests(unittest.TestCase):
     def test_default_policy_loads_and_has_expected_contract(self) -> None:
         policy = load_alert_policy(DEFAULT_POLICY)
         self.assertEqual(policy.schema_version, 1)
-        self.assertEqual(policy.policy_version, "2026-08-20.1")
+        self.assertEqual(policy.policy_version, "2026-08-21.1")
         self.assertEqual(policy.alert_count, 50)
         self.assertEqual(len(policy.sha256), 64)
 
@@ -75,6 +83,27 @@ class AlertV2PolicyTests(unittest.TestCase):
         self.assertEqual(undervoltage.reaction, "continue_degraded")
         self.assertFalse(undervoltage.affects_control)
         self.assertEqual(undervoltage.hmi_color, "red")
+
+    def test_production_communication_loss_is_critical_red(self) -> None:
+        policy = load_alert_policy(DEFAULT_POLICY)
+        for code in CRITICAL_COMMUNICATION_CODES:
+            with self.subTest(code=code):
+                entry = policy.get(code)
+                self.assertIsNotNone(entry)
+                assert entry is not None
+                self.assertEqual(entry.weight, 4)
+                self.assertEqual(entry.severity, "critical")
+                self.assertEqual(entry.hmi_color, "red")
+
+        invalid_data = policy.get("SENSOR_DATA_INVALID")
+        self.assertIsNotNone(invalid_data)
+        assert invalid_data is not None
+        self.assertEqual(invalid_data.weight, 3)
+
+        aero_command = policy.get("AERO_COMMAND_NOT_CONFIRMED")
+        self.assertIsNotNone(aero_command)
+        assert aero_command is not None
+        self.assertEqual(aero_command.weight, 3)
 
     def test_tacho_policy_cannot_be_changed_to_safe_state(self) -> None:
         text = DEFAULT_POLICY.read_text(encoding="utf-8")
