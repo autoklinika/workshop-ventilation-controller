@@ -23,6 +23,19 @@ class SafeShutdownActiveToOffCm5ValidationTests(unittest.TestCase):
         self.assertIn('{"command": "aero-airing", "enabled": True}', source)
         self.assertIn('{"command": "aero-speed", "speed": 1}', source)
 
+    def test_validator_preconditions_off_and_sets_speed_before_airing(self) -> None:
+        source = VALIDATOR.read_text(encoding="utf-8")
+        precondition = source.index("_precondition_aero_off(agent)")
+        speed = source.index(
+            'agent._request_core({"command": "aero-speed", "speed": 1})', precondition
+        )
+        airing = source.index(
+            'agent._request_core({"command": "aero-airing", "enabled": True})', speed
+        )
+        self.assertLess(precondition, speed)
+        self.assertLess(speed, airing)
+        self.assertIn("Airing forces the AERO fans", source)
+
     def test_validator_executes_exact_pr77_pre_poweroff_path_without_host_power_action(self) -> None:
         source = VALIDATOR.read_text(encoding="utf-8")
         self.assertIn("agent._prepare_peripherals_for_poweroff()", source)
@@ -51,7 +64,7 @@ class SafeShutdownActiveToOffCm5ValidationTests(unittest.TestCase):
         self.assertIn('{"command": "aero-airing", "enabled": False}', source)
         self.assertIn('{"command": "aero-speed", "speed": 0}', source)
 
-    def test_shell_harness_has_valid_syntax_and_never_powers_host(self) -> None:
+    def test_shell_harness_has_valid_syntax_never_powers_host_and_fails_closed(self) -> None:
         completed = subprocess.run(
             ["bash", "-n", str(HARNESS)],
             check=False,
@@ -66,6 +79,10 @@ class SafeShutdownActiveToOffCm5ValidationTests(unittest.TestCase):
         self.assertNotIn("systemctl poweroff", source)
         self.assertNotIn("systemctl reboot", source)
         self.assertNotIn("systemctl restart", source)
+        self.assertIn("cleanup() (", source)
+        self.assertIn("if ! PYTHONPATH=", source)
+        self.assertIn('fail "ACTIVE -> OFF hardware validator failed; PASS is forbidden"', source)
+        self.assertIn('fail "final production safe-state verification failed; PASS is forbidden"', source)
 
 
 if __name__ == "__main__":
