@@ -43,6 +43,15 @@ class HeartbeatServiceOnlyCm5ValidationTests(unittest.TestCase):
         self.assertNotIn("aero-speed", source)
         self.assertNotIn("aero-airing", source)
 
+    def test_validator_tolerates_incidental_non_target_service_dropout(self) -> None:
+        source = VALIDATOR.read_text(encoding="utf-8")
+        self.assertIn("incidental_service_only_nodes", source)
+        self.assertIn("incidental_service_only_nodes_observed", source)
+        self.assertIn("incidental non-target heartbeat dropout remained service-only", source)
+        self.assertNotIn("non-target {other_node} heartbeat went offline", source)
+        self.assertIn("if target_now.get(\"online\") is True:", source)
+        self.assertIn("_require_no_heartbeat_operator_alert(client)", source)
+
     def test_harness_is_pinned_to_pr76_branch_and_restores_main(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
         lower = source.lower()
