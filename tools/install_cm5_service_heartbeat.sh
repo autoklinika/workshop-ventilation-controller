@@ -37,10 +37,28 @@ install -m 0644 "${ROOT_DIR}/deploy/cm5/wifi/nftables/wvc-sensor-service.nft" "$
 /usr/sbin/nft --check --file "${NFT_TARGET}"
 systemctl daemon-reload
 systemctl reload wvc-sensor-firewall.service
+
+# This installer is the explicit legacy/fallback path. The production service
+# agent owns the same UDP/45551 endpoint, so never leave both boot targets
+# enabled. A deliberate heartbeat install therefore disables the successor.
+systemctl disable --now wvc-service-agent.service 2>/dev/null || true
 systemctl enable wvc-service-heartbeat.service
 # The receiver loads the registry only at process start. Always restart after
 # replacing keys.json so newly provisioned nodes are accepted immediately.
 systemctl restart wvc-service-heartbeat.service
+
+systemctl is-enabled --quiet wvc-service-heartbeat.service \
+    || { echo "Heartbeat receiver is not enabled for boot." >&2; exit 1; }
+systemctl is-active --quiet wvc-service-heartbeat.service \
+    || { echo "Heartbeat receiver is not active." >&2; exit 1; }
+if systemctl is-enabled --quiet wvc-service-agent.service 2>/dev/null; then
+    echo "Refusing ambiguous service plane: service agent is also enabled." >&2
+    exit 1
+fi
+if systemctl is-active --quiet wvc-service-agent.service 2>/dev/null; then
+    echo "Refusing ambiguous service plane: service agent is also active." >&2
+    exit 1
+fi
 
 systemctl --no-pager --full status wvc-service-heartbeat.service
 ss -lunp | grep -E '10\.55\.0\.1:45551|0\.0\.0\.0:45551' || true

@@ -60,6 +60,19 @@ systemctl enable wvc-service-agent.service
 # performs a full restart after replacing or validating the registry.
 systemctl restart wvc-service-agent.service
 
+systemctl is-enabled --quiet wvc-service-agent.service \
+    || { echo "Service agent is not enabled for boot." >&2; exit 1; }
+systemctl is-active --quiet wvc-service-agent.service \
+    || { echo "Service agent is not active." >&2; exit 1; }
+if systemctl is-enabled --quiet wvc-service-heartbeat.service 2>/dev/null; then
+    echo "Refusing ambiguous service plane: legacy heartbeat is also enabled." >&2
+    exit 1
+fi
+if systemctl is-active --quiet wvc-service-heartbeat.service 2>/dev/null; then
+    echo "Refusing ambiguous service plane: legacy heartbeat is also active." >&2
+    exit 1
+fi
+
 # systemctl may report the process as running before the Python daemon has
 # created and started serving its Unix socket. Wait for a real API response.
 agent_status=""

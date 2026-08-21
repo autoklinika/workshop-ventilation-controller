@@ -4,8 +4,21 @@ set -euo pipefail
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "PASS: $*"; }
 
+systemctl is-enabled --quiet wvc-service-heartbeat.service || fail "receiver service is not enabled for boot"
+pass "receiver service enabled for boot"
+
 systemctl is-active --quiet wvc-service-heartbeat.service || fail "receiver service is not active"
 pass "receiver service active"
+
+if systemctl is-enabled --quiet wvc-service-agent.service 2>/dev/null; then
+    fail "service agent is also enabled; service-plane boot target is ambiguous"
+fi
+pass "service agent disabled in legacy heartbeat mode"
+
+if systemctl is-active --quiet wvc-service-agent.service 2>/dev/null; then
+    fail "service agent is also active; UDP/45551 ownership is ambiguous"
+fi
+pass "service agent inactive in legacy heartbeat mode"
 
 [[ -r /etc/wvc-service-heartbeat/keys.json ]] || fail "key registry missing"
 permissions="$(stat -c '%a' /etc/wvc-service-heartbeat/keys.json)"
