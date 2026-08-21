@@ -38,13 +38,8 @@ final class HmiLedController {
     private static final long COMMUNICATION_STALE_MS = 6000L;
     private static final long LED_TICK_MS = 250L;
 
-    /*
-     * The B3 panel accepts the RED and OFF commands individually, but the deterministic
-     * hardware test showed that a 250 ms red half-period is too aggressive for reliable
-     * visible blinking. Other colours are stable at 500 ms or slower. Keep red alert
-     * signalling at 500 ms half-period (1 Hz full cycle) for deterministic hardware
-     * behaviour while still making CRITICAL / COMMUNICATION_LOST visually urgent.
-     */
+    /* Temporary hardware-test value. Production timing will be finalized only
+     * after the B3 OFF/re-arm sequence is validated without competing writers. */
     private static final long RED_BLINK_HALF_PERIOD_MS = 500L;
 
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2, runnable -> {
@@ -64,6 +59,7 @@ final class HmiLedController {
 
     private volatile LedState diagnosticOverride = null;
     private volatile long diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
+    private volatile boolean diagnosticRendererPaused = false;
 
     void start() {
         executor.scheduleWithFixedDelay(this::pollAlertsSafely, 0L, POLL_INTERVAL_MS, TimeUnit.MILLISECONDS);
@@ -87,18 +83,29 @@ final class HmiLedController {
                 : requestedState.trim().toUpperCase(Locale.ROOT);
 
         synchronized (renderLock) {
+            if ("PAUSE".equals(normalized)) {
+                diagnosticRendererPaused = true;
+                diagnosticOverride = null;
+                lastAppliedCommand = -1;
+                Log.i(TAG, "LED DIAGNOSTIC renderer PAUSED; live polling continues, physical writes disabled");
+                return true;
+            }
+
             if ("CLEAR".equals(normalized)) {
                 LedState previous = diagnosticOverride;
+                boolean wasPaused = diagnosticRendererPaused;
+                diagnosticRendererPaused = false;
                 diagnosticOverride = null;
                 stateChangedElapsedMs = SystemClock.elapsedRealtime();
                 lastAppliedCommand = -1;
-                Log.i(TAG, "LED DIAGNOSTIC override cleared; previous=" + previous
-                        + ", live=" + state);
+                Log.i(TAG, "LED DIAGNOSTIC cleared; previousOverride=" + previous
+                        + ", rendererWasPaused=" + wasPaused + ", live=" + state);
                 return true;
             }
 
             try {
                 LedState next = LedState.valueOf(normalized);
+                diagnosticRendererPaused = false;
                 diagnosticOverride = next;
                 diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
                 lastAppliedCommand = -1;
@@ -230,7 +237,7 @@ final class HmiLedController {
             }
             state = next;
             stateChangedElapsedMs = SystemClock.elapsedRealtime();
-            if (diagnosticOverride == null) {
+            if (diagnosticOverride == null && !diagnosticRendererPaused) {
                 lastAppliedCommand = -1;
             }
             Log.i(TAG, "LED state: " + previous + " -> " + next);
@@ -240,6 +247,10 @@ final class HmiLedController {
     private void renderLedSafely() {
         try {
             synchronized (renderLock) {
+                if (diagnosticRendererPaused) {
+                    return;
+                }
+
                 LedState override = diagnosticOverride;
                 LedState current = override != null ? override : state;
                 long phaseStartedMs = override != null
