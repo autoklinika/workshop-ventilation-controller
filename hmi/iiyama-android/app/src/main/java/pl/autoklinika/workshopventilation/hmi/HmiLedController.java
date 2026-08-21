@@ -38,18 +38,7 @@ final class HmiLedController {
     private static final long COMMUNICATION_STALE_MS = 6000L;
     private static final long LED_TICK_MS = 250L;
 
-    /* Hardware-validated on the target B3 with the Android renderer PAUSED. */
     private static final long RED_BLINK_HALF_PERIOD_MS = 500L;
-
-    /*
-     * B3 edge case: after an OFF latch the bar may ignore an immediate transition to
-     * a solid colour even when the colour is correctly re-armed as 0x03 + COLOR in
-     * one su session. The full 0.5.8 diagnostic captured CRITICAL_UNACK ->
-     * CRITICAL_ACK only ~125 ms after the previous OFF write and the solid red state
-     * failed visually, while isolated re-arm after >=500 ms was stable. Do not alter
-     * normal blink cadence; only defer a SOLID colour transition until this guard has
-     * elapsed since the last successful app-owned OFF write.
-     */
     private static final long SOLID_REARM_AFTER_OFF_GUARD_MS = 500L;
 
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2, runnable -> {
@@ -67,7 +56,6 @@ final class HmiLedController {
     private volatile long stateChangedElapsedMs = SystemClock.elapsedRealtime();
     private volatile int lastAppliedCommand = -1;
 
-    /* Physical command history is intentionally NOT reset on logical state changes. */
     private volatile int lastSuccessfulHardwareCommand = -1;
     private volatile long lastSuccessfulHardwareWriteElapsedMs = 0L;
 
@@ -90,7 +78,6 @@ final class HmiLedController {
         }
     }
 
-    /** Debug-only caller entry point used by HmiApplication's ADB diagnostic receiver. */
     boolean setDiagnosticOverride(String requestedState) {
         String normalized = requestedState == null
                 ? ""
