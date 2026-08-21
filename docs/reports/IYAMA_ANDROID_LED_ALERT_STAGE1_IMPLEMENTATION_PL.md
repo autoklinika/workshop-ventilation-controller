@@ -139,44 +139,9 @@ Build `0.5.8-led-rearm` implementuje potwierdzony kontrakt B3:
 - `CRITICAL_ACK` pozostaje stałym czerwonym;
 - debugowy `PAUSE` pozostaje dostępny do izolowanych testów sprzętowych.
 
-Log drivera dla koloru ma teraz postać:
-
-```text
-RGB write PASS commands=0x03,0x04
-```
-
-a dla OFF:
-
-```text
-RGB write PASS commands=0x02
-```
-
-## Pełna walidacja aplikacji 0.5.8
-
-Pełny test deterministyczny na docelowym panelu dał PASS dla wszystkich stanów poza `CRITICAL_ACK`:
-
-```text
-NORMAL             PASS
-INFO_UNACK         PASS
-INFO_ACK           PASS
-WARNING_UNACK      PASS
-WARNING_ACK        PASS
-ALARM_UNACK        PASS
-ALARM_ACK          PASS
-CRITICAL_UNACK     PASS
-CRITICAL_ACK       FAIL
-COMMUNICATION_LOST PASS
-STARTUP_UNKNOWN    PASS
-SERVICE            PASS
-```
-
-Log dokładnie wyizolował krawędź przejścia. Ostatni `CRITICAL_UNACK` zapisał `0x02 OFF` z sukcesem o 09:48:47.836. `CRITICAL_ACK` został zaakceptowany już o 09:48:47.865, a próba `0x03+0x04` rozpoczęła się o 09:48:47.961, czyli około 125 ms po zakończeniu OFF. Driver raportował sukces zapisu, ale panel nie przeszedł wizualnie w stabilny czerwony stan.
-
-To nie jest błąd mapowania koloru ani sekwencji `0x03+0x04`: statyczny czerwony po kontrolowanym re-armie był wcześniej PASS. Jest to krawędź czasowa OFF -> SOLID przy zbyt szybkim przejściu logicznym z migania UNACK do ACK.
-
 ## Korekta build 0.5.9
 
-Build `0.5.9-led-solid-rearm-guard` dodaje wyłącznie ochronę przejścia do stanu stałego po ostatnim app-owned `0x02 OFF`:
+Build `0.5.9-led-solid-rearm-guard` dodaje ochronę przejścia do stanu stałego po ostatnim app-owned `0x02 OFF`:
 
 - HmiLedController pamięta ostatnią skuteczną fizyczną komendę i czas jej zakończenia;
 - jeśli nowy stan jest stały, a ostatnią komendą było `OFF`, renderer nie próbuje natychmiast re-armować koloru;
@@ -207,11 +172,7 @@ CRITICAL_ACK       PASS   RED solid
 COMMUNICATION_LOST PASS   RED blink 500/500 ms
 ```
 
-Guard zadziałał dokładnie na wcześniej wadliwej krawędzi. Po `CRITICAL_UNACK` ostatni `OFF` zakończył się o 10:08:51.511. `CRITICAL_ACK` został zaakceptowany o 10:08:51.778. Tick o 10:08:51.900 wykrył `sinceOffMs=388` i świadomie odroczył re-arm. Następny tick o 10:08:52.151 wykonał `0x03+0x04`, driver potwierdził sukces o 10:08:52.265, a obserwacja sprzętowa zakończyła się `CRITICAL_ACK PASS`.
-
-W tym samym teście `CRITICAL_UNACK` i `COMMUNICATION_LOST` zachowały poprawne miganie 500 ms ON / 500 ms OFF, więc guard nie zaburzył wzoru stanów migających.
-
-Po `CLEAR` renderer wrócił do live control. Ponieważ w czasie testu endpoint `192.168.1.64:18091` był niedostępny i HMI nie uzyskał poprawnego snapshotu, stan live wrócił do `STARTUP_UNKNOWN`; jest to zgodne z obecną logiką startową i nie stanowi walidacji komunikacji z core.
+Guard zadziałał na wcześniej wadliwej krawędzi OFF -> SOLID i nie zaburzył migania.
 
 ## Pełna końcowa walidacja deterministyczna build 0.5.9
 
