@@ -7,8 +7,16 @@ SOCKET="/run/wvc-service-agent/service-agent.sock"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "PASS: $*"; }
 
+systemctl is-enabled --quiet wvc-service-agent.service || fail "service agent is not enabled for boot"
+pass "service agent enabled for boot"
+
 systemctl is-active --quiet wvc-service-agent.service || fail "service agent is not active"
 pass "service agent active"
+
+if systemctl is-enabled --quiet wvc-service-heartbeat.service 2>/dev/null; then
+    fail "legacy heartbeat receiver is enabled; service-plane boot target is ambiguous"
+fi
+pass "legacy receiver disabled"
 
 ! systemctl is-active --quiet wvc-service-heartbeat.service || fail "legacy heartbeat receiver is still active"
 pass "legacy receiver inactive"
