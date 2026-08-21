@@ -28,8 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Required acknowledgement that both EC fans will be commanded to 3.0 V, "
-            "AERO airing will be enabled and AERO speed set to 1 before validating "
-            "the exact PR #77 shutdown-preparation path back to STOP/0 V/AERO 0"
+            "AERO speed will be set to 1 and airing enabled before validating the exact "
+            "PR #77 shutdown-preparation path back to STOP/0 V/AERO 0"
         ),
     )
     parser.add_argument("--core-socket", type=Path, default=DEFAULT_CORE_SOCKET)
@@ -95,6 +95,8 @@ def _require_aero_result(
         raise ValidationError(f"{label} target={result.get('target_value')!r}, expected {target}")
     if result.get("state") != "succeeded":
         raise ValidationError(f"{label} was not confirmed: state={result.get('state')!r}")
+    if result.get("physical_confirmation") is not True:
+        raise ValidationError(f"{label} lacks physical confirmation: {result!r}")
     return result
 
 
@@ -173,7 +175,25 @@ def _require_final_safe_state(status: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _precondition_aero_off(agent: HostPowerAgent) -> None:
+    """Put AERO in a deterministic 0/off state before building the active test state."""
+    _require_aero_result(
+        agent._request_core({"command": "aero-airing", "enabled": False}),
+        kind="airing",
+        target=0,
+        label="AERO precondition airing OFF",
+    )
+    _require_aero_result(
+        agent._request_core({"command": "aero-speed", "speed": 0}),
+        kind="speed",
+        target=0,
+        label="AERO precondition speed 0",
+    )
+
+
 def _best_effort_off(agent: HostPowerAgent) -> None:
+    # Use the same safe ordering as production shutdown.  Each request is isolated
+    # so a failure of one cleanup step cannot prevent the remaining attempts.
     for payload in (
         {"command": "stop"},
         {"command": "aero-airing", "enabled": False},
@@ -190,7 +210,7 @@ def main() -> int:
     if not args.confirm_active_to_off_test:
         print(
             "FAIL: pass --confirm-active-to-off-test. This validator deliberately runs "
-            "the EC fans at 3.0 V and AERO at airing ON / speed 1 before stopping them.",
+            "the EC fans at 3.0 V and AERO at speed 1 / airing ON before stopping them.",
             file=sys.stderr,
         )
         return 2
@@ -213,6 +233,9 @@ def main() -> int:
         if aero.get("online") is not True or aero.get("usable") is not True:
             raise ValidationError("initial AERO is not online+usable")
 
+        print("INFO: preconditioning AERO to airing OFF / speed 0")
+        _precondition_aero_off(agent)
+
         print("INFO: commanding both EC fans to 3.0 V")
         running = _require_ok(
             agent._request_core(
@@ -224,18 +247,22 @@ def main() -> int:
         if running_state.get("mode") != "MANUAL":
             raise ValidationError(f"EC fan active command did not enter MANUAL: {running_state!r}")
 
-        print("INFO: enabling AERO airing and setting AERO speed 1")
-        _require_aero_result(
-            agent._request_core({"command": "aero-airing", "enabled": True}),
-            kind="airing",
-            target=1,
-            label="AERO airing ON",
-        )
-        aero_active = _require_aero_result(
+        # IMPORTANT: set speed before enabling airing.  Airing forces the AERO fans
+        # to 100%, so doing it first can mask the physical power change required to
+        # confirm a speed-register write and would create a false 60 s timeout.
+        print("INFO: setting AERO speed 1 while airing is OFF")
+        aero_speed_active = _require_aero_result(
             agent._request_core({"command": "aero-speed", "speed": 1}),
             kind="speed",
             target=1,
             label="AERO speed 1",
+        )
+        print("INFO: enabling AERO airing after speed 1 is confirmed")
+        aero_airing_active = _require_aero_result(
+            agent._request_core({"command": "aero-airing", "enabled": True}),
+            kind="airing",
+            target=1,
+            label="AERO airing ON",
         )
 
         active_tacho = _wait_running_tacho(agent)
@@ -270,7 +297,8 @@ def main() -> int:
                 "ec_setpoint_v": 3.0,
                 "supply_rpm": active_tacho["supply"].get("rpm"),
                 "extract_rpm": active_tacho["extract"].get("rpm"),
-                "aero_speed_result": aero_active,
+                "aero_speed_result": aero_speed_active,
+                "aero_airing_result": aero_airing_active,
             },
             "final": {
                 "mode": final_state.get("mode"),
