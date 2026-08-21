@@ -20,20 +20,18 @@ function Write-Log {
 function Invoke-LedSequence {
     param([string[]]$Codes)
 
-    $commands = @()
     foreach ($code in $Codes) {
-        $commands += "echo w 0x$code > $sysfs"
+        # Use exactly the same ADB -> shell -> printf -> su pattern that was
+        # hardware-proven earlier from VS Code tasks. Keep one vendor command
+        # per root shell invocation so PowerShell quoting stays trivial.
+        $remote = "printf 'echo w 0x$code > $sysfs\nexit\n' | su"
+        $out = & $adb -s $Device shell $remote 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $out | ForEach-Object { Write-Log "ADB $_" }
+            throw "LED write failed for code 0x$code"
+        }
+        Write-Log "WRITE code=0x$code"
     }
-    $payload = ($commands -join "`n") + "`nexit`n"
-    $escaped = $payload.Replace("'", "'\"'\"'")
-
-    $out = & $adb -s $Device shell "printf '$escaped' | su" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $out | ForEach-Object { Write-Log "ADB $_" }
-        throw "LED write failed for sequence: $($Codes -join ',')"
-    }
-
-    Write-Log "WRITE sequence=$($Codes -join ',')"
 }
 
 function Ask-Result {
