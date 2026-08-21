@@ -29,11 +29,6 @@ import java.util.concurrent.TimeUnit;
  * - ACK never lowers alert priority or changes its presentation colour; it only changes
  *   the local LED pattern from blinking to solid;
  * - local service / Android mode is blue only when there is no active alert.
- *
- * Hardware-validated static palette on the target B3 panel:
- * green=NORMAL, blue=INFO/SERVICE, yellow=WARNING, orange=ALARM, red=CRITICAL.
- * White is reserved for startup/unknown. Vendor animation commands are not used for
- * alert presentation.
  */
 final class HmiLedController {
 
@@ -49,6 +44,7 @@ final class HmiLedController {
         return thread;
     });
     private final IiyamaLedDriver driver = new IiyamaLedDriver();
+    private final Object renderLock = new Object();
 
     private volatile LedState state = LedState.STARTUP_UNKNOWN;
     private volatile boolean localServiceMode = false;
@@ -57,13 +53,6 @@ final class HmiLedController {
     private volatile long stateChangedElapsedMs = SystemClock.elapsedRealtime();
     private volatile int lastAppliedCommand = -1;
 
-    /*
-     * Debug-build diagnostic override.
-     *
-     * Live CM5 polling continues in the background, but the renderer uses this state
-     * until CLEAR is requested. This makes LED tests deterministic and avoids racing
-     * manual sysfs writes against the production renderer.
-     */
     private volatile LedState diagnosticOverride = null;
     private volatile long diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
 
@@ -88,26 +77,28 @@ final class HmiLedController {
                 ? ""
                 : requestedState.trim().toUpperCase(Locale.ROOT);
 
-        if ("CLEAR".equals(normalized)) {
-            LedState previous = diagnosticOverride;
-            diagnosticOverride = null;
-            stateChangedElapsedMs = SystemClock.elapsedRealtime();
-            lastAppliedCommand = -1;
-            Log.i(TAG, "LED DIAGNOSTIC override cleared; previous=" + previous
-                    + ", live=" + state);
-            return true;
-        }
+        synchronized (renderLock) {
+            if ("CLEAR".equals(normalized)) {
+                LedState previous = diagnosticOverride;
+                diagnosticOverride = null;
+                stateChangedElapsedMs = SystemClock.elapsedRealtime();
+                lastAppliedCommand = -1;
+                Log.i(TAG, "LED DIAGNOSTIC override cleared; previous=" + previous
+                        + ", live=" + state);
+                return true;
+            }
 
-        try {
-            LedState next = LedState.valueOf(normalized);
-            diagnosticOverride = next;
-            diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
-            lastAppliedCommand = -1;
-            Log.i(TAG, "LED DIAGNOSTIC override -> " + next);
-            return true;
-        } catch (IllegalArgumentException error) {
-            Log.w(TAG, "LED DIAGNOSTIC rejected unknown state: " + requestedState);
-            return false;
+            try {
+                LedState next = LedState.valueOf(normalized);
+                diagnosticOverride = next;
+                diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
+                lastAppliedCommand = -1;
+                Log.i(TAG, "LED DIAGNOSTIC override -> " + next);
+                return true;
+            } catch (IllegalArgumentException error) {
+                Log.w(TAG, "LED DIAGNOSTIC rejected unknown state: " + requestedState);
+                return false;
+            }
         }
     }
 
@@ -223,33 +214,39 @@ final class HmiLedController {
     }
 
     private void setState(LedState next) {
-        LedState previous = state;
-        if (previous == next) {
-            return;
+        synchronized (renderLock) {
+            LedState previous = state;
+            if (previous == next) {
+                return;
+            }
+            state = next;
+            stateChangedElapsedMs = SystemClock.elapsedRealtime();
+            if (diagnosticOverride == null) {
+                lastAppliedCommand = -1;
+            }
+            Log.i(TAG, "LED state: " + previous + " -> " + next);
         }
-        state = next;
-        stateChangedElapsedMs = SystemClock.elapsedRealtime();
-        if (diagnosticOverride == null) {
-            lastAppliedCommand = -1;
-        }
-        Log.i(TAG, "LED state: " + previous + " -> " + next);
     }
 
     private void renderLedSafely() {
         try {
-            LedState override = diagnosticOverride;
-            LedState current = override != null ? override : state;
-            long phaseStartedMs = override != null
-                    ? diagnosticChangedElapsedMs
-                    : stateChangedElapsedMs;
-            long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - phaseStartedMs);
-            boolean on = current.isSolid() || ((ageMs / current.blinkHalfPeriodMs) % 2L == 0L);
-            int command = on ? current.staticColourCommand : IiyamaLedDriver.CMD_OFF;
-            if (command == lastAppliedCommand) {
-                return;
-            }
-            if (driver.writeCommand(command)) {
-                lastAppliedCommand = command;
+            synchronized (renderLock) {
+                LedState override = diagnosticOverride;
+                LedState current = override != null ? override : state;
+                long phaseStartedMs = override != null
+                        ? diagnosticChangedElapsedMs
+                        : stateChangedElapsedMs;
+                long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - phaseStartedMs);
+                boolean on = current.isSolid() || ((ageMs / current.blinkHalfPeriodMs) % 2L == 0L);
+                int command = on ? current.staticColourCommand : IiyamaLedDriver.CMD_OFF;
+                if (command == lastAppliedCommand) {
+                    return;
+                }
+                Log.i(TAG, "LED render state=" + current + " command=0x"
+                        + String.format(Locale.US, "%02X", command & 0xFF));
+                if (driver.writeCommand(command)) {
+                    lastAppliedCommand = command;
+                }
             }
         } catch (RuntimeException error) {
             Log.e(TAG, "Unable to render RGB LED state", error);
