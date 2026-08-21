@@ -19,7 +19,6 @@ from ventilation_core.alert_v2_stage4b_runtime import (
 
 
 DEFAULT_POLICY = Path("/etc/workshop-ventilation/alerts-v2.toml")
-EXPECTED_ALERT_COUNT = 49
 
 
 class ValidationError(RuntimeError):
@@ -62,15 +61,15 @@ def _systemctl_value(unit: str, property_name: str) -> str:
 
 
 def _require_active_pid(unit: str) -> int:
-    active = subprocess.run(
+    completed = subprocess.run(
         ["systemctl", "is-active", "--quiet", unit],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         timeout=3.0,
     )
-    if active.returncode != 0:
-        raise ValidationError(f"required service is not active: {unit}")
+    if completed.returncode != 0:
+        raise ValidationError(f"required production service is not active: {unit}")
     raw = _systemctl_value(unit, "MainPID")
     try:
         pid = int(raw)
@@ -108,23 +107,19 @@ def _latency_summary(values: list[float]) -> dict[str, float]:
     }
 
 
-def _require_alert_v2_state(
-    state: dict[str, Any],
-    *,
-    policy_version: str,
-    policy_sha256: str,
-    alert_count: int,
-) -> dict[str, Any]:
+def _require_alert_v2_state(state: dict[str, Any], policy: Any) -> dict[str, Any]:
     alert_v2 = state.get("alert_v2")
     if not isinstance(alert_v2, dict):
         raise ValidationError("production core state does not expose alert_v2")
 
+    # The loaded runtime policy is the source of truth. Do not hard-code a policy
+    # entry count here: adding a validated alert must not make the validator stale.
     expected = {
         "runtime_mode": "read_only_mapping",
         "loaded": True,
-        "policy_version": policy_version,
-        "sha256": policy_sha256,
-        "alert_count": alert_count,
+        "policy_version": policy.policy_version,
+        "sha256": policy.sha256,
+        "alert_count": policy.alert_count,
         "control_policy_applied": False,
         "unmapped_active_alerts": 0,
     }
@@ -134,8 +129,8 @@ def _require_alert_v2_state(
             f"unexpected production alert_v2 state: {actual!r}, expected {expected!r}"
         )
 
-    color = alert_v2.get("hmi_color")
     weight = alert_v2.get("active_weight")
+    color = alert_v2.get("hmi_color")
     if weight not in {0, 1, 2, 3, 4}:
         raise ValidationError(f"invalid AlertV2 active_weight: {weight!r}")
     expected_color = {
@@ -163,7 +158,6 @@ def _require_alert_v2_state(
     correlation = service_plane.get("correlation")
     if not isinstance(correlation, dict) or correlation.get("mode") != "read_only":
         raise ValidationError("production service-plane correlation is not read-only")
-
     return alert_v2
 
 
@@ -195,11 +189,6 @@ def main() -> int:
 
     try:
         policy = load_alert_policy(args.policy)
-        if policy.alert_count != EXPECTED_ALERT_COUNT:
-            raise ValidationError(
-                f"Stage 5 expects {EXPECTED_ALERT_COUNT} policy entries, got {policy.alert_count}"
-            )
-
         core_pid = _require_active_pid("ventilation-core.service")
         agent_pid = _require_active_pid("wvc-service-agent.service")
         core_cwd = _process_cwd(core_pid)
@@ -223,19 +212,14 @@ def main() -> int:
                 raise ValidationError("Service Agent PID changed during Stage 5 validation")
 
             status = client.request("status")
-            safety = require_passive_safe_state(status)
+            require_passive_safe_state(status)
             state = status.get("state")
             if not isinstance(state, dict):
                 raise ValidationError("production status missing state")
             if state.get("hardware_ready") is not True:
                 raise ValidationError("production hardware_ready is not true")
 
-            alert_v2 = _require_alert_v2_state(
-                state,
-                policy_version=policy.policy_version,
-                policy_sha256=policy.sha256,
-                alert_count=policy.alert_count,
-            )
+            alert_v2 = _require_alert_v2_state(state, policy)
             weight = alert_v2.get("active_weight")
             color = alert_v2.get("hmi_color")
             if isinstance(weight, int) and not isinstance(weight, bool):
@@ -245,7 +229,6 @@ def main() -> int:
 
             alerts = client.request("alerts", limit=200)
             mapped_active_max = max(mapped_active_max, _require_mapped_active_alerts(alerts))
-
             status_latencies.append(float(status["_latency_ms"]))
             alerts_latencies.append(float(alerts["_latency_ms"]))
             time.sleep(args.interval)
@@ -253,7 +236,7 @@ def main() -> int:
         final_status = client.request("status")
         final_safety = require_passive_safe_state(final_status)
         if _require_active_pid("ventilation-core.service") != core_pid:
-            raise ValidationError("production core PID changed at end of Stage 5 validation")
+            raise ValidationError("production ventilation-core PID changed at end of Stage 5 validation")
         if _require_active_pid("wvc-service-agent.service") != agent_pid:
             raise ValidationError("Service Agent PID changed at end of Stage 5 validation")
 
@@ -298,7 +281,7 @@ def main() -> int:
         }
         print(json.dumps(result, indent=2, sort_keys=True))
         print("PASS: production core publishes AlertV2 read-only mapping")
-        print("PASS: policy version/SHA/count match /etc runtime policy")
+        print("PASS: policy version/SHA/count match the loaded /etc runtime policy")
         print("PASS: Service Plane correlation is live and control_policy_applied=false")
         print("PASS: every active production alert is mapped by AlertV2")
         print("PASS: production remained STOP / 0 V throughout validation")
