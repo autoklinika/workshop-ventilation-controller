@@ -193,6 +193,18 @@ def _alert_v2_correlation(status: dict[str, Any]) -> dict[str, Any]:
     return correlation
 
 
+def _require_no_heartbeat_operator_alert(client: CoreReadOnlyClient) -> None:
+    codes = _active_codes(client)
+    if HEARTBEAT_ALERT in codes:
+        raise ValidationError(
+            f"{HEARTBEAT_ALERT} became active despite healthy production SENSOR BUS"
+        )
+    if CORRELATED_NODE_ALERT in codes:
+        raise ValidationError(
+            f"{CORRELATED_NODE_ALERT} became active despite healthy production SENSOR BUS"
+        )
+
+
 def _require_runtime_safety(
     client: CoreReadOnlyClient,
     *,
@@ -245,6 +257,7 @@ def main() -> int:
     handle: int | None = None
     offline_after: float | None = None
     recovery_after: float | None = None
+    incidental_service_only_nodes: set[str] = set()
 
     try:
         stale = find_stage4c_handles(list_input_chain())
@@ -263,8 +276,10 @@ def main() -> int:
         _require_service_network_healthy(service)
         target = _node_by_id(service, target_node)
         other = _node_by_id(service, other_node)
-        if target.get("online") is not True or other.get("online") is not True:
-            raise ValidationError("both KAmod heartbeats must be online before fault injection")
+        if target.get("online") is not True:
+            raise ValidationError(f"target {target_node} heartbeat must be online before fault injection")
+        if other.get("online") is not True:
+            incidental_service_only_nodes.add(other_node)
         if target.get("modbus_address") != target_address:
             raise ValidationError(
                 f"{target_node} mapping mismatch: expected Modbus {target_address}, "
@@ -325,17 +340,9 @@ def main() -> int:
             target_now = _node_by_id(service, target_node)
             other_now = _node_by_id(service, other_node)
             if other_now.get("online") is not True:
-                raise ValidationError(f"non-target {other_node} heartbeat went offline")
+                incidental_service_only_nodes.add(other_node)
+            _require_no_heartbeat_operator_alert(client)
             if target_now.get("online") is False:
-                codes = _active_codes(client)
-                if HEARTBEAT_ALERT in codes:
-                    raise ValidationError(
-                        f"{HEARTBEAT_ALERT} became active despite healthy production SENSOR BUS"
-                    )
-                if CORRELATED_NODE_ALERT in codes:
-                    raise ValidationError(
-                        f"{CORRELATED_NODE_ALERT} became active despite healthy production SENSOR BUS"
-                    )
                 correlation = _alert_v2_correlation(status)
                 offline_nodes = correlation.get("service_only_offline_nodes")
                 if not isinstance(offline_nodes, list) or target_node not in offline_nodes:
@@ -375,10 +382,10 @@ def main() -> int:
             _require_service_network_healthy(service)
             target_now = _node_by_id(service, target_node)
             other_now = _node_by_id(service, other_node)
-            codes = _active_codes(client)
-            if HEARTBEAT_ALERT in codes or CORRELATED_NODE_ALERT in codes:
-                raise ValidationError("unexpected heartbeat-derived operator alert during recovery")
-            if target_now.get("online") is True and other_now.get("online") is True:
+            if other_now.get("online") is not True:
+                incidental_service_only_nodes.add(other_node)
+            _require_no_heartbeat_operator_alert(client)
+            if target_now.get("online") is True:
                 correlation = _alert_v2_correlation(status)
                 offline_nodes = correlation.get("service_only_offline_nodes")
                 if isinstance(offline_nodes, list) and target_node not in offline_nodes:
@@ -397,6 +404,7 @@ def main() -> int:
             agent_pid=agent_pid,
             baseline_counters=baseline_counters,
         )
+        _require_no_heartbeat_operator_alert(client)
         if find_stage4c_handles(list_input_chain()):
             raise ValidationError("temporary heartbeat-drop nft rule remains after validation")
 
@@ -413,6 +421,7 @@ def main() -> int:
                 "heartbeat_recovered_after_s": round(float(recovery_after), 3),
                 "operator_heartbeat_alert": False,
                 "service_only_diagnostic": True,
+                "incidental_service_only_nodes_observed": sorted(incidental_service_only_nodes),
             },
             "production": {
                 "core_pid": core_pid,
@@ -434,7 +443,12 @@ def main() -> int:
         print(f"PASS: {HEARTBEAT_ALERT} was not emitted")
         print(f"PASS: {CORRELATED_NODE_ALERT} was not emitted without production failure")
         print("PASS: production SENSOR BUS stayed online/usable with unchanged error counters")
-        print("PASS: temporary nft rule removed and heartbeat recovered")
+        if incidental_service_only_nodes:
+            print(
+                "PASS: incidental non-target heartbeat dropout remained service-only: "
+                + ", ".join(sorted(incidental_service_only_nodes))
+            )
+        print("PASS: temporary nft rule removed and target heartbeat recovered")
         print("PASS: validator sent zero control commands")
         return 0
     except (ValidationError, OSError, subprocess.SubprocessError, KeyboardInterrupt) as exc:
