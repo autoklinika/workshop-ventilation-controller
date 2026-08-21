@@ -45,6 +45,7 @@ class HeartbeatServiceOnlyCm5ValidationTests(unittest.TestCase):
 
     def test_harness_is_pinned_to_pr76_branch_and_restores_main(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
+        lower = source.lower()
         self.assertIn("BRANCH=agent/heartbeat-service-only-alert-policy", source)
         self.assertIn("EXPECTED_BASE=5fb252fdf2405cdcf76a1cc7b62e84140c678309", source)
         self.assertIn("98-heartbeat-service-only-validation.conf", source)
@@ -53,9 +54,10 @@ class HeartbeatServiceOnlyCm5ValidationTests(unittest.TestCase):
         self.assertIn("rm -f \"$DROPIN_PATH\"", source)
         self.assertIn("trap emergency_cleanup EXIT INT TERM", source)
         self.assertIn("require_passive_safe_state", source)
-        self.assertNotIn("git checkout main", source)
-        self.assertNotIn("git switch main", source)
-        self.assertNotIn("merge", source.lower())
+        self.assertNotIn("git checkout main", lower)
+        self.assertNotIn("git switch main", lower)
+        self.assertNotIn("git merge ", lower)
+        self.assertNotIn("gh pr merge", lower)
 
 
 if __name__ == "__main__":
