@@ -195,7 +195,44 @@ SERVICE            PASS   BLUE solid
 
 W szczególności wcześniej problematyczne przejście `CRITICAL_UNACK -> CRITICAL_ACK` ponownie zostało zwalidowane. Ostatni `OFF` zakończył się o 10:19:36.259. `CRITICAL_ACK` został zaakceptowany o 10:19:36.422. Tick o 10:19:36.649 wykrył `sinceOffMs=390` i odroczył re-arm, a następny tick o 10:19:36.900 wykonał czerwony stan stały; driver potwierdził `RGB write PASS commands=0x03,0x04` o 10:19:37.018. Obserwacja fizyczna zakończyła się PASS.
 
-Po `CLEAR` aplikacja poprawnie wróciła do live renderer. W czasie testu endpoint `192.168.1.64:18091` pozostawał niedostępny, dlatego live state wrócił do `STARTUP_UNKNOWN`. Oznacza to, że warstwa renderowania LED, mapowanie kolorów, wzory ACK/UNACK, re-arm B3 oraz timing OFF -> SOLID są sprzętowo zwalidowane, ale rzeczywista ścieżka komunikacyjna `HMI -> /api/v1/alerts` wymaga jeszcze osobnego testu z osiągalnym CM5.
+## Korekta build 0.6.0 — autorytatywna polityka AlertV2
+
+Pierwszy test live z rzeczywistym CM5 ujawnił, że `/api/v1/alerts` zwraca jednocześnie legacy top-level `severity` detektora i zagnieżdżone, autorytatywne `alert_v2` z wagą, severity oraz kolorem HMI.
+
+Dla aktywnego `AERO_BUS_UNAVAILABLE` produkcyjny payload miał:
+
+```text
+top-level severity = warning
+alert_v2.mapped     = true
+alert_v2.weight     = 3
+alert_v2.severity   = alarm
+alert_v2.hmi_color  = orange
+```
+
+Build `0.5.9` czytał legacy top-level severity i dlatego pokazywał WARNING/YELLOW. Build `0.6.0-led-alert-v2-policy` zmienia resolver tak, aby dla `alert_v2.mapped=true` autorytatywne było `alert_v2.weight`, a zagnieżdżone `alert_v2.severity` stanowiło fallback. Legacy top-level weight/severity jest używane wyłącznie wtedy, gdy mapowanie AlertV2 nie jest dostępne.
+
+Po wgraniu builda 17 i pełnym restarcie panelu live polling zwalidował poprawne zachowanie dla istniejącego, wcześniej potwierdzonego alertu AERO:
+
+```text
+code         = AERO_BUS_UNAVAILABLE
+acknowledged = true
+weight       = 3
+severity     = alarm
+color        = orange
+```
+
+Fizyczny pasek po restarcie HMI był **pomarańczowy stały**, czyli dokładnie zgodny z regułą ALARM + ACK. Jednocześnie aktywne alerty WARNING o wadze 2 nie przebiły alertu AERO o wadze 3. To potwierdza działanie live ścieżki `CM5 /api/v1/alerts -> HMI resolver -> fizyczny LED` dla przypadku mapped AlertV2 oraz priorytetu najwyższej wagi.
+
+## Zasada deploy HMI
+
+Na docelowym panelu samo `adb install -r` + restart procesu aplikacji nie jest traktowane jako wystarczające zakończenie programowania. Po każdej aktualizacji APK obowiązuje pełny restart panelu Android, ponieważ dopiero po pełnym boot proces, kiosk i sterownik LED startują w zwalidowanym stanie.
+
+`tools/deploy-debug.ps1` został zmieniony tak, aby po instalacji i weryfikacji wersji:
+
+1. wykonać pełny `adb reboot` panelu;
+2. poczekać na `sys.boot_completed=1`;
+3. potwierdzić automatyczny start procesu HMI/kiosku;
+4. ponownie zweryfikować zainstalowany `versionCode` i `versionName` po restarcie.
 
 ## Odporność transportu
 
@@ -212,10 +249,14 @@ Gałąź: `agent/iiyama-led-alert-stage1`.
 Aktualny test build:
 
 ```text
-versionCode 16
-versionName 0.5.9-led-solid-rearm-guard
+versionCode 17
+versionName 0.6.0-led-alert-v2-policy
 ```
 
 Status deterministycznego renderera LED: **PASS — 12/12 stanów na docelowym TW1025LASC-B3PNR**.
 
-PR #70 pozostaje DRAFT. Do zamknięcia Stage 1 pozostaje oddzielna walidacja live polling z rzeczywistym `/api/v1/alerts` po przywróceniu łączności HMI z CM5. Merge do `main` wymaga osobnej, wyraźnej zgody właściciela projektu.
+Status live AlertV2: **PASS dla mapped AERO ALARM + ACK oraz priorytetu weight=3 nad aktywnymi warningami weight=2**.
+
+Do pełnego zamknięcia live walidacji pozostaje sprawdzenie zachowania przy utracie/odzyskaniu komunikacji z CM5 oraz, gdy będzie dostępne naturalne przejście alertu, live UNACK -> ACK / clear -> fallback do kolejnego najwyższego alertu lub NORMAL.
+
+PR #70 pozostaje DRAFT. Merge do `main` wymaga osobnej, wyraźnej zgody właściciela projektu.
