@@ -27,6 +27,17 @@ def _sensor_unavailable(address: int = 1) -> AlertSignal:
     )
 
 
+def _legacy_heartbeat_lost() -> AlertSignal:
+    return AlertSignal(
+        key="service-node:sensor-node-1:heartbeat",
+        code=AlarmCode.KAMOD_HEARTBEAT_LOST,
+        source="sensor:1",
+        severity=AlarmSeverity.WARNING,
+        message="Brak heartbeat KAmod sensor-node-1",
+        detail="legacy service-only alert",
+    )
+
+
 def _tacho_warning() -> AlertSignal:
     return AlertSignal(
         key="tacho:monitor",
@@ -100,14 +111,49 @@ class AlertV2ServicePlaneCorrelationTests(unittest.TestCase):
         diagnostics = registry.diagnostics()["correlation"]
         self.assertIn("sensor-node:1:communication", diagnostics["suppressed_legacy_keys"])
         self.assertEqual(diagnostics["derived_codes"], ["KAMOD_NODE_UNAVAILABLE"])
+        self.assertEqual(diagnostics["service_only_offline_nodes"], [])
 
-    def test_heartbeat_lost_but_production_healthy_is_service_only_warning(self) -> None:
+    def test_heartbeat_lost_but_production_healthy_is_service_only_diagnostic(self) -> None:
         registry = self._registry_for(_snapshot(node_online=False))
 
         active = registry.reconcile([])
 
-        self.assertEqual([record.code for record in active], [AlarmCode.KAMOD_HEARTBEAT_LOST])
-        self.assertEqual(active[0].source, "sensor:1")
+        self.assertEqual(active, ())
+        diagnostics = registry.diagnostics()["correlation"]
+        self.assertEqual(diagnostics["derived_codes"], [])
+        self.assertEqual(diagnostics["service_only_offline_nodes"], ["sensor-node-1"])
+        self.assertFalse(registry.diagnostics()["control_policy_applied"])
+
+    def test_modbus_failure_with_heartbeat_online_keeps_production_alert(self) -> None:
+        registry = self._registry_for(_snapshot(node_online=True))
+
+        active = registry.reconcile([_sensor_unavailable()])
+
+        self.assertEqual([record.code for record in active], [AlarmCode.SENSOR_NODE_UNAVAILABLE])
+        self.assertEqual(registry.diagnostics()["correlation"]["service_only_offline_nodes"], [])
+
+    def test_modbus_and_heartbeat_healthy_produce_no_alert(self) -> None:
+        registry = self._registry_for(_snapshot(node_online=True))
+
+        active = registry.reconcile([])
+
+        self.assertEqual(active, ())
+        diagnostics = registry.diagnostics()["correlation"]
+        self.assertEqual(diagnostics["derived_codes"], [])
+        self.assertEqual(diagnostics["service_only_offline_nodes"], [])
+
+    def test_legacy_heartbeat_alert_is_cleared_by_new_service_only_policy(self) -> None:
+        registry = self._registry_for(_snapshot(node_online=False))
+        legacy = registry.activate(_legacy_heartbeat_lost())
+        self.assertTrue(legacy.active)
+
+        active = registry.reconcile([])
+
+        self.assertEqual(active, ())
+        history = registry.history()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].code, AlarmCode.KAMOD_HEARTBEAT_LOST)
+        self.assertFalse(history[0].active)
 
     def test_service_network_failure_prevents_false_node_correlation(self) -> None:
         registry = self._registry_for(
@@ -150,7 +196,7 @@ class AlertV2ServicePlaneCorrelationTests(unittest.TestCase):
         self.assertEqual([record.code for record in active], [AlarmCode.SENSOR_NODE_UNAVAILABLE])
         self.assertEqual(registry.diagnostics()["correlation"]["derived_codes"], [])
 
-    def test_initial_offline_registration_waits_for_grace_before_heartbeat_alert(self) -> None:
+    def test_initial_offline_registration_waits_for_grace_before_service_only_diagnostic(self) -> None:
         registry = self._registry_for(
             _snapshot(
                 node_online=False,
@@ -162,6 +208,10 @@ class AlertV2ServicePlaneCorrelationTests(unittest.TestCase):
         active = registry.reconcile([])
 
         self.assertEqual(active, ())
+        self.assertEqual(
+            registry.diagnostics()["correlation"]["service_only_offline_nodes"],
+            [],
+        )
 
     def test_service_agent_failure_alert_is_debounced_and_preserves_production_signal(self) -> None:
         def unavailable(_path: Path, _timeout: float) -> dict[str, Any]:
