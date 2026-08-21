@@ -178,7 +178,7 @@ To nie jest błąd mapowania koloru ani sekwencji `0x03+0x04`: statyczny czerwon
 
 Build `0.5.9-led-solid-rearm-guard` dodaje wyłącznie ochronę przejścia do stanu stałego po ostatnim app-owned `0x02 OFF`:
 
-- HmiLedController pamięta ostatnią skuteczną fizyczzną komendę i czas jej zakończenia;
+- HmiLedController pamięta ostatnią skuteczną fizyczną komendę i czas jej zakończenia;
 - jeśli nowy stan jest stały, a ostatnią komendą było `OFF`, renderer nie próbuje natychmiast re-armować koloru;
 - stały kolor jest odroczony do czasu, aż od zakończenia `OFF` minie co najmniej 500 ms;
 - zwykła kadencja stanów migających pozostaje bez zmian;
