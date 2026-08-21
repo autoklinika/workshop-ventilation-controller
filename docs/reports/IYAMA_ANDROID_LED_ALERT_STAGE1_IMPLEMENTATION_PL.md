@@ -151,6 +151,52 @@ a dla OFF:
 RGB write PASS commands=0x02
 ```
 
+## Pełna walidacja aplikacji 0.5.8
+
+Pełny test deterministyczny na docelowym panelu dał PASS dla wszystkich stanów poza `CRITICAL_ACK`:
+
+```text
+NORMAL             PASS
+INFO_UNACK         PASS
+INFO_ACK           PASS
+WARNING_UNACK      PASS
+WARNING_ACK        PASS
+ALARM_UNACK        PASS
+ALARM_ACK          PASS
+CRITICAL_UNACK     PASS
+CRITICAL_ACK       FAIL
+COMMUNICATION_LOST PASS
+STARTUP_UNKNOWN    PASS
+SERVICE            PASS
+```
+
+Log dokładnie wyizolował krawędź przejścia. Ostatni `CRITICAL_UNACK` zapisał `0x02 OFF` z sukcesem o 09:48:47.836. `CRITICAL_ACK` został zaakceptowany już o 09:48:47.865, a próba `0x03+0x04` rozpoczęła się o 09:48:47.961, czyli około 125 ms po zakończeniu OFF. Driver raportował sukces zapisu, ale panel nie przeszedł wizualnie w stabilny czerwony stan.
+
+To nie jest błąd mapowania koloru ani sekwencji `0x03+0x04`: statyczny czerwony po kontrolowanym re-armie był wcześniej PASS. Jest to krawędź czasowa OFF -> SOLID przy zbyt szybkim przejściu logicznym z migania UNACK do ACK.
+
+## Korekta build 0.5.9
+
+Build `0.5.9-led-solid-rearm-guard` dodaje wyłącznie ochronę przejścia do stanu stałego po ostatnim app-owned `0x02 OFF`:
+
+- HmiLedController pamięta ostatnią skuteczną fizyczzną komendę i czas jej zakończenia;
+- jeśli nowy stan jest stały, a ostatnią komendą było `OFF`, renderer nie próbuje natychmiast re-armować koloru;
+- stały kolor jest odroczony do czasu, aż od zakończenia `OFF` minie co najmniej 500 ms;
+- zwykła kadencja stanów migających pozostaje bez zmian;
+- każda właściwa komenda koloru nadal używa atomowego `0x03 + COLOR` w jednej sesji root shell.
+
+W logu odroczenie jest jawne:
+
+```text
+LED solid re-arm deferred state=CRITICAL_ACK sinceOffMs=<...> guardMs=500
+```
+
+Po osiągnięciu guardu renderer zapisuje normalnie:
+
+```text
+LED render state=CRITICAL_ACK command=0x04
+RGB write PASS commands=0x03,0x04
+```
+
 ## Odporność transportu
 
 Polling: 2 s.
@@ -166,8 +212,8 @@ Gałąź: `agent/iiyama-led-alert-stage1`.
 Aktualny test build:
 
 ```text
-versionCode 15
-versionName 0.5.8-led-rearm
+versionCode 16
+versionName 0.5.9-led-solid-rearm-guard
 ```
 
-PR #70 pozostaje DRAFT. Przed jakimkolwiek merge do `main` wymagany jest jeszcze pełny test aplikacji na docelowym TW1025LASC-B3PNR: wszystkie kolory, wzory ACK/UNACK oraz powrót do live control.
+PR #70 pozostaje DRAFT. Następny test sprzętowy powinien obejmować przede wszystkim przejście `CRITICAL_UNACK -> CRITICAL_ACK` (`-RedOnly`). Po jego PASS można powtórzyć pełny test końcowy i dopiero wtedy rozważać zakończenie Stage 1.
