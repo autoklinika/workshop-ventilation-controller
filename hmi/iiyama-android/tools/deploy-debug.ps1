@@ -1,3 +1,7 @@
+param(
+    [string]$Device = '192.168.1.23:5555'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -21,14 +25,21 @@ function Get-ReadyAdbDevices {
     )
 }
 
+function Try-ConnectPreferredDevice {
+    Write-Host "[ADB] Trying preferred HMI endpoint: $Device"
+    & $Adb connect $Device | Out-Host
+    Start-Sleep -Milliseconds 800
+    @(Get-ReadyAdbDevices)
+}
+
 function Try-ReconnectWirelessAdb {
-    Write-Host '[ADB] No ready device. Trying wireless reconnect...'
+    Write-Host '[ADB] Preferred endpoint is not ready. Trying wireless reconnect...'
 
     & $Adb reconnect | Out-Host
     Start-Sleep -Milliseconds 800
 
     $ready = @(Get-ReadyAdbDevices)
-    if ($ready.Count -gt 0) {
+    if ($ready -contains $Device) {
         return $ready
     }
 
@@ -56,7 +67,38 @@ function Try-ReconnectWirelessAdb {
         $endpoints | ForEach-Object { Write-Host "      $_" }
     }
 
-    return @()
+    return $ready
+}
+
+function Select-HmiDevice {
+    param([string[]]$ReadyDevices)
+
+    # The iiyama can appear twice in `adb devices`: once as the stable TCP endpoint
+    # and once as the Android Wireless Debugging mDNS/TLS transport. Those are two
+    # transports to the same physical panel, not two different devices. Prefer the
+    # known stable endpoint whenever it is present.
+    if ($ReadyDevices -contains $Device) {
+        $others = @($ReadyDevices | Where-Object { $_ -ne $Device })
+        if ($others.Count -gt 0) {
+            Write-Host '[ADB] Additional ready ADB transport(s) detected and ignored:' -ForegroundColor DarkYellow
+            $others | ForEach-Object { Write-Host "      $_" }
+        }
+        return $Device
+    }
+
+    if ($ReadyDevices.Count -eq 1) {
+        Write-Host "[ADB] Preferred endpoint $Device is unavailable; using the only ready device."
+        return $ReadyDevices[0]
+    }
+
+    if ($ReadyDevices.Count -gt 1) {
+        Write-Host
+        Write-Host "Preferred HMI endpoint '$Device' is not present and more than one ready ADB device exists:" -ForegroundColor Yellow
+        $ReadyDevices | ForEach-Object { Write-Host "  $_" }
+        throw 'Cannot safely choose the HMI target. Pass -Device <serial-or-endpoint> explicitly.'
+    }
+
+    return $null
 }
 
 function Get-ExpectedBuildVersion {
@@ -108,8 +150,9 @@ if (-not (Test-Path $Apk)) {
 $expected = Get-ExpectedBuildVersion
 
 Write-Host '===== WORKSHOP VENTILATION HMI DEPLOY ====='
-Write-Host "APK:      $Apk"
-Write-Host "Expected: versionCode $($expected.Code), versionName $($expected.Name)"
+Write-Host "APK:       $Apk"
+Write-Host "Target:    $Device"
+Write-Host "Expected:  versionCode $($expected.Code), versionName $($expected.Name)"
 Write-Host
 
 Write-Host '[1/5] Starting/checking ADB server...'
@@ -120,6 +163,11 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host '[2/5] Looking for the iiyama ADB device...'
 $devices = @(Get-ReadyAdbDevices)
+
+if (-not ($devices -contains $Device)) {
+    $devices = @(Try-ConnectPreferredDevice)
+}
+
 if ($devices.Count -eq 0) {
     $devices = @(Try-ReconnectWirelessAdb)
 }
@@ -133,14 +181,10 @@ if ($devices.Count -eq 0) {
     throw 'No ADB device is ready.'
 }
 
-if ($devices.Count -gt 1) {
-    Write-Host
-    Write-Host 'More than one ready ADB device is connected:' -ForegroundColor Yellow
-    $devices | ForEach-Object { Write-Host "  $_" }
-    throw 'Disconnect extra ADB devices before deploying the HMI.'
+$Serial = Select-HmiDevice -ReadyDevices $devices
+if (-not $Serial) {
+    throw 'No safe HMI ADB target could be selected.'
 }
-
-$Serial = $devices[0]
 Write-Host "[ADB] Using device: $Serial"
 
 Write-Host '[3/5] Installing debug/test APK...'
