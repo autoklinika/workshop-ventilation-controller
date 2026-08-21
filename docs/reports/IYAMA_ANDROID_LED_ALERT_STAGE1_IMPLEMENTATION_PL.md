@@ -255,4 +255,6 @@ versionCode 16
 versionName 0.5.9-led-solid-rearm-guard
 ```
 
-PR #70 pozostaje DRAFT. Pełna deterministyczna walidacja sprzętowa renderera LED builda 0.5.9 jest PASS dla wszystkich stanów. Do zamknięcia Stage 1 pozostaje oddzielna walidacja live polling z rzeczywistym `/api/v1/alerts` po przywróceniu łączności HMI z CM5. Merge do `main` wymaga osobnej, wyraźnej zgody właściciela projektu.
+Status deterministycznego renderera LED: **PASS — 12/12 stanów na docelowym TW1025LASC-B3PNR**.
+
+PR #70 pozostaje DRAFT. Do zamknięcia Stage 1 pozostaje oddzielna walidacja live polling z rzeczywistym `/api/v1/alerts` po przywróceniu łączności HMI z CM5. Merge do `main` wymaga osobnej, wyraźnej zgody właściciela projektu.
