@@ -20,6 +20,7 @@ CRITICAL_COMMUNICATION_CODES = (
     "KAMOD_SENSOR_STATE_ERROR",
     "KAMOD_NODE_UNAVAILABLE",
     "AERO_BUS_UNAVAILABLE",
+    "ZIGBEE_BRIDGE_OFFLINE",
 )
 
 
@@ -56,7 +57,7 @@ class AlertV2PolicyTests(unittest.TestCase):
     def test_default_policy_loads_and_has_expected_contract(self) -> None:
         policy = load_alert_policy(DEFAULT_POLICY)
         self.assertEqual(policy.schema_version, 1)
-        self.assertEqual(policy.policy_version, "2026-08-21.1")
+        self.assertEqual(policy.policy_version, "2026-08-21.2")
         self.assertEqual(policy.alert_count, 50)
         self.assertEqual(len(policy.sha256), 64)
 
