@@ -5,6 +5,8 @@ ROOT=/home/wentylacja/workshop-ventilation-controller
 WT=/home/wentylacja/wvc-heartbeat-service-only-validation
 BRANCH=agent/heartbeat-service-only-alert-policy
 EXPECTED_BASE=5fb252fdf2405cdcf76a1cc7b62e84140c678309
+EXPECTED_CORRELATOR_BLOB=f8179441ad68ad243b2a0568916fda76cfe3f3ef
+CORRELATOR_PATH=src/ventilation_core/application/service_plane_alert_registry.py
 UNIT=ventilation-core.service
 AGENT_UNIT=wvc-service-agent.service
 DROPIN_DIR=/etc/systemd/system/${UNIT}.d
@@ -48,13 +50,17 @@ require_main_source_of_truth() {
 
 fetch_validation_branch() {
     echo "===== FETCH VALIDATION BRANCH ====="
-    # Refresh normal remote-tracking refs instead of relying on FETCH_HEAD.
     sudo -u wentylacja git -C "$ROOT" fetch --prune origin
 
     [ "$(sudo -u wentylacja git -C "$ROOT" rev-parse origin/main)" = "$EXPECTED_BASE" ] \
         || fail "origin/main moved from validated base $EXPECTED_BASE; rebase/review required"
     sudo -u wentylacja git -C "$ROOT" rev-parse --verify "origin/$BRANCH" >/dev/null \
         || fail "validation branch is missing on origin: $BRANCH"
+
+    local correlator_blob
+    correlator_blob="$(sudo -u wentylacja git -C "$ROOT" rev-parse "origin/$BRANCH:$CORRELATOR_PATH")"
+    [ "$correlator_blob" = "$EXPECTED_CORRELATOR_BLOB" ] \
+        || fail "reviewed AlertV2 correlator changed: $correlator_blob != $EXPECTED_CORRELATOR_BLOB"
 
     if [ -e "$WT" ]; then
         sudo -u wentylacja git -C "$ROOT" worktree remove --force "$WT" 2>/dev/null || true
@@ -65,6 +71,7 @@ fetch_validation_branch() {
 
     echo "main HEAD:       $(sudo -u wentylacja git -C "$ROOT" rev-parse HEAD)"
     echo "validation HEAD: $(sudo -u wentylacja git -C "$WT" rev-parse HEAD)"
+    echo "correlator blob: $correlator_blob"
     echo "validation diff:"
     sudo -u wentylacja git -C "$ROOT" diff --stat "$EXPECTED_BASE...origin/$BRANCH"
 }
