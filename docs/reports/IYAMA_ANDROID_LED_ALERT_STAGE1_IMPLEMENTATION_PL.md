@@ -1,0 +1,262 @@
+# iiyama Android HMI — RGB alert LED — Stage 1
+
+Data: 2026-08-21
+
+## Cel
+
+Dodać lokalną wizualizację stanu systemu na pasku RGB panelu iiyama TW1025LASC-B3PNR bez zmian w ventilation-core i bez przenoszenia logiki bezpieczeństwa do GUI.
+
+Android HMI pozostaje klientem. Źródłem prawdy o alertach jest istniejący endpoint:
+
+```text
+http://192.168.1.64:18091/api/v1/alerts
+```
+
+## Architektura
+
+```text
+ventilation-core /api/v1/alerts
+          |
+          v
+HmiLedController (Android)
+          |
+          v
+IiyamaLedDriver
+          |
+          v
+vendor sysfs LED attribute
+```
+
+HMI nie tworzy, nie kasuje i nie potwierdza alertów w core.
+
+## Potwierdzone komendy B3
+
+```text
+0x02 = OFF latch
+0x03 = wake / domyślnie WHITE
+0x04 = RED
+0x05 = GREEN
+0x06 = BLUE
+0x07 = WHITE
+0x08 = ORANGE
+0x10 = YELLOW
+```
+
+Najważniejszy potwierdzony kontrakt sprzętowy po `0x02 OFF`:
+
+```text
+0x02
+...
+0x03 + COLOR   # natychmiast, w tej samej sesji su
+```
+
+Po `0x02` sam kod koloru nie jest wystarczającym kontraktem do niezawodnego ponownego włączenia paska. `0x03` budzi pasek do stanu białego, a właściwy kolor musi zostać zapisany bezpośrednio po nim w tej samej sesji root shell.
+
+Potwierdzone tryby animowane producenta:
+
+```text
+0x0B = cykl kolorów
+0x0F = biały fade/strobe
+0x13 = wielokolorowy fade
+0x17 = skokowa zmiana kolorów
+```
+
+Nie są one używane przez AlertV2, ponieważ przejmują prezentację koloru.
+
+Próby uzyskania fade bieżącego koloru przez `0x00/0x01`, pełne ramki NEC i custom RGB nie dały użytecznej regulacji jasności na docelowym B3. Starszy interfejs `/dev/ledjni` z demo B1 nie istnieje w firmware B3.
+
+## Logika AlertV2
+
+| Stan | Kolor | Wzór |
+|---|---|---|
+| STARTUP_UNKNOWN | biały | wolne miganie |
+| COMMUNICATION_LOST | czerwony | szybkie miganie |
+| NORMAL | zielony | stały |
+| SERVICE | niebieski | stały |
+| INFO | niebieski | ACK stały / UNACK miganie |
+| WARNING | żółty | ACK stały / UNACK miganie |
+| ALARM | pomarańczowy | ACK stały / UNACK szybsze miganie |
+| CRITICAL | czerwony | ACK stały / UNACK szybkie miganie |
+
+ACK nie obniża priorytetu i nie zmienia koloru.
+
+## Deterministyczny tryb diagnostyczny
+
+Build debug ma kontrolowany diagnostic override dostępny przez ADB broadcast. Polling CM5 nadal działa w tle, ale fizyczny renderer LED może zostać przypięty do wskazanego stanu aż do `CLEAR`.
+
+Dodatkowo dodano debugowy stan `PAUSE`:
+
+```text
+PAUSE = polling i proces HMI działają dalej, ale HmiLedController nie wykonuje żadnych fizycznych zapisów LED
+CLEAR = przywrócenie normalnego renderera
+```
+
+`PAUSE` był konieczny, ponieważ `am force-stop` nie izoluje tego kiosku — proces HMI jest uruchamiany ponownie automatycznie i może ponownie stać się writerem LED.
+
+## Ustalenia z wcześniejszych testów
+
+Pierwszy deterministyczny log ujawnił rzeczywisty race pomiędzy zmianą diagnostic override a rendererem. Został on naprawiony przez wspólny `renderLock`; po zaakceptowaniu nowego stanu nie może już zostać wypisana komenda starego stanu.
+
+W tym samym okresie błędnie uznano sekwencję `0x03 + COLOR` po OFF za zbędną i zbudowano wariant `0.5.5-led-single-command`. Późniejsza walidacja sprzętowa wykazała, że ten wniosek był niepoprawny: problemem nie było samo `0x03`, tylko brak prawdziwej izolacji writerów podczas części testów.
+
+## Izolowana walidacja sprzętowa 2026-08-21
+
+W buildzie `0.5.7-led-diagnostic-pause` renderer aplikacji został zatrzymany przez `PAUSE`, przy zachowaniu procesu HMI i pollingu. Ręczne ADB -> `su` było wtedy jedynym writerem paska.
+
+Wynik:
+
+```text
+REARM_GREEN_03_PLUS_05        PASS
+REARM_RED_STATIC_03_PLUS_04   PASS
+REARM_RED_BLINK_1000MS        PASS
+REARM_RED_BLINK_500MS         PASS
+REARM_RED_BLINK_250MS         FAIL
+```
+
+Podsumowanie sprzętowe:
+
+```text
+greenRearm=True
+redStatic=True
+red1000=True
+red500=True
+red250=False
+```
+
+To potwierdza dwie rzeczy:
+
+1. po `0x02 OFF` ponowne włączenie koloru ma używać atomowej sekwencji `0x03 + COLOR` w jednej sesji `su`;
+2. czerwone miganie jest stabilne przy 500 ms ON / 500 ms OFF, natomiast wariant 250 ms nie jest akceptowany jako poprawny wizualnie na docelowym panelu.
+
+## Korekta build 0.5.8
+
+Build `0.5.8-led-rearm` implementuje potwierdzony kontrakt B3:
+
+- `OFF` -> pojedynczy zapis `0x02`;
+- każdy widoczny kolor -> atomowa sekwencja `0x03 + COLOR` w jednej sesji root shell;
+- `renderLock` pozostaje i nadal serializuje zmianę stanu z fizycznym renderem;
+- `CRITICAL_UNACK` i `COMMUNICATION_LOST` używają 500 ms ON / 500 ms OFF;
+- `CRITICAL_ACK` pozostaje stałym czerwonym;
+- debugowy `PAUSE` pozostaje dostępny do izolowanych testów sprzętowych.
+
+## Korekta build 0.5.9
+
+Build `0.5.9-led-solid-rearm-guard` dodaje ochronę przejścia do stanu stałego po ostatnim app-owned `0x02 OFF`:
+
+- HmiLedController pamięta ostatnią skuteczną fizyczną komendę i czas jej zakończenia;
+- jeśli nowy stan jest stały, a ostatnią komendą było `OFF`, renderer nie próbuje natychmiast re-armować koloru;
+- stały kolor jest odroczony do czasu, aż od zakończenia `OFF` minie co najmniej 500 ms;
+- zwykła kadencja stanów migających pozostaje bez zmian;
+- każda właściwa komenda koloru nadal używa atomowego `0x03 + COLOR` w jednej sesji root shell.
+
+W logu odroczenie jest jawne:
+
+```text
+LED solid re-arm deferred state=CRITICAL_ACK sinceOffMs=<...> guardMs=500
+```
+
+Po osiągnięciu guardu renderer zapisuje normalnie:
+
+```text
+LED render state=CRITICAL_ACK command=0x04
+RGB write PASS commands=0x03,0x04
+```
+
+## Walidacja RED ONLY build 0.5.9
+
+Test `tools/test-led-alert-states-diagnostic.ps1 -RedOnly` na docelowym panelu zakończył się pełnym PASS:
+
+```text
+CRITICAL_UNACK     PASS   RED blink 500/500 ms
+CRITICAL_ACK       PASS   RED solid
+COMMUNICATION_LOST PASS   RED blink 500/500 ms
+```
+
+Guard zadziałał na wcześniej wadliwej krawędzi OFF -> SOLID i nie zaburzył migania.
+
+## Pełna końcowa walidacja deterministyczna build 0.5.9
+
+Pełny test `tools/test-led-alert-states-diagnostic.ps1` na tym samym buildzie `0.5.9-led-solid-rearm-guard` zakończył się PASS dla wszystkich 12 stanów na docelowym panelu:
+
+```text
+NORMAL             PASS   GREEN solid
+INFO_UNACK         PASS   BLUE slow blink
+INFO_ACK           PASS   BLUE solid
+WARNING_UNACK      PASS   YELLOW blink
+WARNING_ACK        PASS   YELLOW solid
+ALARM_UNACK        PASS   ORANGE blink
+ALARM_ACK          PASS   ORANGE solid
+CRITICAL_UNACK     PASS   RED blink 500/500 ms
+CRITICAL_ACK       PASS   RED solid
+COMMUNICATION_LOST PASS   RED blink 500/500 ms
+STARTUP_UNKNOWN    PASS   WHITE slow blink
+SERVICE            PASS   BLUE solid
+```
+
+W szczególności wcześniej problematyczne przejście `CRITICAL_UNACK -> CRITICAL_ACK` ponownie zostało zwalidowane. Ostatni `OFF` zakończył się o 10:19:36.259. `CRITICAL_ACK` został zaakceptowany o 10:19:36.422. Tick o 10:19:36.649 wykrył `sinceOffMs=390` i odroczył re-arm, a następny tick o 10:19:36.900 wykonał czerwony stan stały; driver potwierdził `RGB write PASS commands=0x03,0x04` o 10:19:37.018. Obserwacja fizyczna zakończyła się PASS.
+
+## Korekta build 0.6.0 — autorytatywna polityka AlertV2
+
+Pierwszy test live z rzeczywistym CM5 ujawnił, że `/api/v1/alerts` zwraca jednocześnie legacy top-level `severity` detektora i zagnieżdżone, autorytatywne `alert_v2` z wagą, severity oraz kolorem HMI.
+
+Dla aktywnego `AERO_BUS_UNAVAILABLE` produkcyjny payload miał:
+
+```text
+top-level severity = warning
+alert_v2.mapped     = true
+alert_v2.weight     = 3
+alert_v2.severity   = alarm
+alert_v2.hmi_color  = orange
+```
+
+Build `0.5.9` czytał legacy top-level severity i dlatego pokazywał WARNING/YELLOW. Build `0.6.0-led-alert-v2-policy` zmienia resolver tak, aby dla `alert_v2.mapped=true` autorytatywne było `alert_v2.weight`, a zagnieżdżone `alert_v2.severity` stanowiło fallback. Legacy top-level weight/severity jest używane wyłącznie wtedy, gdy mapowanie AlertV2 nie jest dostępne.
+
+Po wgraniu builda 17 i pełnym restarcie panelu live polling zwalidował poprawne zachowanie dla istniejącego, wcześniej potwierdzonego alertu AERO:
+
+```text
+code         = AERO_BUS_UNAVAILABLE
+acknowledged = true
+weight       = 3
+severity     = alarm
+color        = orange
+```
+
+Fizyczny pasek po restarcie HMI był **pomarańczowy stały**, czyli dokładnie zgodny z regułą ALARM + ACK. Jednocześnie aktywne alerty WARNING o wadze 2 nie przebiły alertu AERO o wadze 3. To potwierdza działanie live ścieżki `CM5 /api/v1/alerts -> HMI resolver -> fizyczny LED` dla przypadku mapped AlertV2 oraz priorytetu najwyższej wagi.
+
+## Zasada deploy HMI
+
+Na docelowym panelu samo `adb install -r` + restart procesu aplikacji nie jest traktowane jako wystarczające zakończenie programowania. Po każdej aktualizacji APK obowiązuje pełny restart panelu Android, ponieważ dopiero po pełnym boot proces, kiosk i sterownik LED startują w zwalidowanym stanie.
+
+`tools/deploy-debug.ps1` został zmieniony tak, aby po instalacji i weryfikacji wersji:
+
+1. wykonać pełny `adb reboot` panelu;
+2. poczekać na `sys.boot_completed=1`;
+3. potwierdzić automatyczny start procesu HMI/kiosku;
+4. ponownie zweryfikować zainstalowany `versionCode` i `versionName` po restarcie.
+
+## Odporność transportu
+
+Polling: 2 s.
+
+Timeout connect/read: 1.5 s.
+
+Po 6 s bez poprawnego snapshotu, po wcześniejszym poprawnym połączeniu, HMI przechodzi lokalnie w `COMMUNICATION_LOST`. Przed pierwszym poprawnym snapshotem używa `STARTUP_UNKNOWN`.
+
+## Status
+
+Gałąź: `agent/iiyama-led-alert-stage1`.
+
+Aktualny test build:
+
+```text
+versionCode 17
+versionName 0.6.0-led-alert-v2-policy
+```
+
+Status deterministycznego renderera LED: **PASS — 12/12 stanów na docelowym TW1025LASC-B3PNR**.
+
+Status live AlertV2: **PASS dla mapped AERO ALARM + ACK oraz priorytetu weight=3 nad aktywnymi warningami weight=2**.
+
+Do pełnego zamknięcia live walidacji pozostaje sprawdzenie zachowania przy utracie/odzyskaniu komunikacji z CM5 oraz, gdy będzie dostępne naturalne przejście alertu, live UNACK -> ACK / clear -> fallback do kolejnego najwyższego alertu lub NORMAL.
+
+PR #70 pozostaje DRAFT. Merge do `main` wymaga osobnej, wyraźnej zgody właściciela projektu.
