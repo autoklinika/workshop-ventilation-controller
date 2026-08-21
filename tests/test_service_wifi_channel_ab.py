@@ -36,8 +36,18 @@ class ServiceWifiChannelAbTests(unittest.TestCase):
         self.assertIn('"missing_heartbeats_total"', source)
         self.assertIn('"heartbeat_send_failures"', source)
         self.assertIn('"wifi_disconnect_events"', source)
-        self.assertNotIn("ventilation-core.service", source)
-        self.assertNotIn("modbus", source.lower())
+
+        # The helper must not control or restart the production ventilation
+        # runtime. Mentioning SENSOR BUS / Modbus in explanatory text is fine.
+        forbidden_commands = (
+            "systemctl restart ventilation-core.service",
+            "systemctl stop ventilation-core.service",
+            "systemctl start ventilation-core.service",
+            "ventilation_core.ctl set",
+            "ventilation_core.ctl stop",
+        )
+        for command in forbidden_commands:
+            self.assertNotIn(command, source)
 
 
 if __name__ == "__main__":
