@@ -1,5 +1,6 @@
 param(
-    [string]$Device = "192.168.1.23:5555"
+    [string]$Device = "192.168.1.23:5555",
+    [switch]$RedOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +28,14 @@ $tests = @(
     @{ State = "STARTUP_UNKNOWN";    Expected = "WHITE slow blink" },
     @{ State = "SERVICE";            Expected = "BLUE solid" }
 )
+
+if ($RedOnly) {
+    $tests = @(
+        @{ State = "CRITICAL_UNACK";     Expected = "RED fast blink" },
+        @{ State = "CRITICAL_ACK";       Expected = "RED solid" },
+        @{ State = "COMMUNICATION_LOST"; Expected = "RED fast blink" }
+    )
+}
 
 function Write-ResultLine {
     param([string]$Text)
@@ -91,6 +100,9 @@ Write-Host ""
 Write-Host "Ten test NIE zmienia alertów na CM5."
 Write-Host "Aplikacja nadal je odpytuje, ale LED jest chwilowo sterowany przez debug override."
 Write-Host "Nie uruchamiaj równolegle żadnego innego skryptu LED/sysfs."
+if ($RedOnly) {
+    Write-Host "Tryb: RED ONLY (CRITICAL_UNACK / CRITICAL_ACK / COMMUNICATION_LOST)"
+}
 Write-Host ""
 
 & $adb connect $Device | Out-Host
