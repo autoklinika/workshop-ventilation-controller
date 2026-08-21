@@ -40,7 +40,8 @@ class AlertV2Stage5ProductionRolloutTests(unittest.TestCase):
         self.assertIn('"unmapped_active_alerts": 0', source)
         self.assertIn("policy.policy_version", source)
         self.assertIn("policy.sha256", source)
-        self.assertIn("EXPECTED_ALERT_COUNT = 49", source)
+        self.assertIn('"alert_count": policy.alert_count', source)
+        self.assertNotIn("EXPECTED_ALERT_COUNT", source)
         self.assertIn('correlation.get("mode") != "read_only"', source)
 
     def test_validator_requires_stop_zero_and_stable_processes(self) -> None:

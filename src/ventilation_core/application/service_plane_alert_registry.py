@@ -16,6 +16,10 @@ class ServicePlaneCorrelatingAlertRegistry:
     The wrapped registry remains the authoritative lifecycle/persistence owner.
     This layer only transforms the set of diagnostic signals before reconcile.
     It never executes AlertV2 reactions and never calls a control method.
+
+    Heartbeat availability is diagnostic-only while the production SENSOR BUS
+    remains healthy. It may strengthen/root-cause an existing production fault,
+    but heartbeat loss alone must not create an operator alert.
     """
 
     def __init__(
@@ -39,6 +43,7 @@ class ServicePlaneCorrelatingAlertRegistry:
             "mode": "read_only",
             "derived_codes": [],
             "suppressed_legacy_keys": [],
+            "service_only_offline_nodes": [],
             "reason": "not_evaluated",
         }
 
@@ -94,6 +99,7 @@ class ServicePlaneCorrelatingAlertRegistry:
         signals = list(base_signals)
         derived: list[AlertSignal] = []
         suppressed: set[str] = set()
+        service_only_offline_nodes: set[str] = set()
 
         if not monitor_state.available:
             if monitor_state.consecutive_failures >= self._agent_failure_threshold:
@@ -233,16 +239,10 @@ class ServicePlaneCorrelatingAlertRegistry:
                         )
                     )
                 else:
-                    derived.append(
-                        AlertSignal(
-                            key=f"service-node:{node_id}:heartbeat",
-                            code=AlarmCode.KAMOD_HEARTBEAT_LOST,
-                            source=source,
-                            severity=AlarmSeverity.WARNING,
-                            message=f"Brak heartbeat KAmod {node_id}",
-                            detail="Produkcyjny SENSOR BUS nie potwierdza równoczesnej awarii węzła",
-                        )
-                    )
+                    # Heartbeat is service-plane telemetry only. A missing service
+                    # heartbeat while the production SENSOR BUS is healthy must not
+                    # create an operator alert or affect ventilation control.
+                    service_only_offline_nodes.add(node_id)
                 continue
 
             # Explicit local diagnostics are used as a root-cause hint only when
@@ -284,7 +284,12 @@ class ServicePlaneCorrelatingAlertRegistry:
         if suppressed:
             signals = [signal for signal in signals if signal.key not in suppressed]
 
-        diagnostics = self._diagnostics(derived, suppressed, reason="correlation_complete")
+        diagnostics = self._diagnostics(
+            derived,
+            suppressed,
+            service_only_offline_nodes=service_only_offline_nodes,
+            reason="correlation_complete",
+        )
         return tuple(signals + derived), diagnostics
 
     @staticmethod
@@ -303,6 +308,7 @@ class ServicePlaneCorrelatingAlertRegistry:
         suppressed: set[str],
         *,
         reason: str,
+        service_only_offline_nodes: set[str] | None = None,
     ) -> dict[str, Any]:
         return {
             "mode": "read_only",
@@ -310,6 +316,7 @@ class ServicePlaneCorrelatingAlertRegistry:
             "derived_codes": [signal.code.value for signal in derived],
             "derived_keys": [signal.key for signal in derived],
             "suppressed_legacy_keys": sorted(suppressed),
+            "service_only_offline_nodes": sorted(service_only_offline_nodes or ()),
             "control_policy_applied": False,
         }
 
