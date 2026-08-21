@@ -19,12 +19,15 @@ final class IiyamaLedDriver {
     /*
      * Hardware-validated vendor commands on the target B3 panel.
      * These are command/function codes, not a linear RGB value space.
-     * 0x00/0x01 produced no visible brightness change on this firmware.
+     *
+     * Important: the original known-good VS Code tasks wrote exactly ONE value
+     * for RED/GREEN/BLUE/WHITE/OFF. They did not prepend 0x03 before a colour.
+     * Stage 1 therefore mirrors that proven hardware contract exactly.
      */
     static final int CMD_UNKNOWN_00 = 0x00;
     static final int CMD_UNKNOWN_01 = 0x01;
     static final int CMD_OFF = 0x02;
-    static final int CMD_ON = 0x03;
+    static final int CMD_ON = 0x03; // documented/observed, intentionally unused by alert rendering
     static final int CMD_RED = 0x04;
     static final int CMD_GREEN = 0x05;
     static final int CMD_BLUE = 0x06;
@@ -41,41 +44,22 @@ final class IiyamaLedDriver {
     static final int EFFECT_MULTICOLOR_FADE = 0x13;
     static final int EFFECT_COLOR_STEP = 0x17;
 
-    private boolean ledEnabled = false;
-
     /**
-     * Mirrors the command model validated manually on the panel:
+     * Writes exactly one hardware command per requested state change.
      *
-     *   direct static colour   -> one vendor colour command
-     *   off                    -> 0x02
-     *   first colour after OFF -> 0x03 ON, then the colour
-     *
-     * 0x03 is not repeated while the LED is already enabled. Animated vendor
-     * effects are rejected here so an alert can never silently change colour.
+     * This deliberately avoids the previous OFF -> 0x03 -> colour sequence.
+     * The diagnostic logs showed that sequence was generated correctly by Android,
+     * but it was not the command pattern used by the original hardware-proven tasks.
+     * Keeping every transition atomic also removes one possible source of controller
+     * side effects and halves the write rate while blinking.
      */
     synchronized boolean writeCommand(int command) {
-        if (command == CMD_OFF) {
-            boolean ok = executeRootCommands(CMD_OFF);
-            if (ok) {
-                ledEnabled = false;
-            }
-            return ok;
-        }
-
-        if (!isStaticColour(command)) {
+        if (command != CMD_OFF && !isStaticColour(command)) {
             Log.e(TAG, "Rejected non-static RGB command 0x"
                     + String.format(Locale.US, "%02X", command));
             return false;
         }
-
-        boolean ok = ledEnabled
-                ? executeRootCommands(command)
-                : executeRootCommands(CMD_ON, command);
-
-        if (ok) {
-            ledEnabled = true;
-        }
-        return ok;
+        return executeRootCommand(command);
     }
 
     private static boolean isStaticColour(int command) {
@@ -87,7 +71,7 @@ final class IiyamaLedDriver {
                 || command == CMD_YELLOW;
     }
 
-    private boolean executeRootCommands(int... commands) {
+    private boolean executeRootCommand(int command) {
         Process process = null;
         try {
             process = new ProcessBuilder("su")
@@ -96,11 +80,9 @@ final class IiyamaLedDriver {
 
             try (BufferedWriter input = new BufferedWriter(new OutputStreamWriter(
                     process.getOutputStream(), StandardCharsets.UTF_8))) {
-                for (int command : commands) {
-                    input.write(String.format(Locale.US,
-                            "echo w 0x%02X > %s", command & 0xFF, SYSFS));
-                    input.newLine();
-                }
+                input.write(String.format(Locale.US,
+                        "echo w 0x%02X > %s", command & 0xFF, SYSFS));
+                input.newLine();
                 input.write("exit");
                 input.newLine();
                 input.flush();
@@ -109,23 +91,17 @@ final class IiyamaLedDriver {
             boolean finished = process.waitFor(COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                Log.e(TAG, "Timed out writing iiyama RGB command sequence");
+                Log.e(TAG, "Timed out writing iiyama RGB command");
                 return false;
             }
 
             if (process.exitValue() != 0) {
-                Log.e(TAG, "iiyama RGB command sequence failed exit=" + process.exitValue());
+                Log.e(TAG, "iiyama RGB command failed exit=" + process.exitValue());
                 return false;
             }
 
-            StringBuilder codes = new StringBuilder();
-            for (int command : commands) {
-                if (codes.length() > 0) {
-                    codes.append(',');
-                }
-                codes.append(String.format(Locale.US, "0x%02X", command & 0xFF));
-            }
-            Log.i(TAG, "RGB write PASS commands=" + codes);
+            Log.i(TAG, "RGB write PASS command="
+                    + String.format(Locale.US, "0x%02X", command & 0xFF));
             return true;
         } catch (IOException error) {
             Log.e(TAG, "Unable to use root shell for iiyama RGB bar", error);
