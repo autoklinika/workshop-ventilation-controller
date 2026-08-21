@@ -16,6 +16,7 @@ DEFAULT_SOCKET = Path("/run/wvc-host-power/host-power.sock")
 DEFAULT_CORE_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
 MAX_REQUEST_BYTES = 1024
 MAX_CORE_RESPONSE_BYTES = 1024 * 1024
+CORE_REQUEST_TIMEOUT_SECONDS = 75.0
 
 
 CommandLauncher = Callable[[tuple[str, ...]], None]
@@ -178,6 +179,14 @@ class HostPowerAgent:
             raise RuntimeError(f"{label} did not target 0: {result.get('target_value')!r}")
         if result.get("state") != "succeeded":
             raise RuntimeError(f"{label} was not confirmed: {result.get('state')!r}")
+        if result.get("physical_confirmation") is not True:
+            raise RuntimeError(f"{label} lacks physical confirmation")
+        if expected_kind == "speed":
+            observed = result.get("observed_power")
+            if not isinstance(observed, dict):
+                raise RuntimeError("AERO speed 0 response has no observed fan power")
+            if observed.get("fan_1_percent") != 0 or observed.get("fan_2_percent") != 0:
+                raise RuntimeError(f"AERO fan power is not 0%: {observed!r}")
 
     @staticmethod
     def _read_request(connection: socket.socket) -> bytes:
@@ -218,7 +227,7 @@ class HostPowerAgent:
     def _request_core(self, payload: dict[str, object]) -> dict[str, object]:
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(65.0)
+            client.settimeout(CORE_REQUEST_TIMEOUT_SECONDS)
             client.connect(str(self._core_socket_path))
             client.sendall(encoded)
             data = bytearray()
