@@ -22,18 +22,18 @@ $tests = @(
     @{ State = "WARNING_ACK";        Expected = "YELLOW solid" },
     @{ State = "ALARM_UNACK";        Expected = "ORANGE blink" },
     @{ State = "ALARM_ACK";          Expected = "ORANGE solid" },
-    @{ State = "CRITICAL_UNACK";     Expected = "RED fast blink" },
+    @{ State = "CRITICAL_UNACK";     Expected = "RED blink: 500 ms ON / 500 ms OFF" },
     @{ State = "CRITICAL_ACK";       Expected = "RED solid" },
-    @{ State = "COMMUNICATION_LOST"; Expected = "RED fast blink" },
+    @{ State = "COMMUNICATION_LOST"; Expected = "RED blink: 500 ms ON / 500 ms OFF" },
     @{ State = "STARTUP_UNKNOWN";    Expected = "WHITE slow blink" },
     @{ State = "SERVICE";            Expected = "BLUE solid" }
 )
 
 if ($RedOnly) {
     $tests = @(
-        @{ State = "CRITICAL_UNACK";     Expected = "RED fast blink" },
+        @{ State = "CRITICAL_UNACK";     Expected = "RED blink: 500 ms ON / 500 ms OFF" },
         @{ State = "CRITICAL_ACK";       Expected = "RED solid" },
-        @{ State = "COMMUNICATION_LOST"; Expected = "RED fast blink" }
+        @{ State = "COMMUNICATION_LOST"; Expected = "RED blink: 500 ms ON / 500 ms OFF" }
     )
 }
 
