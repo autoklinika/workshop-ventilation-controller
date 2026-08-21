@@ -110,8 +110,21 @@ raise SystemExit(0 if ok else 1)
 
 switch_channel() {
     local channel="$1"
+    local configured actual
+    configured="$(configured_channel)"
+    actual="$(actual_channel)"
+
     echo
-    echo "===== SWITCH WVC-SERVICE -> CHANNEL $channel ====="
+    echo "===== WVC-SERVICE CHANNEL $channel ====="
+
+    if [[ "$configured" == "$channel" && "$actual" == "$channel" ]]; then
+        echo "channel already active; no reconnect required"
+        wait_nodes_online
+        echo "settling for ${SETTLE_SECONDS}s"
+        sleep "$SETTLE_SECONDS"
+        return 0
+    fi
+
     nmcli connection modify "$PROFILE" 802-11-wireless.channel "$channel"
     nmcli connection down "$PROFILE" >/dev/null 2>&1 || true
     nmcli --wait 30 connection up "$PROFILE" ifname "$IFACE" >/dev/null
@@ -119,7 +132,6 @@ switch_channel() {
     systemctl restart wvc-sensor-dhcp.service
     sleep 3
 
-    local configured actual
     configured="$(configured_channel)"
     actual="$(actual_channel)"
     echo "configured channel: $configured"
@@ -234,8 +246,6 @@ run_phase() {
         printf 'phase=%s channel=%s remaining=%ss\n' "$label" "$channel" "$remaining"
     done
 
-    # Give any in-flight gap enough time to be closed by the next heartbeat so
-    # sequence-gap counters are comparable between phases.
     sleep 40
     status_json >"$end_file"
     echo "end:   $(date --iso-8601=seconds)"
