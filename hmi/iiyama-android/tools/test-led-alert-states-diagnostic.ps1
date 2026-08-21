@@ -23,7 +23,7 @@ $tests = @(
     @{ State = "ALARM_UNACK";        Expected = "ORANGE blink" },
     @{ State = "ALARM_ACK";          Expected = "ORANGE solid" },
     @{ State = "CRITICAL_UNACK";     Expected = "RED blink: 500 ms ON / 500 ms OFF" },
-    @{ State = "CRITICAL_ACK";       Expected = "RED solid" },
+    @{ State = "CRITICAL_ACK";       Expected = "RED solid after OFF re-arm guard" },
     @{ State = "COMMUNICATION_LOST"; Expected = "RED blink: 500 ms ON / 500 ms OFF" },
     @{ State = "STARTUP_UNKNOWN";    Expected = "WHITE slow blink" },
     @{ State = "SERVICE";            Expected = "BLUE solid" }
@@ -32,7 +32,7 @@ $tests = @(
 if ($RedOnly) {
     $tests = @(
         @{ State = "CRITICAL_UNACK";     Expected = "RED blink: 500 ms ON / 500 ms OFF" },
-        @{ State = "CRITICAL_ACK";       Expected = "RED solid" },
+        @{ State = "CRITICAL_ACK";       Expected = "RED solid after OFF re-arm guard" },
         @{ State = "COMMUNICATION_LOST"; Expected = "RED blink: 500 ms ON / 500 ms OFF" }
     )
 }
@@ -102,6 +102,7 @@ Write-Host "Aplikacja nadal je odpytuje, ale LED jest chwilowo sterowany przez d
 Write-Host "Nie uruchamiaj równolegle żadnego innego skryptu LED/sysfs."
 if ($RedOnly) {
     Write-Host "Tryb: RED ONLY (CRITICAL_UNACK / CRITICAL_ACK / COMMUNICATION_LOST)"
+    Write-Host "CRITICAL_ACK może zostać odroczony maksymalnie do bezpiecznego guardu po ostatnim OFF."
 }
 Write-Host ""
 
