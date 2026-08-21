@@ -38,9 +38,19 @@ final class HmiLedController {
     private static final long COMMUNICATION_STALE_MS = 6000L;
     private static final long LED_TICK_MS = 250L;
 
-    /* Temporary hardware-test value. Production timing will be finalized only
-     * after the B3 OFF/re-arm sequence is validated without competing writers. */
+    /* Hardware-validated on the target B3 with the Android renderer PAUSED. */
     private static final long RED_BLINK_HALF_PERIOD_MS = 500L;
+
+    /*
+     * B3 edge case: after an OFF latch the bar may ignore an immediate transition to
+     * a solid colour even when the colour is correctly re-armed as 0x03 + COLOR in
+     * one su session. The full 0.5.8 diagnostic captured CRITICAL_UNACK ->
+     * CRITICAL_ACK only ~125 ms after the previous OFF write and the solid red state
+     * failed visually, while isolated re-arm after >=500 ms was stable. Do not alter
+     * normal blink cadence; only defer a SOLID colour transition until this guard has
+     * elapsed since the last successful app-owned OFF write.
+     */
+    private static final long SOLID_REARM_AFTER_OFF_GUARD_MS = 500L;
 
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2, runnable -> {
         Thread thread = new Thread(runnable, "wvc-hmi-led");
@@ -56,6 +66,10 @@ final class HmiLedController {
     private volatile long lastSuccessfulPollElapsedMs = 0L;
     private volatile long stateChangedElapsedMs = SystemClock.elapsedRealtime();
     private volatile int lastAppliedCommand = -1;
+
+    /* Physical command history is intentionally NOT reset on logical state changes. */
+    private volatile int lastSuccessfulHardwareCommand = -1;
+    private volatile long lastSuccessfulHardwareWriteElapsedMs = 0L;
 
     private volatile LedState diagnosticOverride = null;
     private volatile long diagnosticChangedElapsedMs = SystemClock.elapsedRealtime();
@@ -256,16 +270,32 @@ final class HmiLedController {
                 long phaseStartedMs = override != null
                         ? diagnosticChangedElapsedMs
                         : stateChangedElapsedMs;
-                long ageMs = Math.max(0L, SystemClock.elapsedRealtime() - phaseStartedMs);
+                long now = SystemClock.elapsedRealtime();
+                long ageMs = Math.max(0L, now - phaseStartedMs);
                 boolean on = current.isSolid() || ((ageMs / current.blinkHalfPeriodMs) % 2L == 0L);
                 int command = on ? current.staticColourCommand : IiyamaLedDriver.CMD_OFF;
                 if (command == lastAppliedCommand) {
                     return;
                 }
+
+                if (current.isSolid()
+                        && command != IiyamaLedDriver.CMD_OFF
+                        && lastSuccessfulHardwareCommand == IiyamaLedDriver.CMD_OFF) {
+                    long sinceOffMs = Math.max(0L, now - lastSuccessfulHardwareWriteElapsedMs);
+                    if (sinceOffMs < SOLID_REARM_AFTER_OFF_GUARD_MS) {
+                        Log.i(TAG, "LED solid re-arm deferred state=" + current
+                                + " sinceOffMs=" + sinceOffMs
+                                + " guardMs=" + SOLID_REARM_AFTER_OFF_GUARD_MS);
+                        return;
+                    }
+                }
+
                 Log.i(TAG, "LED render state=" + current + " command=0x"
                         + String.format(Locale.US, "%02X", command & 0xFF));
                 if (driver.writeCommand(command)) {
                     lastAppliedCommand = command;
+                    lastSuccessfulHardwareCommand = command;
+                    lastSuccessfulHardwareWriteElapsedMs = SystemClock.elapsedRealtime();
                 }
             }
         } catch (RuntimeException error) {
