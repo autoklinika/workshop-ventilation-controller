@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL = REPO_ROOT / "tools" / "validate_alert_v2_stage4d_node_power_loss_cm5.py"
+CURRENT_POLICY = REPO_ROOT / "config" / "alerts-v2.default.toml"
 
 
 class AlertV2Stage4DNodePowerLossTests(unittest.TestCase):
@@ -32,14 +33,24 @@ class AlertV2Stage4DNodePowerLossTests(unittest.TestCase):
         self.assertIn("suppressed_legacy_keys", source)
         self.assertIn("production_test_incident_retained_in_history", source)
 
-    def test_correlated_policy_contract_is_weight3_orange_and_read_only(self) -> None:
+    def test_historical_stage4d_snapshot_does_not_define_current_policy(self) -> None:
+        """Stage4D is a preserved historical hardware-validation artifact.
+
+        It intentionally keeps the metadata that was validated at the time.  The
+        live/current AlertV2 contract is owned by alerts-v2.default.toml and its
+        current-policy tests, so this old tool must never be treated as the
+        authoritative severity matrix after policy revisions.
+        """
+
         source = TOOL.read_text(encoding="utf-8")
+        current = CURRENT_POLICY.read_text(encoding="utf-8")
         self.assertIn('"weight": 3', source)
         self.assertIn('"hmi_color": "orange"', source)
-        self.assertIn('"reaction": "fallback_local"', source)
-        self.assertIn('"affects_control": True', source)
-        self.assertIn('"control_policy_applied": False', source)
-        self.assertIn('"write_commands_sent": 0', source)
+        self.assertIn('[alerts.KAMOD_NODE_UNAVAILABLE]', current)
+        section = current.split('[alerts.KAMOD_NODE_UNAVAILABLE]', 1)[1].split('\n[alerts.', 1)[0]
+        self.assertIn('weight = 4', section)
+        self.assertIn('severity = "critical"', section)
+        self.assertIn('hmi_color = "red"', section)
 
     def test_validator_guards_non_target_and_stop_zero_state(self) -> None:
         source = TOOL.read_text(encoding="utf-8")

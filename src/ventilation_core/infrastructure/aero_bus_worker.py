@@ -4,6 +4,7 @@ import logging
 import multiprocessing as mp
 import queue
 import time
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from multiprocessing.queues import Queue
@@ -69,6 +70,26 @@ class AeroBusConfig:
             raise ValueError("AERO BUS register address outside Modbus range")
 
 
+@dataclass(frozen=True)
+class AeroControlRequest:
+    request_id: str
+    command: AeroControlCommand
+
+    def __post_init__(self) -> None:
+        if not self.request_id:
+            raise ValueError("AERO control request_id cannot be empty")
+
+
+@dataclass(frozen=True)
+class AeroControlResponse:
+    request_id: str
+    result: AeroControlResult
+
+    def __post_init__(self) -> None:
+        if not self.request_id:
+            raise ValueError("AERO control response request_id cannot be empty")
+
+
 def _initial_state(config: AeroBusConfig) -> AeroBusState:
     return AeroBusState(
         port=config.port,
@@ -90,6 +111,52 @@ def _publish_latest(state_queue: Queue, state: AeroBusState) -> None:
                 state_queue.get_nowait()
             except queue.Empty:
                 return
+
+
+def _publish_control_result(control_result_queue: Queue, response: AeroControlResponse) -> None:
+    """Publish the newest result without allowing an abandoned stale result to block UART."""
+    while True:
+        try:
+            control_result_queue.put_nowait(response)
+            return
+        except queue.Full:
+            try:
+                stale = control_result_queue.get_nowait()
+            except queue.Empty:
+                continue
+            stale_id = getattr(stale, "request_id", "legacy-or-unknown")
+            LOGGER.warning(
+                "discarding stale AERO control result request_id=%s before publishing request_id=%s",
+                stale_id,
+                response.request_id,
+            )
+
+
+def _wait_for_matching_control_result(
+    control_result_queue: Queue,
+    request_id: str,
+    timeout_seconds: float,
+) -> AeroControlResult:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Timed out waiting for AERO control result")
+        try:
+            response = control_result_queue.get(timeout=remaining)
+        except queue.Empty as exc:
+            raise TimeoutError("Timed out waiting for AERO control result") from exc
+        if not isinstance(response, AeroControlResponse):
+            LOGGER.warning("discarding uncorrelated legacy AERO control result")
+            continue
+        if response.request_id != request_id:
+            LOGGER.warning(
+                "discarding stale AERO control result request_id=%s while waiting for request_id=%s",
+                response.request_id,
+                request_id,
+            )
+            continue
+        return response.result
 
 
 def _read_confirmed_snapshot(port: Any, config: AeroBusConfig) -> dict[int, int]:
@@ -220,15 +287,20 @@ def run_aero_bus_worker(
 
                 while not stop_event.is_set():
                     try:
-                        command = control_queue.get_nowait()
+                        request = control_queue.get_nowait()
                     except queue.Empty:
-                        command = None
+                        request = None
 
-                    if command is not None:
+                    if request is not None:
+                        if not isinstance(request, AeroControlRequest):
+                            raise TypeError("invalid AERO control queue request")
                         state, result = _execute_queued_control(
-                            port, config, state, command, state_queue
+                            port, config, state, request.command, state_queue
                         )
-                        control_result_queue.put(result)
+                        _publish_control_result(
+                            control_result_queue,
+                            AeroControlResponse(request.request_id, result),
+                        )
 
                     state = _poll_aero(port, config, state)
                     state = replace(
@@ -289,6 +361,8 @@ class ProcessAeroBus:
     ) -> AeroControlResult:
         if timeout_seconds <= 0:
             raise ValueError("AERO control wait timeout must be positive")
+        request_id = uuid.uuid4().hex
+        request = AeroControlRequest(request_id=request_id, command=command)
         with self._lock:
             self._drain_updates()
             if self._process is None or not self._process.is_alive():
@@ -296,14 +370,15 @@ class ProcessAeroBus:
             if not self._state.ready or not self._state.online or not self._state.usable:
                 raise RuntimeError("AERO BUS is not ready for control")
             try:
-                self._control_queue.put_nowait(command)
+                self._control_queue.put_nowait(request)
             except queue.Full as exc:
                 raise RuntimeError("AERO control command already pending") from exc
 
-        try:
-            result = self._control_result_queue.get(timeout=timeout_seconds)
-        except queue.Empty as exc:
-            raise TimeoutError("Timed out waiting for AERO control result") from exc
+        result = _wait_for_matching_control_result(
+            self._control_result_queue,
+            request_id,
+            timeout_seconds,
+        )
 
         with self._lock:
             self._drain_updates()

@@ -8,19 +8,29 @@ import signal
 import socket
 import subprocess
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SOCKET = Path("/run/wvc-host-power/host-power.sock")
+DEFAULT_CORE_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
 MAX_REQUEST_BYTES = 1024
+MAX_CORE_RESPONSE_BYTES = 1024 * 1024
+CORE_REQUEST_TIMEOUT_SECONDS = 75.0
 
 
 CommandLauncher = Callable[[tuple[str, ...]], None]
+CoreRequester = Callable[[dict[str, object]], dict[str, object]]
 
 
 class HostPowerAgent:
-    """Privileged local agent exposing only shutdown/restart over AF_UNIX."""
+    """Privileged local agent exposing only shutdown/restart over AF_UNIX.
+
+    Shutdown is deliberately fail-closed. Before host poweroff is accepted the
+    agent asks ventilation-core to stop the EC fans, disable AERO airing and set
+    the recuperator speed to 0. Host poweroff is launched only after all three
+    operations are positively confirmed by core.
+    """
 
     COMMANDS: dict[str, tuple[str, ...]] = {
         "shutdown": ("/usr/bin/systemctl", "--no-block", "poweroff"),
@@ -31,12 +41,16 @@ class HostPowerAgent:
         self,
         socket_path: Path,
         *,
+        core_socket_path: Path = DEFAULT_CORE_SOCKET,
         action_delay_seconds: float = 0.75,
         command_launcher: CommandLauncher | None = None,
+        core_requester: CoreRequester | None = None,
     ) -> None:
         self._socket_path = Path(socket_path)
+        self._core_socket_path = Path(core_socket_path)
         self._action_delay_seconds = float(action_delay_seconds)
         self._command_launcher = command_launcher or self._launch_command
+        self._core_requester = core_requester or self._request_core
         self._pending_lock = threading.Lock()
         self._action_pending = False
 
@@ -87,6 +101,22 @@ class HostPowerAgent:
                     return
                 self._action_pending = True
 
+            if action == "shutdown":
+                try:
+                    self._prepare_peripherals_for_poweroff()
+                except Exception as exc:
+                    LOGGER.exception("safe peripheral shutdown preparation failed")
+                    with self._pending_lock:
+                        self._action_pending = False
+                    self._send(
+                        connection,
+                        {
+                            "ok": False,
+                            "error": f"peripheral shutdown not confirmed: {exc}",
+                        },
+                    )
+                    return
+
             self._send(connection, {"ok": True, "accepted": True, "action": action})
             timer = threading.Timer(
                 self._action_delay_seconds,
@@ -99,6 +129,64 @@ class HostPowerAgent:
             self._send(connection, {"ok": False, "error": str(exc)})
         except (OSError, TimeoutError) as exc:
             LOGGER.warning("host-power request failed: %s", exc)
+
+    def _prepare_peripherals_for_poweroff(self) -> None:
+        LOGGER.warning("preparing ventilation peripherals for CM5 poweroff")
+
+        stop = self._core_requester({"command": "stop"})
+        self._require_core_ok(stop, "fan STOP")
+        state = stop.get("state")
+        if not isinstance(state, dict):
+            raise RuntimeError("fan STOP response has no state")
+        if state.get("mode") != "STOP":
+            raise RuntimeError(f"fan STOP did not enter STOP mode: {state.get('mode')!r}")
+        setpoints = state.get("setpoints")
+        if not isinstance(setpoints, dict):
+            raise RuntimeError("fan STOP response has no setpoints")
+        if setpoints.get("supply_voltage") != 0.0 or setpoints.get("extract_voltage") != 0.0:
+            raise RuntimeError(f"fan outputs are not 0 V: {setpoints!r}")
+        if state.get("output_state_known") is not True:
+            raise RuntimeError("fan output state is not confirmed")
+
+        airing = self._core_requester({"command": "aero-airing", "enabled": False})
+        self._require_aero_zero(airing, expected_kind="airing", label="AERO airing OFF")
+
+        speed = self._core_requester({"command": "aero-speed", "speed": 0})
+        self._require_aero_zero(speed, expected_kind="speed", label="AERO speed 0")
+
+        LOGGER.warning("all ventilation peripherals confirmed off before CM5 poweroff")
+
+    @staticmethod
+    def _require_core_ok(response: dict[str, object], label: str) -> None:
+        if response.get("ok") is not True:
+            raise RuntimeError(f"{label} failed: {response.get('error') or response!r}")
+
+    @classmethod
+    def _require_aero_zero(
+        cls,
+        response: dict[str, object],
+        *,
+        expected_kind: str,
+        label: str,
+    ) -> None:
+        cls._require_core_ok(response, label)
+        result = response.get("aero_control")
+        if not isinstance(result, dict):
+            raise RuntimeError(f"{label} response has no aero_control result")
+        if result.get("kind") != expected_kind:
+            raise RuntimeError(f"{label} returned unexpected kind: {result.get('kind')!r}")
+        if result.get("target_value") != 0:
+            raise RuntimeError(f"{label} did not target 0: {result.get('target_value')!r}")
+        if result.get("state") != "succeeded":
+            raise RuntimeError(f"{label} was not confirmed: {result.get('state')!r}")
+        if result.get("physical_confirmation") is not True:
+            raise RuntimeError(f"{label} lacks physical confirmation")
+        if expected_kind == "speed":
+            observed = result.get("observed_power")
+            if not isinstance(observed, dict):
+                raise RuntimeError("AERO speed 0 response has no observed fan power")
+            if observed.get("fan_1_percent") != 0 or observed.get("fan_2_percent") != 0:
+                raise RuntimeError(f"AERO fan power is not 0%: {observed!r}")
 
     @staticmethod
     def _read_request(connection: socket.socket) -> bytes:
@@ -136,6 +224,32 @@ class HostPowerAgent:
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
         connection.sendall(encoded)
 
+    def _request_core(self, payload: dict[str, object]) -> dict[str, object]:
+        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(CORE_REQUEST_TIMEOUT_SECONDS)
+            client.connect(str(self._core_socket_path))
+            client.sendall(encoded)
+            data = bytearray()
+            while len(data) < MAX_CORE_RESPONSE_BYTES:
+                chunk = client.recv(min(4096, MAX_CORE_RESPONSE_BYTES - len(data)))
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if b"\n" in chunk:
+                    break
+        if not data:
+            raise RuntimeError("ventilation-core returned an empty response")
+        if len(data) >= MAX_CORE_RESPONSE_BYTES and b"\n" not in data:
+            raise RuntimeError("ventilation-core response is too large")
+        try:
+            decoded: Any = json.loads(bytes(data).split(b"\n", 1)[0].decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("ventilation-core returned invalid JSON") from exc
+        if not isinstance(decoded, dict):
+            raise RuntimeError("ventilation-core returned a non-object response")
+        return decoded
+
     def _execute_action(self, action: str) -> None:
         command = self.COMMANDS[action]
         LOGGER.warning("executing CM5 host power action: %s", action)
@@ -161,6 +275,7 @@ class HostPowerAgent:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Workshop Ventilation CM5 host power agent")
     parser.add_argument("--socket", type=Path, default=DEFAULT_SOCKET)
+    parser.add_argument("--core-socket", type=Path, default=DEFAULT_CORE_SOCKET)
     parser.add_argument("--action-delay", type=float, default=0.75)
     parser.add_argument("--log-level", default="INFO")
     return parser
@@ -184,6 +299,7 @@ def main() -> int:
 
     agent = HostPowerAgent(
         args.socket,
+        core_socket_path=args.core_socket,
         action_delay_seconds=args.action_delay,
     )
     try:

@@ -86,7 +86,7 @@ class AlertV2RuntimePolicyTests(unittest.TestCase):
         metadata = manager.metadata()
         self.assertTrue(metadata["loaded"])
         self.assertEqual(metadata["runtime_mode"], "read_only_mapping")
-        self.assertEqual(metadata["policy_version"], "2026-08-20.1")
+        self.assertEqual(metadata["policy_version"], "2026-08-21.1")
         self.assertEqual(metadata["alert_count"], 50)
         self.assertEqual(len(metadata["sha256"]), 64)
         self.assertFalse(metadata["control_policy_applied"])
@@ -129,10 +129,10 @@ class AlertV2RuntimePolicyTests(unittest.TestCase):
         self.assertEqual(payload["severity"], "warning")
         self.assertEqual(payload["message"], "legacy AERO warning")
         self.assertTrue(payload["alert_v2"]["mapped"])
-        self.assertEqual(payload["alert_v2"]["weight"], 3)
-        self.assertEqual(payload["alert_v2"]["severity"], "alarm")
+        self.assertEqual(payload["alert_v2"]["weight"], 4)
+        self.assertEqual(payload["alert_v2"]["severity"], "critical")
         self.assertEqual(payload["alert_v2"]["reaction"], "fallback_local")
-        self.assertEqual(payload["alert_v2"]["hmi_color"], "orange")
+        self.assertEqual(payload["alert_v2"]["hmi_color"], "red")
         self.assertTrue(payload["alert_v2"]["affects_control"])
 
     def test_state_publishes_policy_sha_and_highest_active_weight(self) -> None:
@@ -140,14 +140,14 @@ class AlertV2RuntimePolicyTests(unittest.TestCase):
         service = AlertV2ReadOnlyPolicyService(_FakeService(), manager)
 
         state = service.state().to_dict()
-        self.assertEqual(state["alert_v2"]["policy_version"], "2026-08-20.1")
+        self.assertEqual(state["alert_v2"]["policy_version"], "2026-08-21.1")
         self.assertEqual(len(state["alert_v2"]["sha256"]), 64)
-        self.assertEqual(state["alert_v2"]["active_weight"], 3)
-        self.assertEqual(state["alert_v2"]["hmi_color"], "orange")
+        self.assertEqual(state["alert_v2"]["active_weight"], 4)
+        self.assertEqual(state["alert_v2"]["hmi_color"], "red")
         self.assertEqual(state["alert_v2"]["mapped_active_alerts"], 1)
         self.assertEqual(state["alert_v2"]["unmapped_active_alerts"], 0)
         self.assertFalse(state["alert_v2"]["control_policy_applied"])
-        self.assertEqual(state["active_alarms"][0]["alert_v2"]["weight"], 3)
+        self.assertEqual(state["active_alarms"][0]["alert_v2"]["weight"], 4)
 
     def test_ack_does_not_reduce_weight_or_hmi_color(self) -> None:
         manager = RuntimeAlertPolicyManager(DEFAULT_POLICY)
@@ -155,8 +155,8 @@ class AlertV2RuntimePolicyTests(unittest.TestCase):
 
         state = service.state().to_dict()
         self.assertTrue(state["active_alarms"][0]["acknowledged"])
-        self.assertEqual(state["alert_v2"]["active_weight"], 3)
-        self.assertEqual(state["alert_v2"]["hmi_color"], "orange")
+        self.assertEqual(state["alert_v2"]["active_weight"], 4)
+        self.assertEqual(state["alert_v2"]["hmi_color"], "red")
 
     def test_wrapper_delegates_control_unchanged_and_never_executes_reaction(self) -> None:
         manager = RuntimeAlertPolicyManager(DEFAULT_POLICY)

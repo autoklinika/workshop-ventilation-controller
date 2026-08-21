@@ -19,7 +19,8 @@ class HostPowerClient:
 
     The browser-facing WebUI can request only two explicit host actions through
     this client: ``shutdown`` and ``restart``. There is no generic command or
-    shell forwarding boundary.
+    shell forwarding boundary. Shutdown may take longer because the agent first
+    requires confirmed fan/AERO shutdown from ventilation-core.
     """
 
     ACTIONS = ("shutdown", "restart")
@@ -28,7 +29,7 @@ class HostPowerClient:
         self,
         socket_path: Path = DEFAULT_HOST_POWER_SOCKET,
         *,
-        timeout_seconds: float = 1.5,
+        timeout_seconds: float = 165.0,
     ) -> None:
         self._socket_path = Path(socket_path)
         self._timeout_seconds = float(timeout_seconds)
