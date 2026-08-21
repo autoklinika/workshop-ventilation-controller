@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -116,6 +117,24 @@ class ServiceWifiTransportDiagnosticsTests(unittest.TestCase):
         self.assertEqual(decoded["heartbeat_send_attempts"], 43)
         self.assertEqual(decoded["wifi_got_ip_events"], 1)
         self.assertEqual(decoded["firmware"], "0.6.1-stage1-transport-diag")
+
+    def test_node2_deploy_helper_is_syntax_valid_and_pinned_to_exact_image(self) -> None:
+        script = ROOT / "tools/install_kamod_transport_diag_node2.sh"
+        source = script.read_text(encoding="utf-8")
+
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
+        self.assertIn('NODE_ID="sensor-node-2"', source)
+        self.assertIn('ARTIFACT_ID="9441104052"', source)
+        self.assertIn(
+            'EXPECTED_SHA256="97dab4b5944a21dba9950ea1318157da86fc77bc42223ac981b12ff98ce1df5f"',
+            source,
+        )
+        self.assertIn('EXPECTED_SIZE="1006624"', source)
+        self.assertIn('EXPECTED_FIRMWARE="0.6.1-stage1-transport-diag"', source)
+        self.assertIn('ota-install "$NODE_ID" "$TARGET_IMAGE" --wait-timeout 300', source)
+        self.assertNotIn('NODE_ID="$1"', source)
+        self.assertNotIn('NODE_ID="${1', source)
 
 
 if __name__ == "__main__":
