@@ -213,6 +213,29 @@ W tym samym teście `CRITICAL_UNACK` i `COMMUNICATION_LOST` zachowały poprawne 
 
 Po `CLEAR` renderer wrócił do live control. Ponieważ w czasie testu endpoint `192.168.1.64:18091` był niedostępny i HMI nie uzyskał poprawnego snapshotu, stan live wrócił do `STARTUP_UNKNOWN`; jest to zgodne z obecną logiką startową i nie stanowi walidacji komunikacji z core.
 
+## Pełna końcowa walidacja deterministyczna build 0.5.9
+
+Pełny test `tools/test-led-alert-states-diagnostic.ps1` na tym samym buildzie `0.5.9-led-solid-rearm-guard` zakończył się PASS dla wszystkich 12 stanów na docelowym panelu:
+
+```text
+NORMAL             PASS   GREEN solid
+INFO_UNACK         PASS   BLUE slow blink
+INFO_ACK           PASS   BLUE solid
+WARNING_UNACK      PASS   YELLOW blink
+WARNING_ACK        PASS   YELLOW solid
+ALARM_UNACK        PASS   ORANGE blink
+ALARM_ACK          PASS   ORANGE solid
+CRITICAL_UNACK     PASS   RED blink 500/500 ms
+CRITICAL_ACK       PASS   RED solid
+COMMUNICATION_LOST PASS   RED blink 500/500 ms
+STARTUP_UNKNOWN    PASS   WHITE slow blink
+SERVICE            PASS   BLUE solid
+```
+
+W szczególności wcześniej problematyczne przejście `CRITICAL_UNACK -> CRITICAL_ACK` ponownie zostało zwalidowane. Ostatni `OFF` zakończył się o 10:19:36.259. `CRITICAL_ACK` został zaakceptowany o 10:19:36.422. Tick o 10:19:36.649 wykrył `sinceOffMs=390` i odroczył re-arm, a następny tick o 10:19:36.900 wykonał czerwony stan stały; driver potwierdził `RGB write PASS commands=0x03,0x04` o 10:19:37.018. Obserwacja fizyczna zakończyła się PASS.
+
+Po `CLEAR` aplikacja poprawnie wróciła do live renderer. W czasie testu endpoint `192.168.1.64:18091` pozostawał niedostępny, dlatego live state wrócił do `STARTUP_UNKNOWN`. Oznacza to, że warstwa renderowania LED, mapowanie kolorów, wzory ACK/UNACK, re-arm B3 oraz timing OFF -> SOLID są sprzętowo zwalidowane, ale rzeczywista ścieżka komunikacyjna `HMI -> /api/v1/alerts` wymaga jeszcze osobnego testu z osiągalnym CM5.
+
 ## Odporność transportu
 
 Polling: 2 s.
@@ -232,4 +255,4 @@ versionCode 16
 versionName 0.5.9-led-solid-rearm-guard
 ```
 
-PR #70 pozostaje DRAFT. RED ONLY dla builda 0.5.9 jest sprzętowo zwalidowane. Następny krok to jeden pełny test deterministyczny wszystkich stanów na tym samym buildzie. Oddzielnie należy jeszcze potwierdzić live polling z rzeczywistym `/api/v1/alerts`, gdy CM5 będzie osiągalny z panelu.
+PR #70 pozostaje DRAFT. Pełna deterministyczna walidacja sprzętowa renderera LED builda 0.5.9 jest PASS dla wszystkich stanów. Do zamknięcia Stage 1 pozostaje oddzielna walidacja live polling z rzeczywistym `/api/v1/alerts` po przywróceniu łączności HMI z CM5. Merge do `main` wymaga osobnej, wyraźnej zgody właściciela projektu.
