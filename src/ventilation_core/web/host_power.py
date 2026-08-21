@@ -29,7 +29,7 @@ class HostPowerClient:
         self,
         socket_path: Path = DEFAULT_HOST_POWER_SOCKET,
         *,
-        timeout_seconds: float = 140.0,
+        timeout_seconds: float = 165.0,
     ) -> None:
         self._socket_path = Path(socket_path)
         self._timeout_seconds = float(timeout_seconds)
