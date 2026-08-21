@@ -24,13 +24,18 @@ def _ready_stop_response() -> dict[str, object]:
     }
 
 
-def _aero_success(kind: str) -> dict[str, object]:
+def _aero_success(kind: str, *, fan_power: int = 0) -> dict[str, object]:
     return {
         "ok": True,
         "aero_control": {
             "kind": kind,
             "target_value": 0,
             "state": "succeeded",
+            "physical_confirmation": True,
+            "observed_power": {
+                "fan_1_percent": fan_power,
+                "fan_2_percent": fan_power,
+            },
         },
     }
 
@@ -160,6 +165,52 @@ class HostPowerAgentTest(unittest.TestCase):
             self.assertEqual(calls[-1], {"command": "aero-speed", "speed": 0})
             self._stop_agent(stop, thread)
 
+    def test_shutdown_rejects_speed_zero_when_physical_aero_fans_are_not_zero(self) -> None:
+        launched: list[tuple[str, ...]] = []
+        calls: list[dict[str, object]] = []
+
+        def core_requester(payload: dict[str, object]) -> dict[str, object]:
+            calls.append(dict(payload))
+            command = payload.get("command")
+            if command == "stop":
+                return _ready_stop_response()
+            if command == "aero-airing":
+                return _aero_success("airing", fan_power=60)
+            if command == "aero-speed":
+                return _aero_success("speed", fan_power=60)
+            raise AssertionError(f"unexpected core request: {payload!r}")
+
+        agent = HostPowerAgent(
+            Path("/tmp/not-used.sock"),
+            command_launcher=launched.append,
+            core_requester=core_requester,
+        )
+        with self.assertRaisesRegex(RuntimeError, "AERO fan power is not 0%"):
+            agent._prepare_peripherals_for_poweroff()
+        self.assertEqual(launched, [])
+        self.assertEqual(calls[-1], {"command": "aero-speed", "speed": 0})
+
+    def test_shutdown_rejects_aero_result_without_physical_confirmation(self) -> None:
+        launched: list[tuple[str, ...]] = []
+
+        def core_requester(payload: dict[str, object]) -> dict[str, object]:
+            command = payload.get("command")
+            if command == "stop":
+                return _ready_stop_response()
+            response = _aero_success("airing" if command == "aero-airing" else "speed")
+            if command == "aero-speed":
+                response["aero_control"]["physical_confirmation"] = False
+            return response
+
+        agent = HostPowerAgent(
+            Path("/tmp/not-used.sock"),
+            command_launcher=launched.append,
+            core_requester=core_requester,
+        )
+        with self.assertRaisesRegex(RuntimeError, "lacks physical confirmation"):
+            agent._prepare_peripherals_for_poweroff()
+        self.assertEqual(launched, [])
+
     def test_shutdown_rejects_unconfirmed_zero_volt_fan_state(self) -> None:
         launched: list[tuple[str, ...]] = []
         agent = HostPowerAgent(
@@ -203,6 +254,9 @@ class HostPowerAgentTest(unittest.TestCase):
         self.assertIn('{"command": "stop"}', source)
         self.assertIn('{"command": "aero-airing", "enabled": False}', source)
         self.assertIn('{"command": "aero-speed", "speed": 0}', source)
+        self.assertIn("physical_confirmation", source)
+        self.assertIn("fan_1_percent", source)
+        self.assertIn("fan_2_percent", source)
 
 
 if __name__ == "__main__":
