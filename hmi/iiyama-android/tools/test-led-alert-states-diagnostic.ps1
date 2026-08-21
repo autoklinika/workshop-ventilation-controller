@@ -8,6 +8,8 @@ $adb = "C:\Android\platform-tools\adb.exe"
 $pkg = "pl.autoklinika.workshopventilation.hmi"
 $activity = "$pkg/.MainActivity"
 $action = "$pkg.LED_DIAGNOSTIC"
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$gradle = Join-Path $projectRoot "app\build.gradle"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $logFile = Join-Path $PSScriptRoot "led-alert-diagnostic-$timestamp.txt"
 
@@ -21,7 +23,7 @@ $tests = @(
     @{ State = "ALARM_ACK";          Expected = "ORANGE solid" },
     @{ State = "CRITICAL_UNACK";     Expected = "RED fast blink" },
     @{ State = "CRITICAL_ACK";       Expected = "RED solid" },
-    @{ State = "COMMUNICATION_LOST"; Expected = "RED very fast blink" },
+    @{ State = "COMMUNICATION_LOST"; Expected = "RED fast blink" },
     @{ State = "STARTUP_UNKNOWN";    Expected = "WHITE slow blink" },
     @{ State = "SERVICE";            Expected = "BLUE solid" }
 )
@@ -30,6 +32,35 @@ function Write-ResultLine {
     param([string]$Text)
     $line = "$(Get-Date -Format 'HH:mm:ss.fff')  $Text"
     $line | Tee-Object -FilePath $logFile -Append | Write-Host
+}
+
+function Get-ExpectedVersion {
+    $text = Get-Content -Raw $gradle
+    $nameMatch = [regex]::Match($text, "versionName\s*=\s*'([^']+)'")
+    $codeMatch = [regex]::Match($text, 'versionCode\s*=\s*(\d+)')
+    if (-not $nameMatch.Success -or -not $codeMatch.Success) {
+        throw "Nie można odczytać versionName/versionCode z $gradle"
+    }
+    [pscustomobject]@{
+        Name = $nameMatch.Groups[1].Value
+        Code = [int]$codeMatch.Groups[1].Value
+    }
+}
+
+function Get-InstalledVersion {
+    $dump = (& $adb -s $Device shell dumpsys package $pkg 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Nie można odczytać metadanych zainstalowanego pakietu $pkg"
+    }
+    $nameMatch = [regex]::Match($dump, 'versionName=([^\r\n\s]+)')
+    $codeMatch = [regex]::Match($dump, 'versionCode=(\d+)')
+    if (-not $nameMatch.Success -or -not $codeMatch.Success) {
+        throw "Nie można odczytać wersji zainstalowanego HMI"
+    }
+    [pscustomobject]@{
+        Name = $nameMatch.Groups[1].Value.Trim()
+        Code = [int]$codeMatch.Groups[1].Value
+    }
 }
 
 function Send-DiagnosticState {
@@ -71,6 +102,14 @@ if ($state -ne "device") {
 
 Write-ResultLine "ADB connected device=$Device"
 
+$expected = Get-ExpectedVersion
+$installed = Get-InstalledVersion
+Write-ResultLine "VERSION source=$($expected.Code)/$($expected.Name) installed=$($installed.Code)/$($installed.Name)"
+if ($installed.Code -ne $expected.Code -or $installed.Name -ne $expected.Name) {
+    throw "STOP: na panelu jest STARA WERSJA APK. Źródła: $($expected.Code)/$($expected.Name), panel: $($installed.Code)/$($installed.Name). Uruchom .\tools\build-debug.ps1 i .\tools\deploy-debug.ps1."
+}
+Write-Host "Wersja APK: PASS ($($installed.Code) / $($installed.Name))" -ForegroundColor Green
+
 # Start/bring up the HMI so the debug receiver is registered.
 & $adb -s $Device shell "am start -n $activity" | Out-Null
 Start-Sleep -Seconds 2
@@ -78,8 +117,7 @@ Start-Sleep -Seconds 2
 # Clear old LED logs so every observed transition belongs to this run.
 & $adb -s $Device logcat -c | Out-Null
 
-# Put the controller into a known static baseline first. This also replaces any
-# vendor animation/effect left behind by earlier manual experiments.
+# Put the controller into a known static baseline first.
 Send-DiagnosticState "NORMAL"
 Start-Sleep -Seconds 2
 
