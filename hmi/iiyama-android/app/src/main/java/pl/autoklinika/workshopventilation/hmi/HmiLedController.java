@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
  * - this class never creates or clears an alert and never affects ventilation control;
  * - startup before the first valid snapshot is UNKNOWN (white blink);
  * - after a previously healthy connection becomes stale, local HMI communication loss
- *   has priority and is shown as red fast blink;
+ *   has priority and is shown as red blink;
  * - highest active alert priority wins;
  * - ACK never lowers alert priority or changes its presentation colour; it only changes
  *   the local LED pattern from blinking to solid;
@@ -37,6 +37,15 @@ final class HmiLedController {
     private static final long POLL_INTERVAL_MS = 2000L;
     private static final long COMMUNICATION_STALE_MS = 6000L;
     private static final long LED_TICK_MS = 250L;
+
+    /*
+     * The B3 panel accepts the RED and OFF commands individually, but the deterministic
+     * hardware test showed that a 250 ms red half-period is too aggressive for reliable
+     * visible blinking. Other colours are stable at 500 ms or slower. Keep red alert
+     * signalling at 500 ms half-period (1 Hz full cycle) for deterministic hardware
+     * behaviour while still making CRITICAL / COMMUNICATION_LOST visually urgent.
+     */
+    private static final long RED_BLINK_HALF_PERIOD_MS = 500L;
 
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2, runnable -> {
         Thread thread = new Thread(runnable, "wvc-hmi-led");
@@ -255,7 +264,7 @@ final class HmiLedController {
 
     enum LedState {
         STARTUP_UNKNOWN(IiyamaLedDriver.CMD_WHITE, 1000L),
-        COMMUNICATION_LOST(IiyamaLedDriver.CMD_RED, 250L),
+        COMMUNICATION_LOST(IiyamaLedDriver.CMD_RED, RED_BLINK_HALF_PERIOD_MS),
         NORMAL(IiyamaLedDriver.CMD_GREEN, 0L),
         SERVICE(IiyamaLedDriver.CMD_BLUE, 0L),
         INFO_ACK(IiyamaLedDriver.CMD_BLUE, 0L),
@@ -265,7 +274,7 @@ final class HmiLedController {
         ALARM_ACK(IiyamaLedDriver.CMD_ORANGE, 0L),
         ALARM_UNACK(IiyamaLedDriver.CMD_ORANGE, 500L),
         CRITICAL_ACK(IiyamaLedDriver.CMD_RED, 0L),
-        CRITICAL_UNACK(IiyamaLedDriver.CMD_RED, 250L);
+        CRITICAL_UNACK(IiyamaLedDriver.CMD_RED, RED_BLINK_HALF_PERIOD_MS);
 
         final int staticColourCommand;
         final long blinkHalfPeriodMs;
