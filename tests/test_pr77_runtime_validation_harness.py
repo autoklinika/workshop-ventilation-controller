@@ -20,14 +20,24 @@ class Pr77RuntimeValidationHarnessTests(unittest.TestCase):
 
     def test_harness_runs_branch_core_via_temporary_dropin_and_restores_main(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
-        self.assertIn("WorkingDirectory=$WT", source)
-        self.assertIn("Environment=PYTHONPATH=$WT/src", source)
-        self.assertIn("systemctl restart \"$UNIT\"", source)
-        self.assertIn("rm -f \"$DROPIN_PATH\"", source)
+        self.assertIn("WorkingDirectory=%s", source)
+        self.assertIn("Environment=PYTHONPATH=%s/src", source)
+        self.assertIn('"$WT" "$WT"', source)
+        self.assertIn('sudo tee "$DROPIN_PATH"', source)
+        self.assertIn('sudo systemctl restart "$UNIT"', source)
+        self.assertIn('sudo rm -f "$DROPIN_PATH"', source)
         self.assertIn("emergency_rollback", source)
         self.assertIn("trap emergency_rollback EXIT INT TERM", source)
         self.assertIn('unit_cwd "$BRANCH_PID"', source)
         self.assertIn('unit_cwd "$MAIN_PID_AFTER"', source)
+
+    def test_harness_keeps_git_as_regular_user_and_scopes_privilege_to_systemd(self) -> None:
+        source = HARNESS.read_text(encoding="utf-8")
+        self.assertIn('git fetch origin main "$BRANCH"', source)
+        self.assertIn('git worktree add --detach "$WT" "origin/$BRANCH"', source)
+        self.assertNotIn("sudo git ", source)
+        self.assertIn('sudo systemctl daemon-reload', source)
+        self.assertIn('sudo systemctl restart "$UNIT"', source)
 
     def test_harness_executes_active_to_off_validator_and_requires_safe_states(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
