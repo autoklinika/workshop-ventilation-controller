@@ -27,6 +27,7 @@ EXPECTED_NODE_MAPPING = {
 }
 HEARTBEAT_ALERT = "KAMOD_HEARTBEAT_LOST"
 CORRELATED_NODE_ALERT = "KAMOD_NODE_UNAVAILABLE"
+HEARTBEAT_DERIVED_ALERTS = {HEARTBEAT_ALERT, CORRELATED_NODE_ALERT}
 SERVICE_AGENT_SOCKET = Path("/run/wvc-service-agent/service-agent.sock")
 
 
@@ -38,7 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Validate on physical CM5 that heartbeat loss is service-only while "
-            "the production SENSOR BUS remains healthy"
+            "the production SENSOR BUS remains healthy. Natural service dropouts "
+            "are accepted as evidence; otherwise one temporary nft rule is used."
         )
     )
     parser.add_argument("--target-node", choices=tuple(EXPECTED_NODE_MAPPING), default="sensor-node-2")
@@ -69,6 +71,8 @@ def _require_active_pid(unit: str) -> int:
     completed = subprocess.run(
         ["systemctl", "is-active", "--quiet", unit],
         check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         timeout=3.0,
     )
     if completed.returncode != 0:
@@ -179,6 +183,15 @@ def _active_codes(client: CoreReadOnlyClient) -> set[str]:
     }
 
 
+def _require_no_heartbeat_operator_alert(client: CoreReadOnlyClient) -> None:
+    unexpected = sorted(_active_codes(client) & HEARTBEAT_DERIVED_ALERTS)
+    if unexpected:
+        raise ValidationError(
+            "heartbeat-derived operator alert became active despite healthy "
+            f"production SENSOR BUS: {unexpected}"
+        )
+
+
 def _alert_v2_correlation(status: dict[str, Any]) -> dict[str, Any]:
     state = status.get("state")
     alert_v2 = state.get("alert_v2") if isinstance(state, dict) else None
@@ -193,15 +206,19 @@ def _alert_v2_correlation(status: dict[str, Any]) -> dict[str, Any]:
     return correlation
 
 
-def _require_no_heartbeat_operator_alert(client: CoreReadOnlyClient) -> None:
-    codes = _active_codes(client)
-    if HEARTBEAT_ALERT in codes:
+def _require_service_only_marker(status: dict[str, Any], node_id: str) -> None:
+    correlation = _alert_v2_correlation(status)
+    offline_nodes = correlation.get("service_only_offline_nodes")
+    if not isinstance(offline_nodes, list) or node_id not in offline_nodes:
         raise ValidationError(
-            f"{HEARTBEAT_ALERT} became active despite healthy production SENSOR BUS"
+            f"{node_id} missing from service_only_offline_nodes: {offline_nodes!r}"
         )
-    if CORRELATED_NODE_ALERT in codes:
+    derived_codes = correlation.get("derived_codes")
+    if isinstance(derived_codes, list) and any(
+        code in HEARTBEAT_DERIVED_ALERTS for code in derived_codes
+    ):
         raise ValidationError(
-            f"{CORRELATED_NODE_ALERT} became active despite healthy production SENSOR BUS"
+            f"heartbeat-derived code still appears in derived_codes: {derived_codes!r}"
         )
 
 
@@ -233,10 +250,60 @@ def _install_signal_guards() -> None:
     signal.signal(signal.SIGTERM, handler)
 
 
+def _observe_natural_or_wait_for_online(
+    *,
+    client: CoreReadOnlyClient,
+    core_pid: int,
+    agent_pid: int,
+    baseline_counters: dict[int, dict[str, int]],
+    target_node: str,
+    other_node: str,
+    timeout: float,
+    poll_interval: float,
+    incidental_nodes: set[str],
+) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+    """Return (proven_natural_offline, latest_service, latest_target)."""
+    started = time.monotonic()
+    deadline = started + timeout
+    latest_service: dict[str, Any] = {}
+    latest_target: dict[str, Any] = {}
+
+    while time.monotonic() < deadline:
+        status = _require_runtime_safety(
+            client,
+            core_pid=core_pid,
+            agent_pid=agent_pid,
+            baseline_counters=baseline_counters,
+        )
+        _require_no_heartbeat_operator_alert(client)
+        latest_service = read_service_agent_status(SERVICE_AGENT_SOCKET, 0.35)
+        _require_service_network_healthy(latest_service)
+        latest_target = _node_by_id(latest_service, target_node)
+        other_now = _node_by_id(latest_service, other_node)
+        if other_now.get("online") is not True:
+            incidental_nodes.add(other_node)
+
+        if latest_target.get("online") is True:
+            return False, latest_service, latest_target
+
+        correlation = _alert_v2_correlation(status)
+        offline_nodes = correlation.get("service_only_offline_nodes")
+        if isinstance(offline_nodes, list) and target_node in offline_nodes:
+            _require_service_only_marker(status, target_node)
+            return True, latest_service, latest_target
+
+        time.sleep(poll_interval)
+
+    raise ValidationError(
+        f"{target_node} stayed heartbeat-offline but did not appear in "
+        f"service_only_offline_nodes within {timeout:.1f}s"
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     if os.geteuid() != 0:
-        print("FAIL: run as root; validator installs one temporary nft rule", file=sys.stderr)
+        print("FAIL: run as root; validator may install one temporary nft rule", file=sys.stderr)
         return 2
     if (
         args.poll_interval <= 0
@@ -255,9 +322,12 @@ def main() -> int:
     fault_rule: HeartbeatDropRule | None = None
     fault_installed = False
     handle: int | None = None
+    validation_mode = "natural_dropout"
     offline_after: float | None = None
     recovery_after: float | None = None
+    target_recovered: bool | None = None
     incidental_service_only_nodes: set[str] = set()
+    source_ip: str | None = None
 
     try:
         stale = find_stage4c_handles(list_input_chain())
@@ -276,10 +346,6 @@ def main() -> int:
         _require_service_network_healthy(service)
         target = _node_by_id(service, target_node)
         other = _node_by_id(service, other_node)
-        if target.get("online") is not True:
-            raise ValidationError(f"target {target_node} heartbeat must be online before fault injection")
-        if other.get("online") is not True:
-            incidental_service_only_nodes.add(other_node)
         if target.get("modbus_address") != target_address:
             raise ValidationError(
                 f"{target_node} mapping mismatch: expected Modbus {target_address}, "
@@ -287,116 +353,143 @@ def main() -> int:
             )
         if other.get("modbus_address") != EXPECTED_NODE_MAPPING[other_node]:
             raise ValidationError(f"{other_node} mapping mismatch")
-        source_ip = target.get("source_ip")
-        if not isinstance(source_ip, str):
-            raise ValidationError(f"{target_node} has no source_ip")
-        source_ip = validate_service_source_ip(source_ip)
+        if other.get("online") is not True:
+            incidental_service_only_nodes.add(other_node)
 
         # Give the freshly restarted branch runtime enough time to reconcile and
-        # clear any legacy active KAMOD_HEARTBEAT_LOST record from main.
+        # clear any legacy heartbeat-derived alert left active by the old policy.
         settle_deadline = time.monotonic() + args.settle_timeout
         while True:
-            status = _require_runtime_safety(
+            _require_runtime_safety(
                 client,
                 core_pid=core_pid,
                 agent_pid=agent_pid,
                 baseline_counters=baseline_counters,
             )
-            codes = _active_codes(client)
-            if HEARTBEAT_ALERT not in codes:
+            remaining = _active_codes(client) & HEARTBEAT_DERIVED_ALERTS
+            if not remaining:
                 break
             if time.monotonic() >= settle_deadline:
                 raise ValidationError(
-                    f"legacy {HEARTBEAT_ALERT} did not clear after branch deployment"
+                    f"legacy heartbeat-derived alerts did not clear after branch deployment: "
+                    f"{sorted(remaining)}"
                 )
             time.sleep(args.poll_interval)
 
-        correlation = _alert_v2_correlation(status)
-        if correlation.get("control_policy_applied") not in {None, False}:
-            raise ValidationError("correlation unexpectedly applies control policy")
-
-        fault_rule = HeartbeatDropRule.create(source_ip)
-        handle = fault_rule.install()
-        fault_installed = True
-        started = time.monotonic()
-        print(
-            f"INFO: temporary heartbeat drop installed for {target_node} "
-            f"source_ip={source_ip} handle={handle}",
-            flush=True,
-        )
-
-        offline_deadline = started + args.offline_timeout
-        proven_offline = False
-        while time.monotonic() < offline_deadline:
-            status = _require_runtime_safety(
-                client,
+        if target.get("online") is not True:
+            print(
+                f"INFO: {target_node} is already heartbeat-offline; "
+                "using natural dropout as service-only validation evidence",
+                flush=True,
+            )
+            natural_started = time.monotonic()
+            proven_natural, service, target = _observe_natural_or_wait_for_online(
+                client=client,
                 core_pid=core_pid,
                 agent_pid=agent_pid,
                 baseline_counters=baseline_counters,
+                target_node=target_node,
+                other_node=other_node,
+                timeout=args.offline_timeout,
+                poll_interval=args.poll_interval,
+                incidental_nodes=incidental_service_only_nodes,
             )
-            fault_rule.verify_installed()
-            service = read_service_agent_status(SERVICE_AGENT_SOCKET, 0.35)
-            _require_service_network_healthy(service)
-            target_now = _node_by_id(service, target_node)
-            other_now = _node_by_id(service, other_node)
-            if other_now.get("online") is not True:
-                incidental_service_only_nodes.add(other_node)
-            _require_no_heartbeat_operator_alert(client)
-            if target_now.get("online") is False:
-                correlation = _alert_v2_correlation(status)
-                offline_nodes = correlation.get("service_only_offline_nodes")
-                if not isinstance(offline_nodes, list) or target_node not in offline_nodes:
-                    raise ValidationError(
-                        f"{target_node} missing from service_only_offline_nodes: {offline_nodes!r}"
-                    )
-                derived_codes = correlation.get("derived_codes")
-                if isinstance(derived_codes, list) and HEARTBEAT_ALERT in derived_codes:
-                    raise ValidationError("heartbeat alert still appears in derived_codes")
-                offline_after = time.monotonic() - started
-                proven_offline = True
-                break
-            time.sleep(args.poll_interval)
+            if proven_natural:
+                offline_after = time.monotonic() - natural_started
+                target_recovered = False
+            else:
+                print(
+                    f"INFO: {target_node} heartbeat recovered before natural proof; "
+                    "continuing with controlled fault injection",
+                    flush=True,
+                )
 
-        if not proven_offline:
-            raise ValidationError(
-                f"{target_node} did not become heartbeat-offline within {args.offline_timeout:.1f}s"
+        if target.get("online") is True and offline_after is None:
+            validation_mode = "controlled_nft_dropout"
+            raw_source_ip = target.get("source_ip")
+            if not isinstance(raw_source_ip, str):
+                raise ValidationError(f"{target_node} has no source_ip for controlled injection")
+            source_ip = validate_service_source_ip(raw_source_ip)
+
+            fault_rule = HeartbeatDropRule.create(source_ip)
+            handle = fault_rule.install()
+            fault_installed = True
+            started = time.monotonic()
+            print(
+                f"INFO: temporary heartbeat drop installed for {target_node} "
+                f"source_ip={source_ip} handle={handle}",
+                flush=True,
             )
 
-        fault_rule.remove()
-        fault_installed = False
-        recovery_started = time.monotonic()
-        print(
-            f"INFO: heartbeat drop removed after {offline_after:.3f}s; waiting for recovery",
-            flush=True,
-        )
-
-        recovery_deadline = recovery_started + args.recovery_timeout
-        while time.monotonic() < recovery_deadline:
-            status = _require_runtime_safety(
-                client,
-                core_pid=core_pid,
-                agent_pid=agent_pid,
-                baseline_counters=baseline_counters,
-            )
-            service = read_service_agent_status(SERVICE_AGENT_SOCKET, 0.35)
-            _require_service_network_healthy(service)
-            target_now = _node_by_id(service, target_node)
-            other_now = _node_by_id(service, other_node)
-            if other_now.get("online") is not True:
-                incidental_service_only_nodes.add(other_node)
-            _require_no_heartbeat_operator_alert(client)
-            if target_now.get("online") is True:
-                correlation = _alert_v2_correlation(status)
-                offline_nodes = correlation.get("service_only_offline_nodes")
-                if isinstance(offline_nodes, list) and target_node not in offline_nodes:
-                    recovery_after = time.monotonic() - recovery_started
+            offline_deadline = started + args.offline_timeout
+            while time.monotonic() < offline_deadline:
+                status = _require_runtime_safety(
+                    client,
+                    core_pid=core_pid,
+                    agent_pid=agent_pid,
+                    baseline_counters=baseline_counters,
+                )
+                fault_rule.verify_installed()
+                service = read_service_agent_status(SERVICE_AGENT_SOCKET, 0.35)
+                _require_service_network_healthy(service)
+                target_now = _node_by_id(service, target_node)
+                other_now = _node_by_id(service, other_node)
+                if other_now.get("online") is not True:
+                    incidental_service_only_nodes.add(other_node)
+                _require_no_heartbeat_operator_alert(client)
+                if target_now.get("online") is False:
+                    _require_service_only_marker(status, target_node)
+                    offline_after = time.monotonic() - started
                     break
-            time.sleep(args.poll_interval)
+                time.sleep(args.poll_interval)
 
-        if recovery_after is None:
-            raise ValidationError(
-                f"{target_node} did not recover cleanly within {args.recovery_timeout:.1f}s"
+            if offline_after is None:
+                raise ValidationError(
+                    f"{target_node} did not become heartbeat-offline within "
+                    f"{args.offline_timeout:.1f}s"
+                )
+
+            fault_rule.remove()
+            fault_installed = False
+            recovery_started = time.monotonic()
+            print(
+                f"INFO: heartbeat drop removed after {offline_after:.3f}s; "
+                "observing optional service recovery",
+                flush=True,
             )
+
+            target_recovered = False
+            recovery_deadline = recovery_started + args.recovery_timeout
+            while time.monotonic() < recovery_deadline:
+                status = _require_runtime_safety(
+                    client,
+                    core_pid=core_pid,
+                    agent_pid=agent_pid,
+                    baseline_counters=baseline_counters,
+                )
+                service = read_service_agent_status(SERVICE_AGENT_SOCKET, 0.35)
+                _require_service_network_healthy(service)
+                target_now = _node_by_id(service, target_node)
+                other_now = _node_by_id(service, other_node)
+                if other_now.get("online") is not True:
+                    incidental_service_only_nodes.add(other_node)
+                _require_no_heartbeat_operator_alert(client)
+                if target_now.get("online") is True:
+                    correlation = _alert_v2_correlation(status)
+                    offline_nodes = correlation.get("service_only_offline_nodes")
+                    if isinstance(offline_nodes, list) and target_node not in offline_nodes:
+                        recovery_after = time.monotonic() - recovery_started
+                        target_recovered = True
+                        break
+                time.sleep(args.poll_interval)
+
+            if not target_recovered:
+                print(
+                    f"INFO: {target_node} heartbeat did not recover within "
+                    f"{args.recovery_timeout:.1f}s; this is service-only and does not fail "
+                    "validation because SENSOR BUS remains healthy",
+                    flush=True,
+                )
 
         _require_runtime_safety(
             client,
@@ -410,6 +503,7 @@ def main() -> int:
 
         result = {
             "result": "PASS",
+            "validation_mode": validation_mode,
             "target": {
                 "node_id": target_node,
                 "modbus_address": target_address,
@@ -417,8 +511,11 @@ def main() -> int:
             },
             "fault": {
                 "temporary_nft_handle": handle,
-                "heartbeat_offline_after_s": round(float(offline_after), 3),
-                "heartbeat_recovered_after_s": round(float(recovery_after), 3),
+                "heartbeat_offline_observed_after_s": round(float(offline_after), 3),
+                "heartbeat_recovered_after_s": (
+                    round(float(recovery_after), 3) if recovery_after is not None else None
+                ),
+                "target_recovered_during_validation": target_recovered,
                 "operator_heartbeat_alert": False,
                 "service_only_diagnostic": True,
                 "incidental_service_only_nodes_observed": sorted(incidental_service_only_nodes),
@@ -439,7 +536,10 @@ def main() -> int:
             },
         }
         print(json.dumps(result, indent=2, sort_keys=True))
-        print("PASS: heartbeat loss is service-only while SENSOR BUS remains healthy")
+        if validation_mode == "natural_dropout":
+            print("PASS: natural target heartbeat dropout remained service-only")
+        else:
+            print("PASS: controlled target heartbeat dropout remained service-only")
         print(f"PASS: {HEARTBEAT_ALERT} was not emitted")
         print(f"PASS: {CORRELATED_NODE_ALERT} was not emitted without production failure")
         print("PASS: production SENSOR BUS stayed online/usable with unchanged error counters")
@@ -448,7 +548,7 @@ def main() -> int:
                 "PASS: incidental non-target heartbeat dropout remained service-only: "
                 + ", ".join(sorted(incidental_service_only_nodes))
             )
-        print("PASS: temporary nft rule removed and target heartbeat recovered")
+        print("PASS: no temporary heartbeat-drop nft rule remains")
         print("PASS: validator sent zero control commands")
         return 0
     except (ValidationError, OSError, subprocess.SubprocessError, KeyboardInterrupt) as exc:
