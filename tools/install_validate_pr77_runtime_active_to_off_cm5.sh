@@ -81,9 +81,9 @@ emergency_rollback() {
         force_off_best_effort "$WT/src"
     fi
 
-    rm -f "$DROPIN_PATH"
-    systemctl daemon-reload
-    systemctl restart "$UNIT"
+    sudo rm -f "$DROPIN_PATH"
+    sudo systemctl daemon-reload
+    sudo systemctl restart "$UNIT"
     sleep 4
 
     if systemctl is-active --quiet "$UNIT"; then
@@ -105,7 +105,6 @@ trap emergency_rollback EXIT INT TERM
 echo "===== PR #77 RUNTIME ACTIVE -> OFF VALIDATION ====="
 cd "$ROOT"
 
-[ "$(id -u)" -eq 0 ] || { echo "FAIL: run with sudo/root" >&2; exit 2; }
 [ "$(git branch --show-current)" = "main" ] || { echo "FAIL: production repo is not on main" >&2; exit 1; }
 [ -z "$(git status --short)" ] || { echo "FAIL: production main working tree is not clean" >&2; exit 1; }
 [ "$(git rev-parse HEAD)" = "$EXPECTED_BASE" ] || { echo "FAIL: local main is not expected production base" >&2; exit 1; }
@@ -123,16 +122,13 @@ git fetch origin main "$BRANCH"
 remove_worktree_best_effort
 git worktree add --detach "$WT" "origin/$BRANCH"
 
-install -d -m 0755 "$DROPIN_DIR"
-cat >"$DROPIN_PATH" <<EOF
-[Service]
-WorkingDirectory=$WT
-Environment=PYTHONPATH=$WT/src
-EOF
-chmod 0644 "$DROPIN_PATH"
+sudo install -d -m 0755 "$DROPIN_DIR"
+printf '[Service]\nWorkingDirectory=%s\nEnvironment=PYTHONPATH=%s/src\n' "$WT" "$WT" \
+    | sudo tee "$DROPIN_PATH" >/dev/null
+sudo chmod 0644 "$DROPIN_PATH"
 
-systemctl daemon-reload
-systemctl restart "$UNIT"
+sudo systemctl daemon-reload
+sudo systemctl restart "$UNIT"
 sleep 4
 systemctl is-active --quiet "$UNIT" || { echo "FAIL: branch core did not become active" >&2; exit 1; }
 
@@ -149,9 +145,9 @@ sleep 4
 require_safe_state "$WT/src" "PR77 runtime after active-to-off test"
 
 echo "===== RESTORE PRODUCTION MAIN ====="
-rm -f "$DROPIN_PATH"
-systemctl daemon-reload
-systemctl restart "$UNIT"
+sudo rm -f "$DROPIN_PATH"
+sudo systemctl daemon-reload
+sudo systemctl restart "$UNIT"
 sleep 4
 systemctl is-active --quiet "$UNIT" || { echo "FAIL: production main core did not become active" >&2; exit 1; }
 
