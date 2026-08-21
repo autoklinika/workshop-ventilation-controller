@@ -8,7 +8,7 @@ EXPECTED_BASE=c76dde9aeacbb15625298a4a6d19d3dfeca8cb2f
 CORE_UNIT=ventilation-core.service
 POWER_UNIT=wvc-host-power.service
 
-cleanup() {
+cleanup() (
     set +e
     if git -C "$ROOT" worktree list --porcelain 2>/dev/null | grep -Fxq "worktree $WT"; then
         git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true
@@ -16,7 +16,7 @@ cleanup() {
         rm -rf "$WT"
         git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
     fi
-}
+)
 trap cleanup EXIT INT TERM
 
 fail() {
@@ -57,8 +57,10 @@ cleanup
 
 git worktree add --detach "$WT" "origin/$BRANCH"
 
-PYTHONPATH="$WT/src" python3 "$WT/tools/validate_safe_shutdown_active_to_off_cm5.py" \
-    --confirm-active-to-off-test
+if ! PYTHONPATH="$WT/src" python3 "$WT/tools/validate_safe_shutdown_active_to_off_cm5.py" \
+    --confirm-active-to-off-test; then
+    fail "ACTIVE -> OFF hardware validator failed; PASS is forbidden"
+fi
 
 CORE_PID_AFTER="$(unit_pid "$CORE_UNIT")"
 POWER_PID_AFTER="$(unit_pid "$POWER_UNIT")"
@@ -67,7 +69,7 @@ POWER_PID_AFTER="$(unit_pid "$POWER_UNIT")"
 [ "$(unit_cwd "$CORE_PID_AFTER")" = "$ROOT" ] || fail "core CWD changed during validation"
 
 FINAL_JSON="$(PYTHONPATH="$ROOT/src" python3 -m ventilation_core.ctl status)"
-python3 - "$FINAL_JSON" <<'PY'
+if ! python3 - "$FINAL_JSON" <<'PY'
 import json
 import sys
 
@@ -93,6 +95,9 @@ if observed.get("fan_1_percent") != 0 or observed.get("fan_2_percent") != 0:
     raise SystemExit(f"FAIL: final AERO fan power is not 0%: {observed!r}")
 print("final runtime state: STOP / 0 V / stopped EC tacho / AERO speed 0 physically confirmed")
 PY
+then
+    fail "final production safe-state verification failed; PASS is forbidden"
+fi
 
 echo "PASS: PR #77 ACTIVE -> OFF shutdown sequence validated on real CM5 without host poweroff"
 echo "NOTE: peripherals intentionally remain OFF after this validation"
