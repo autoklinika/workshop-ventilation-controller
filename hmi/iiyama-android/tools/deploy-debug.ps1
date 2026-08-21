@@ -9,7 +9,6 @@ $Adb = 'C:\Android\platform-tools\adb.exe'
 $Apk = Join-Path $ProjectRoot 'app\build\outputs\apk\debug\app-debug.apk'
 $Gradle = Join-Path $ProjectRoot 'app\build.gradle'
 $Package = 'pl.autoklinika.workshopventilation.hmi'
-$Component = "$Package/.MainActivity"
 
 function Get-ReadyAdbDevices {
     $lines = & $Adb devices
@@ -139,6 +138,70 @@ function Get-InstalledBuildVersion {
     }
 }
 
+function Wait-ForHmiBoot {
+    param(
+        [string]$PreferredSerial,
+        [int]$BootTimeoutSeconds = 120,
+        [int]$AppTimeoutSeconds = 45
+    )
+
+    $bootDeadline = [DateTime]::UtcNow.AddSeconds($BootTimeoutSeconds)
+    $bootSerial = $null
+
+    Write-Host '[BOOT] Waiting for Android and ADB to return...'
+    while ([DateTime]::UtcNow -lt $bootDeadline) {
+        $ready = @(Get-ReadyAdbDevices)
+
+        if (-not ($ready -contains $PreferredSerial)) {
+            # A wireless transport normally disappears during reboot. Reconnect the
+            # stable endpoint quietly until Android has brought adbd/network back.
+            & $Adb connect $PreferredSerial 2>$null | Out-Null
+            Start-Sleep -Seconds 2
+            $ready = @(Get-ReadyAdbDevices)
+        }
+
+        if ($ready -contains $PreferredSerial) {
+            $bootSerial = $PreferredSerial
+        } elseif ($ready.Count -eq 1) {
+            $bootSerial = $ready[0]
+        } else {
+            $bootSerial = $null
+        }
+
+        if ($bootSerial) {
+            $bootCompleted = (& $Adb -s $bootSerial shell getprop sys.boot_completed 2>$null | Out-String).Trim()
+            if ($LASTEXITCODE -eq 0 -and $bootCompleted -eq '1') {
+                Write-Host "[BOOT] Android boot completed on $bootSerial" -ForegroundColor Green
+                break
+            }
+        }
+
+        Start-Sleep -Seconds 2
+    }
+
+    if (-not $bootSerial) {
+        throw "HMI did not return to ADB within $BootTimeoutSeconds seconds after reboot."
+    }
+
+    $bootCompleted = (& $Adb -s $bootSerial shell getprop sys.boot_completed 2>$null | Out-String).Trim()
+    if ($bootCompleted -ne '1') {
+        throw "Android did not report sys.boot_completed=1 within $BootTimeoutSeconds seconds."
+    }
+
+    Write-Host '[BOOT] Waiting for kiosk HMI process to autostart...'
+    $appDeadline = [DateTime]::UtcNow.AddSeconds($AppTimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $appDeadline) {
+        $pid = (& $Adb -s $bootSerial shell pidof $Package 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -eq 0 -and $pid) {
+            Write-Host "[BOOT] HMI autostart PASS; pid=$pid" -ForegroundColor Green
+            return $bootSerial
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    throw "Android booted, but $Package did not autostart within $AppTimeoutSeconds seconds."
+}
+
 if (-not (Test-Path $Adb)) {
     throw "ADB not found: $Adb"
 }
@@ -153,15 +216,16 @@ Write-Host '===== WORKSHOP VENTILATION HMI DEPLOY ====='
 Write-Host "APK:       $Apk"
 Write-Host "Target:    $Device"
 Write-Host "Expected:  versionCode $($expected.Code), versionName $($expected.Name)"
+Write-Host 'Policy:    full panel reboot is mandatory after every APK programming'
 Write-Host
 
-Write-Host '[1/5] Starting/checking ADB server...'
+Write-Host '[1/7] Starting/checking ADB server...'
 & $Adb start-server | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "ADB server failed with exit code $LASTEXITCODE"
 }
 
-Write-Host '[2/5] Looking for the iiyama ADB device...'
+Write-Host '[2/7] Looking for the iiyama ADB device...'
 $devices = @(Get-ReadyAdbDevices)
 
 if (-not ($devices -contains $Device)) {
@@ -187,26 +251,36 @@ if (-not $Serial) {
 }
 Write-Host "[ADB] Using device: $Serial"
 
-Write-Host '[3/5] Installing debug/test APK...'
+Write-Host '[3/7] Installing debug/test APK...'
 & $Adb -s $Serial install -r -t $Apk | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "ADB install failed with exit code $LASTEXITCODE"
 }
 
-Write-Host '[4/5] Verifying installed APK version...'
+Write-Host '[4/7] Verifying installed APK version before reboot...'
 $installed = Get-InstalledBuildVersion -Serial $Serial
 Write-Host "Installed: versionCode $($installed.Code), versionName $($installed.Name)"
 if ($installed.Code -ne $expected.Code -or $installed.Name -ne $expected.Name) {
     throw "STALE APK DETECTED. Source expects $($expected.Code)/$($expected.Name), but panel has $($installed.Code)/$($installed.Name). Re-run .\tools\build-debug.ps1 and deploy again."
 }
-Write-Host '[APK] Version verification: PASS' -ForegroundColor Green
+Write-Host '[APK] Pre-reboot version verification: PASS' -ForegroundColor Green
 
-Write-Host '[5/5] Launching Workshop Ventilation HMI...'
-& $Adb -s $Serial shell am force-stop $Package | Out-Null
-& $Adb -s $Serial shell am start -W -n $Component | Out-Host
+Write-Host '[5/7] Rebooting the complete iiyama panel...'
+& $Adb -s $Serial reboot
 if ($LASTEXITCODE -ne 0) {
-    throw "HMI launch failed with exit code $LASTEXITCODE"
+    throw "ADB reboot failed with exit code $LASTEXITCODE"
 }
 
+Write-Host '[6/7] Waiting for Android boot + automatic kiosk HMI start...'
+$PostBootSerial = Wait-ForHmiBoot -PreferredSerial $Device
+
+Write-Host '[7/7] Verifying installed APK version after reboot...'
+$postBootInstalled = Get-InstalledBuildVersion -Serial $PostBootSerial
+Write-Host "Installed after reboot: versionCode $($postBootInstalled.Code), versionName $($postBootInstalled.Name)"
+if ($postBootInstalled.Code -ne $expected.Code -or $postBootInstalled.Name -ne $expected.Name) {
+    throw "POST-REBOOT VERSION MISMATCH. Source expects $($expected.Code)/$($expected.Name), but panel has $($postBootInstalled.Code)/$($postBootInstalled.Name)."
+}
+Write-Host '[APK] Post-reboot version verification: PASS' -ForegroundColor Green
+
 Write-Host
-Write-Host 'Workshop Ventilation HMI installed, verified and launched.' -ForegroundColor Green
+Write-Host 'Workshop Ventilation HMI installed, rebooted, autostarted and verified.' -ForegroundColor Green
