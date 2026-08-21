@@ -43,14 +43,31 @@ class HeartbeatServiceOnlyCm5ValidationTests(unittest.TestCase):
         self.assertNotIn("aero-speed", source)
         self.assertNotIn("aero-airing", source)
 
+    def test_validator_accepts_natural_target_dropout_or_injects_when_online(self) -> None:
+        source = VALIDATOR.read_text(encoding="utf-8")
+        self.assertIn('validation_mode = "natural_dropout"', source)
+        self.assertIn('validation_mode = "controlled_nft_dropout"', source)
+        self.assertIn("using natural dropout as service-only validation evidence", source)
+        self.assertIn("_observe_natural_or_wait_for_online", source)
+        self.assertIn("continuing with controlled fault injection", source)
+        self.assertNotIn("heartbeat must be online before fault injection", source)
+        self.assertIn("natural target heartbeat dropout remained service-only", source)
+        self.assertIn("controlled target heartbeat dropout remained service-only", source)
+
     def test_validator_tolerates_incidental_non_target_service_dropout(self) -> None:
         source = VALIDATOR.read_text(encoding="utf-8")
         self.assertIn("incidental_service_only_nodes", source)
         self.assertIn("incidental_service_only_nodes_observed", source)
         self.assertIn("incidental non-target heartbeat dropout remained service-only", source)
         self.assertNotIn("non-target {other_node} heartbeat went offline", source)
-        self.assertIn("if target_now.get(\"online\") is True:", source)
         self.assertIn("_require_no_heartbeat_operator_alert(client)", source)
+
+    def test_target_recovery_is_observed_but_not_required_for_service_only_pass(self) -> None:
+        source = VALIDATOR.read_text(encoding="utf-8")
+        self.assertIn("target_recovered_during_validation", source)
+        self.assertIn("observing optional service recovery", source)
+        self.assertIn("this is service-only and does not fail", source)
+        self.assertIn("no temporary heartbeat-drop nft rule remains", source)
 
     def test_harness_is_pinned_to_pr76_branch_and_restores_main(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
