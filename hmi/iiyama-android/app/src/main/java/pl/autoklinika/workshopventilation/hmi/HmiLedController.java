@@ -208,6 +208,22 @@ final class HmiLedController {
     }
 
     private static int resolveWeight(JSONObject alert) {
+        // AlertV2 policy metadata is authoritative when the core provides a mapped
+        // runtime-policy envelope. The legacy top-level severity describes the
+        // original detector signal and may intentionally differ from AlertV2.
+        JSONObject alertV2 = alert.optJSONObject("alert_v2");
+        if (alertV2 != null && alertV2.optBoolean("mapped", false)) {
+            int policyWeight = alertV2.optInt("weight", -1);
+            if (policyWeight >= 0 && policyWeight <= 4) {
+                return policyWeight;
+            }
+
+            int policySeverityWeight = severityWeight(alertV2.optString("severity", ""));
+            if (policySeverityWeight >= 0) {
+                return policySeverityWeight;
+            }
+        }
+
         if (alert.has("weight")) {
             int weight = alert.optInt("weight", -1);
             if (weight >= 0 && weight <= 4) {
@@ -215,7 +231,14 @@ final class HmiLedController {
             }
         }
 
-        String severity = alert.optString("severity", "").trim().toLowerCase(Locale.ROOT);
+        int legacySeverityWeight = severityWeight(alert.optString("severity", ""));
+        return legacySeverityWeight >= 0 ? legacySeverityWeight : 2;
+    }
+
+    private static int severityWeight(String rawSeverity) {
+        String severity = rawSeverity == null
+                ? ""
+                : rawSeverity.trim().toLowerCase(Locale.ROOT);
         switch (severity) {
             case "critical":
                 return 4;
@@ -225,8 +248,10 @@ final class HmiLedController {
                 return 2;
             case "info":
                 return 1;
+            case "normal":
+                return 0;
             default:
-                return 2;
+                return -1;
         }
     }
 
