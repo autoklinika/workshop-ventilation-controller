@@ -10,7 +10,11 @@ from ventilation_core.domain.aero_control import (
 )
 from ventilation_core.infrastructure.aero_bus_worker import (
     AeroBusConfig,
+    AeroControlRequest,
+    AeroControlResponse,
     _execute_queued_control,
+    _publish_control_result,
+    _wait_for_matching_control_result,
 )
 
 
@@ -94,10 +98,72 @@ class AeroControlWorkerTests(unittest.TestCase):
 
     def test_single_slot_command_queue_rejects_second_pending_command(self) -> None:
         command_queue: queue.Queue = queue.Queue(maxsize=1)
-        command_queue.put_nowait(AeroControlCommand.set_speed(1))
+        command_queue.put_nowait(
+            AeroControlRequest("request-1", AeroControlCommand.set_speed(1))
+        )
 
         with self.assertRaises(queue.Full):
-            command_queue.put_nowait(AeroControlCommand.set_speed(2))
+            command_queue.put_nowait(
+                AeroControlRequest("request-2", AeroControlCommand.set_speed(2))
+            )
+
+    def test_waiter_discards_late_result_from_timed_out_previous_request(self) -> None:
+        result_queue: queue.Queue = queue.Queue()
+        stale_command = AeroControlCommand.set_speed(2)
+        current_command = AeroControlCommand.set_speed(0)
+        stale_result = AeroControlResult(
+            command=stale_command,
+            state=AeroControlExecutionState.SUCCEEDED,
+            previous_value=1,
+            readback_value=2,
+            physical_confirmation=True,
+        )
+        current_result = AeroControlResult(
+            command=current_command,
+            state=AeroControlExecutionState.SUCCEEDED,
+            previous_value=2,
+            readback_value=0,
+            physical_confirmation=True,
+        )
+        result_queue.put_nowait(AeroControlResponse("timed-out-request", stale_result))
+        result_queue.put_nowait(AeroControlResponse("current-request", current_result))
+
+        received = _wait_for_matching_control_result(
+            result_queue,
+            "current-request",
+            0.1,
+        )
+
+        self.assertIs(received, current_result)
+        self.assertEqual(received.command.kind.value, "speed")
+        self.assertEqual(received.command.value, 0)
+
+    def test_worker_replaces_abandoned_stale_result_in_single_slot_queue(self) -> None:
+        result_queue: queue.Queue = queue.Queue(maxsize=1)
+        old_result = AeroControlResult(
+            command=AeroControlCommand.set_speed(2),
+            state=AeroControlExecutionState.SUCCEEDED,
+            previous_value=1,
+            readback_value=2,
+            physical_confirmation=True,
+        )
+        new_result = AeroControlResult(
+            command=AeroControlCommand.set_speed(0),
+            state=AeroControlExecutionState.SUCCEEDED,
+            previous_value=2,
+            readback_value=0,
+            physical_confirmation=True,
+        )
+        result_queue.put_nowait(AeroControlResponse("old", old_result))
+
+        _publish_control_result(
+            result_queue,
+            AeroControlResponse("new", new_result),
+        )
+
+        response = result_queue.get_nowait()
+        self.assertEqual(response.request_id, "new")
+        self.assertIs(response.result, new_result)
 
 
 if __name__ == "__main__":
