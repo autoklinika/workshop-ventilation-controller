@@ -26,10 +26,14 @@ CoreRequester = Callable[[dict[str, object]], dict[str, object]]
 class HostPowerAgent:
     """Privileged local agent exposing only shutdown/restart over AF_UNIX.
 
-    Shutdown is deliberately fail-closed. Before host poweroff is accepted the
-    agent asks ventilation-core to stop the EC fans, disable AERO airing and set
-    the recuperator speed to 0. Host poweroff is launched only after all three
-    operations are positively confirmed by core.
+    Shutdown remains fail-closed for local EC outputs. Before host poweroff is
+    accepted the agent asks ventilation-core to enter STOP and positively
+    confirms both local fan outputs at 0 V with a known output state.
+
+    When AERO is online/usable, airing OFF and speed 0 still require positive
+    physical confirmation. When core already reports AERO as offline and
+    unusable, the unavailable peripheral cannot be commanded or confirmed, so
+    it does not block CM5 host poweroff after the local STOP/0 V checks pass.
     """
 
     COMMANDS: dict[str, tuple[str, ...]] = {
@@ -148,6 +152,13 @@ class HostPowerAgent:
         if state.get("output_state_known") is not True:
             raise RuntimeError("fan output state is not confirmed")
 
+        if self._aero_is_unavailable(state):
+            LOGGER.warning(
+                "AERO already offline/unusable before CM5 poweroff; "
+                "skipping unavailable AERO shutdown confirmation"
+            )
+            return
+
         airing = self._core_requester({"command": "aero-airing", "enabled": False})
         self._require_aero_zero(airing, expected_kind="airing", label="AERO airing OFF")
 
@@ -155,6 +166,13 @@ class HostPowerAgent:
         self._require_aero_zero(speed, expected_kind="speed", label="AERO speed 0")
 
         LOGGER.warning("all ventilation peripherals confirmed off before CM5 poweroff")
+
+    @staticmethod
+    def _aero_is_unavailable(state: dict[str, object]) -> bool:
+        aero_bus = state.get("aero_bus")
+        if not isinstance(aero_bus, dict):
+            return False
+        return aero_bus.get("online") is False and aero_bus.get("usable") is False
 
     @staticmethod
     def _require_core_ok(response: dict[str, object], label: str) -> None:
