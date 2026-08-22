@@ -12,6 +12,9 @@
 const ZONE_DETAIL_OPEN_MS = 280;
 const ZONE_DETAIL_CLOSE_MS = 240;
 const ZONE_DETAIL_POLL_MS = 2000;
+const ZONE_DETAIL_VALUE_MIN_PX = 16;
+const ZONE_DETAIL_VALUE_MAX_PX = 64;
+const ZONE_DETAIL_TEXT_MAX_PX = 50;
 
 let zoneDetailTransitionSerial = 0;
 let zoneDetailActiveKey = null;
@@ -19,6 +22,7 @@ let zoneDetailSourceCard = null;
 let zoneDetailPollTimer = null;
 let zoneDetailRefreshBusy = false;
 let zoneDetailConfigLoaded = false;
+let zoneDetailFitFrame = null;
 let zoneDetailConfig = {
   zone1: { name: "Mycie / Wygrzewanie", sensor_address: 1 },
   zone2: { name: "Lutowanie", sensor_address: 2 },
@@ -307,6 +311,41 @@ function zoneDetailZone2Groups(state, node) {
   ];
 }
 
+function zoneDetailFitValue(value) {
+  const wrap = value && value.parentElement;
+  if (!wrap) return;
+
+  const row = value.closest(".v2-zone-detail-item");
+  const maxPx = row && row.classList.contains("is-text")
+    ? ZONE_DETAIL_TEXT_MAX_PX
+    : ZONE_DETAIL_VALUE_MAX_PX;
+  const availableWidth = Math.max(1, wrap.clientWidth);
+  const availableHeight = Math.max(1, wrap.clientHeight);
+  let low = ZONE_DETAIL_VALUE_MIN_PX;
+  let high = maxPx;
+
+  value.style.fontSize = `${high}px`;
+  if (value.scrollWidth <= availableWidth && value.scrollHeight <= availableHeight) return;
+
+  for (let step = 0; step < 8; step += 1) {
+    const middle = (low + high) / 2;
+    value.style.fontSize = `${middle}px`;
+    if (value.scrollWidth <= availableWidth && value.scrollHeight <= availableHeight) low = middle;
+    else high = middle;
+  }
+
+  value.style.fontSize = `${Math.max(ZONE_DETAIL_VALUE_MIN_PX, Math.floor(low * 10) / 10)}px`;
+}
+
+function zoneDetailFitValues(root = document.getElementById("zoneDetailBody")) {
+  if (!root) return;
+  if (zoneDetailFitFrame !== null) window.cancelAnimationFrame(zoneDetailFitFrame);
+  zoneDetailFitFrame = window.requestAnimationFrame(() => {
+    zoneDetailFitFrame = null;
+    root.querySelectorAll('strong[data-autofit="true"]').forEach(zoneDetailFitValue);
+  });
+}
+
 function renderZoneDetailGroup(group) {
   const section = document.createElement("section");
   section.className = "v2-zone-detail-group";
@@ -330,7 +369,11 @@ function renderZoneDetailGroup(group) {
     const label = document.createElement("span");
     label.textContent = item.label;
 
+    const valueWrap = document.createElement("div");
+    valueWrap.className = "v2-zone-detail-value-wrap";
+
     const value = document.createElement("strong");
+    value.dataset.autofit = "true";
     value.textContent = item.value;
     if (item.unit) {
       const unit = document.createElement("small");
@@ -338,7 +381,8 @@ function renderZoneDetailGroup(group) {
       value.appendChild(unit);
     }
 
-    row.append(label, value);
+    valueWrap.appendChild(value);
+    row.append(label, valueWrap);
     items.appendChild(row);
   });
 
@@ -370,6 +414,7 @@ function renderZoneDetail(zoneKey, state) {
     : zoneDetailZone2Groups(state, node);
 
   body.replaceChildren(...groups.map(renderZoneDetailGroup));
+  zoneDetailFitValues(body);
 
   const snapshotStatus = zoneDetailSnapshotStatus(zoneKey, state, node);
   status.className = `status-chip ${snapshotStatus.css}`;
@@ -448,6 +493,7 @@ function finalizeZoneDetailOpen(serial) {
   if (!overlay || overlay.hidden) return;
   overlay.classList.remove("is-transitioning");
   cancelZoneDetailAnimations(overlay);
+  zoneDetailFitValues();
 
   const close = document.getElementById("zoneDetailClose");
   if (close) close.focus({ preventScroll: true });
@@ -624,4 +670,5 @@ function initializeZoneDetail() {
   loadZoneDetailConfig().catch(() => {});
 }
 
+window.addEventListener("resize", () => zoneDetailFitValues());
 initializeZoneDetail();
