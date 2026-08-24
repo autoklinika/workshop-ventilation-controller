@@ -36,9 +36,9 @@ Normalny POWER ON:
 
 Normalne wyłączenie ma być zawsze kontrolowane programowo przez istniejący mechanizm host-power i procedurę SAFE.
 
-Fizyczny przycisk służy przede wszystkim do uruchamiania CM5. Krótkie naciśnięcie przy działającym Linuxie nie może tworzyć alternatywnej drogi shutdown omijającej `host_power_agent` i procedurę SAFE.
+Fizyczny przycisk służy do uruchamiania CM5. Krótkie naciśnięcie przy działającym Linuxie ma być ignorowane i nie może tworzyć alternatywnej drogi shutdown omijającej `host_power_agent` i procedurę SAFE.
 
-Do wdrożenia pozostaje konfiguracja obsługi krótkiego `KEY_POWER` w Linuxie tak, aby normalny POWER OFF był wykonywany tylko przez kontrolowaną ścieżkę aplikacji. Długie przytrzymanie sprzętowego `PWR_BUT` pozostaje awaryjnym hard-off i nie jest normalną procedurą użytkową.
+Długie przytrzymanie sprzętowego `PWR_BUT` pozostaje awaryjnym hard-off i nie jest normalną procedurą użytkową.
 
 ### 2.3. Zachowanie po zaniku i powrocie zasilania sieciowego
 
@@ -147,6 +147,8 @@ Najpierw bezpieczeństwo procesu, potem odcięcie zasilania, a na końcu shutdow
 
 `ventilation-core` pozostaje źródłem prawdy dla bezpiecznych stanów wykonawczych. GUI/HMI jest klientem.
 
+Brak komunikacji z peryferium nie może uniemożliwić wyłączenia systemu. Shutdown musi mieć skończony czas wykonania i zawsze prowadzić w stronę stanu bezpiecznego.
+
 ### 5.2. POWER ON / boot
 
 Stan początkowy po wyłączeniu:
@@ -173,7 +175,7 @@ Wymagane jest uporządkowanie systemd tak, aby warstwa 12 V była gotowa przed p
 
 ### 5.3. Normalny POWER OFF
 
-Istniejący `host_power_agent` już wykonuje:
+Obecny `host_power_agent` już wykonuje część wymaganej sekwencji:
 
 - żądanie `STOP` do core,
 - potwierdzenie trybu STOP,
@@ -181,30 +183,52 @@ Istniejący `host_power_agent` już wykonuje:
 - potwierdzenie `extract_voltage=0.0`,
 - potwierdzenie `output_state_known=true`,
 - dla dostępnego AERO: airing OFF i speed 0 z fizycznym potwierdzeniem,
-- dla AERO już offline/unusable: brak blokowania host shutdown po pozytywnym STOP/0 V lokalnych wyjść.
+- dla AERO już zgłoszonego jako offline/unusable: brak blokowania host shutdown po pozytywnym STOP/0 V lokalnych wyjść.
 
-Nowa sekwencja ma rozszerzyć tę logikę:
+Ta logika wymaga zmiany: błąd komunikacji z peryferium w trakcie shutdown nie może zatrzymać całego POWER OFF.
+
+Docelowa sekwencja:
 
 1. Żądanie POWER OFF.
 2. Zablokowanie równoległych nowych akcji power.
-3. `ventilation-core` -> STOP.
-4. Potwierdzenie EC 0 V i znanego stanu wyjść.
-5. AERO -> OFF / speed 0, jeżeli jest dostępny.
-6. Po potwierdzeniu SAFE -> GPIO DFR0473 LOW.
-7. Domena 12 V zostaje odłączona.
-8. Program potwierdza co najmniej stan zadany/stan GPIO `12V commanded OFF`. Bez dodatkowego sprzężenia zwrotnego nie wolno nazywać tego pomiarem fizycznego napięcia 12 V.
-9. HMI może zostać uśpione jako krok niekrytyczny; awaria HMI nie może zatrzymać shutdown.
-10. `systemctl poweroff`.
+3. `ventilation-core` -> STOP dla lokalnych wyjść EC.
+4. Wymuszenie lokalnych wyjść EC na 0 V oraz potwierdzenie ich stanu, o ile lokalna warstwa wykonawcza działa.
+5. Dla peryferiów komunikacyjnych (AERO, SEN55, Zigbee i przyszłe urządzenia) wykonać próbę logicznego przejścia do SAFE tylko wtedy, gdy dane urządzenie ma taką funkcję.
+6. Każda próba komunikacji podczas shutdown ma mieć ograniczony timeout i ograniczoną liczbę prób.
+7. Brak odpowiedzi, timeout, CRC/Modbus error, utrata magistrali lub wcześniejszy stan offline peryferium są rejestrowane jako diagnostyka shutdown, ale NIE blokują kolejnych kroków.
+8. GPIO DFR0473 -> LOW.
+9. Domena 12 V zostaje fizycznie odłączona niezależnie od tego, czy peryferia odpowiedziały na polecenia SAFE.
+10. Program potwierdza co najmniej stan zadany/stan GPIO `12V commanded OFF`. Bez dodatkowego sprzężenia zwrotnego nie wolno nazywać tego pomiarem fizycznego napięcia 12 V.
+11. HMI może zostać uśpione jako krok niekrytyczny; brak komunikacji z HMI nie może zatrzymać shutdown.
+12. `systemctl poweroff`.
+
+Zasada dla peryferiów jest więc jednoznaczna:
+
+```text
+PERIPHERAL ONLINE
+-> spróbuj SAFE
+-> 12 V OFF
+-> CM5 poweroff
+
+PERIPHERAL OFFLINE / TIMEOUT / BRAK KOMUNIKACJI
+-> zapisz diagnostykę
+-> NIE CZEKAJ bez końca
+-> 12 V OFF
+-> CM5 poweroff
+```
+
+Nie należy mylić braku komunikacji z peryferiami z awarią lokalnego toru 0–10 V EC. Dla lokalnego DAC/EC zachowujemy wymóg bezpiecznego 0 V do czasu osobnej walidacji sprzętowej zachowania DAC podczas zaniku/poweroff CM5.
 
 ### 5.4. RESTART
 
 Restart ma używać tej samej filozofii bezpieczeństwa co shutdown:
 
-1. SAFE / STOP / 0 V.
-2. AERO OFF, jeśli dostępne.
-3. DFR0473 -> 12 V OFF.
-4. `systemctl reboot`.
-5. Po ponownym boot: bezpieczny start linii GPIO, 12 V ON, stabilizacja, inicjalizacja core/peryferiów.
+1. STOP / lokalne EC 0 V.
+2. Próba AERO OFF i innych poleceń SAFE z ograniczonym timeoutem.
+3. Brak komunikacji z peryferiami nie blokuje restartu.
+4. DFR0473 -> 12 V OFF.
+5. `systemctl reboot`.
+6. Po ponownym boot: bezpieczny start linii GPIO, 12 V ON, stabilizacja, inicjalizacja core/peryferiów.
 
 Restart nie może pozostawiać domeny 12 V aktywnej bez kontroli podczas restartu systemu operacyjnego.
 
@@ -224,10 +248,13 @@ Wymagania implementacyjne:
 - brak bezpośredniego dostępu GUI do GPIO,
 - konfiguracja linii GPIO przez parametr/konfigurację, nie hard-code w logice domenowej,
 - dependency injection/fake backend dla testów bez sprzętu,
-- test kolejności `SAFE -> relay OFF -> host power action`,
-- test zakazu `poweroff/reboot`, gdy SAFE nie został potwierdzony,
-- test, że błąd odcięcia 12 V blokuje normalny host shutdown,
-- test, że restart również odcina 12 V,
+- test kolejności `local EC SAFE -> best-effort peripheral SAFE -> relay OFF -> host power action`,
+- test, że offline/timeout AERO nie blokuje shutdown,
+- test, że offline/timeout SEN55 nie blokuje shutdown,
+- test, że brak HMI nie blokuje shutdown,
+- test, że komunikacja z peryferium nigdy nie powoduje nieskończonego oczekiwania podczas shutdown,
+- test, że restart również odcina 12 V mimo braku komunikacji z peryferiami,
+- test zachowania przy awarii lokalnego toru 0–10 V zgodnie z osobno zatwierdzoną polityką,
 - test fail-safe przy zamknięciu procesu,
 - osobny test fizyczny DFR0473 na CM5 przed aktywacją produkcyjną.
 
@@ -235,22 +262,25 @@ Wymagania implementacyjne:
 
 CM5 traktuje krótki `PWR_BUT` jako przycisk power także podczas pracy systemu. Nie możemy dopuścić, aby systemowy handler wykonał zwykłe `poweroff` z pominięciem naszej procedury SAFE.
 
-Preferowana polityka dla obecnej filozofii:
+Przyjęta polityka:
 
-- krótki przycisk podczas pracy Linuxa: ignorowany przez standardowy handler OS albo przechwytywany i kierowany do naszej bezpiecznej ścieżki,
-- normalny POWER OFF: aplikacja -> `host_power_agent`,
+- krótki przycisk podczas pracy Linuxa: ignorowany przez standardowy handler OS,
+- fizyczny przycisk służy do normalnego POWER ON,
+- normalny POWER OFF: wyłącznie aplikacja -> `host_power_agent`,
 - długie >5 s: sprzętowy emergency hard-off, wyłącznie sytuacja awaryjna.
 
 Przed wdrożeniem trzeba zwalidować dokładne zachowanie systemd-logind i wejścia `KEY_POWER` na docelowym obrazie CM5.
 
 ## 8. Zasady bezpieczeństwa
 
-- `ventilation-core` pozostaje autorytatywnym źródłem decyzji dotyczących bezpiecznego sterowania wyjściami.
+- `ventilation-core` pozostaje autorytatywnym źródłem decyzji dotyczących sterowania lokalnymi wyjściami.
 - HMI jest interfejsem użytkownika, nie elementem bezpieczeństwa.
-- Brak HMI nie może blokować zatrzymania wentylatorów ani bezpiecznego shutdown.
-- 12 V wolno odłączyć dopiero po wykonaniu logicznego SAFE w normalnej procedurze shutdown.
-- Brak potwierdzenia SAFE blokuje normalny shutdown/restart.
-- Brak możliwości programowego odłączenia 12 V blokuje normalny shutdown/restart, ponieważ pozostawienie zasilonych peryferiów przy wyłączonym CM5 byłoby stanem niepożądanym.
+- Brak HMI nie może blokować shutdown.
+- Brak komunikacji z AERO, SEN55, Zigbee lub innym peryferium nie może blokować shutdown/restart.
+- Polecenia SAFE do peryferiów są wykonywane best-effort z ograniczonym timeoutem; ich brak potwierdzenia jest diagnostyką, nie interlockiem POWER OFF.
+- DFR0473 ma odłączyć domenę 12 V także wtedy, gdy urządzenia w tej domenie nie odpowiadają.
+- Awaria komunikacji nie może prowadzić do nieskończonego oczekiwania podczas wyłączania.
+- Lokalny tor sterowania EC 0–10 V pozostaje osobnym krytycznym zagadnieniem; jego zachowanie przy awarii/poweroff wymaga zachowania obecnego zabezpieczenia do czasu fizycznej walidacji.
 - Przy awaryjnym/niekontrolowanym zaniku CM5 priorytetem jest fail-safe elektryczny DFR0473 -> OFF.
 - GUI nie steruje bezpośrednio przekaźnikiem ani GPIO.
 
@@ -258,14 +288,15 @@ Przed wdrożeniem trzeba zwalidować dokładne zachowanie systemd-logind i wejś
 
 1. Wybrać wolny GPIO dla DFR0473 i dopisać go do `docs/PINOUT.md`.
 2. Przygotować software GPIO/power-domain z backendem testowym.
-3. Rozszerzyć `host_power_agent` o `SAFE -> 12 V OFF -> shutdown/restart`.
-4. Uporządkować kolejność usług systemd dla boot i shutdown.
-5. Dodać testy jednostkowe/regresyjne bez sprzętu.
-6. Po dostawie DFR0473 wykonać test fizyczny LOW/HIGH, boot, shutdown i restart.
-7. Dopiero po PASS aktywować przekaźnik w konfiguracji produkcyjnej.
-8. Skonfigurować/zwalidować zachowanie krótkiego PWR_BUT podczas pracy Linuxa.
-9. Zweryfikować `POWER_OFF_ON_HALT=1` + `WAIT_FOR_POWER_BUTTON=1` na docelowym CM5, jeśli wymagamy ręcznego startu także po powrocie zasilania sieciowego.
-10. Po stałym podłączeniu HMI przez Ethernet/PoE wykonać końcowy test HMI SLEEP/WAKE.
+3. Rozszerzyć `host_power_agent` o `local EC SAFE -> best-effort peripheral SAFE -> 12 V OFF -> shutdown/restart`.
+4. Zmienić obecną logikę AERO tak, aby timeout/błąd komunikacji podczas shutdown nie blokował host power action.
+5. Uporządkować kolejność usług systemd dla boot i shutdown.
+6. Dodać testy jednostkowe/regresyjne bez sprzętu.
+7. Po dostawie DFR0473 wykonać test fizyczny LOW/HIGH, boot, shutdown i restart.
+8. Dopiero po PASS aktywować przekaźnik w konfiguracji produkcyjnej.
+9. Skonfigurować i zwalidować ignorowanie krótkiego PWR_BUT podczas pracy Linuxa.
+10. Zweryfikować `POWER_OFF_ON_HALT=1` + `WAIT_FOR_POWER_BUTTON=1` na docelowym CM5, jeśli wymagamy ręcznego startu także po powrocie zasilania sieciowego.
+11. Po stałym podłączeniu HMI przez Ethernet/PoE wykonać końcowy test HMI SLEEP/WAKE.
 
 ## 10. Status
 
@@ -273,9 +304,12 @@ Aktualna filozofia POWER ON/OFF jest w dużej części zamknięta:
 
 ```text
 POWER ON CM5: fizyczny PWR_BUT
+krótki PWR_BUT podczas RUNNING: ignorowany
+awaryjny hard-off: długie >5 s
 12 V: DFR0473 sterowany GPIO CM5
-POWER OFF: aplikacja -> SAFE -> 12 V OFF -> CM5 poweroff
-RESTART: SAFE -> 12 V OFF -> reboot -> 12 V ON po boot
+POWER OFF: aplikacja -> local EC SAFE -> best-effort peripheral SAFE -> 12 V OFF -> CM5 poweroff
+BRAK KOMUNIKACJI Z PERYFERIAMI: nie blokuje POWER OFF
+RESTART: local EC SAFE -> best-effort peripheral SAFE -> 12 V OFF -> reboot -> 12 V ON po boot
 HMI: niezależne od safety; finalna automatyzacja sleep/wake po docelowym Ethernet/PoE
 ```
 
