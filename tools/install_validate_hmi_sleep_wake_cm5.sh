@@ -6,6 +6,8 @@ EXPECTED_BRANCH="agent/hmi-sleep-wake-stage15"
 TARGET="${WVC_HMI_ADB_TARGET:-192.168.1.39:5555}"
 UNIT_SRC="$ROOT/deploy/systemd/wvc-hmi-power.service"
 UNIT_DST="/etc/systemd/system/wvc-hmi-power.service"
+CONFIG_DIR="/etc/workshop-ventilation"
+CONFIG_FILE="$CONFIG_DIR/hmi-power.env"
 STATE_DIR="/var/lib/wvc-hmi-power"
 BACKUP_ROOT="/var/tmp/wvc-hmi-stage15-backup-$(date +%Y%m%d-%H%M%S)"
 
@@ -70,16 +72,23 @@ read -r -p "Confirm the HMI woke and press ENTER... " _
 
 section "BACKUP + INSTALL SYSTEMD UNIT"
 sudo mkdir -p "$BACKUP_ROOT"
-if sudo test -e "$UNIT_DST"; then
-    sudo cp -a "$UNIT_DST" "$BACKUP_ROOT/wvc-hmi-power.service"
-    echo "backup: $UNIT_DST"
-else
-    echo "not previously installed: $UNIT_DST"
-fi
+for path in "$UNIT_DST" "$CONFIG_FILE"; do
+    if sudo test -e "$path"; then
+        sudo cp -a "$path" "$BACKUP_ROOT/$(basename "$path")"
+        echo "backup: $path"
+    else
+        echo "not previously installed: $path"
+    fi
+done
+
+sudo install -d -m 0755 "$CONFIG_DIR"
+printf 'WVC_HMI_ADB_TARGET=%s\n' "$TARGET" | sudo tee "$CONFIG_FILE" >/dev/null
+sudo chmod 0644 "$CONFIG_FILE"
 sudo install -m 0644 "$UNIT_SRC" "$UNIT_DST"
 sudo systemctl daemon-reload
 sudo systemctl enable wvc-hmi-power.service
 
+echo "installed HMI target: $(sudo cat "$CONFIG_FILE")"
 echo "backup directory: $BACKUP_ROOT"
 
 section "SYSTEMD SLEEP CHECK"
@@ -117,4 +126,5 @@ echo "STAGE15 HMI SLEEP/WAKE VALIDATION: PASS"
 echo "Validated: direct ADB sleep/wake + systemd ExecStop sleep + ExecStart wake."
 echo "HMI remains non-blocking and independent from wvc-host-power/ventilation-core."
 echo "No CM5 shutdown or reboot was executed by this harness."
+echo "Persistent HMI target: $CONFIG_FILE"
 echo "Backup directory: $BACKUP_ROOT"
