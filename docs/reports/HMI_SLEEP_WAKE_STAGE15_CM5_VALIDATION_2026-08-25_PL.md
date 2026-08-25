@@ -207,6 +207,41 @@ Równolegle parser ADB został poprawiony tak, aby akceptował wieloliniowy wyni
 
 Ta zmiana pozostaje wyłącznie warstwą UX/startup i nie tworzy zależności safety. `wvc-hmi-power` nadal jest non-blocking wobec `wvc-host-power` i `ventilation-core`.
 
+## Pełny boot po korekcie kolejności
+
+Po aktualizacji unitu wykonano kolejny pełny POWER OFF / POWER ON. Logi bieżącego bootu potwierdziły oczekiwaną kolejność:
+
+```text
+17:09:39 wvc-web-ui.service active/running
+17:09:39 Starting wvc-hmi-power.service
+17:09:43 HMI WAKE commanded via ADB target=192.168.1.39:5555 attempt=1/6
+17:09:43 Finished wvc-hmi-power.service
+```
+
+Czyli HMI zostało obudzone około 4 s po starcie WebGUI, zgodnie z `ExecStartPre=/usr/bin/sleep 4`.
+
+Parser ADB nie zgłosił już fałszywego błędu pierwszej próby: WAKE został wykonany od razu jako `attempt=1/6`.
+
+Po wybudzeniu WebGUI obsługiwało żądania HMI z `192.168.1.39`, m.in.:
+
+```text
+GET /api/v1/alerts 200
+GET /api/v1/state 200
+GET /api/v1/zigbee 200
+GET /api/v1/zigbee/removal-confirmation 200
+```
+
+Wynik techniczny pełnego bootu po korekcie:
+
+```text
+WEB GUI BEFORE HMI WAKE: PASS
+4 S STARTUP STABILIZATION: PASS
+ADB WAKE FIRST ATTEMPT: PASS
+HMI -> WEB API AFTER WAKE: PASS
+```
+
+Logi nie mogą samodzielnie potwierdzić elementu czysto wizualnego: czy po wybudzeniu ekran od razu pokazał poprawne GUI bez chwilowego komunikatu „brak komunikacji”. Ten punkt wymaga obserwacji operatora.
+
 ## Izolacja od safety/control plane
 
 Podczas testów:
@@ -229,10 +264,10 @@ Brak HMI, brak Ethernet, timeout ADB lub błąd ADB nie mogą blokować `wvc-hos
 ## Wynik aktualny
 
 ```text
-STAGE15 HMI SLEEP/WAKE VALIDATION: PASS
+STAGE15 HMI SLEEP/WAKE VALIDATION: PASS — TECHNICAL
 ```
 
-Potwierdzono fizycznie:
+Potwierdzono fizycznie i z logów:
 
 - CM5 -> HMI ADB/TCP po Ethernet działa,
 - bezpośredni WAKE działa,
@@ -244,22 +279,17 @@ Potwierdzono fizycznie:
 - pełny POWER ON automatycznie wybudza HMI,
 - HMI power layer jest niezależny od safety/control plane,
 - target HMI jest zapisany w osobnym pliku środowiskowym,
-- poprawiona kolejność startu HMI czeka na WebGUI i 4 s stabilizacji.
+- poprawiona kolejność startu HMI czeka na WebGUI i 4 s stabilizacji,
+- po korekcie ADB WAKE przechodzi w pierwszej próbie,
+- po WAKE HMI poprawnie komunikuje się z WebGUI.
 
-## Ostatni test do wykonania
+## Pozostałe kryterium UX
 
-Powtórzyć pełny cykl produkcyjny po korekcie kolejności:
+Do pełnego finalnego zamknięcia Stage15 pozostaje tylko obserwacja operatora:
 
 ```text
-GUI POWER OFF
--> HMI SLEEP
--> CM5 OFF
-
-PWR_BUT
--> CM5 boot
--> wvc-web-ui.service start
--> 4 s stabilizacji
--> HMI WAKE
+Po automatycznym WAKE HMI od razu pokazuje działające WebGUI
+bez chwilowego komunikatu o braku komunikacji.
 ```
 
-Kryterium PASS dla korekty UX: po automatycznym wybudzeniu HMI ma od razu pokazać działające WebGUI bez chwilowego komunikatu o braku komunikacji.
+Jeżeli ten punkt jest spełniony, Stage15 można oznaczyć jako finalny PASS sprzętowy/UX.
