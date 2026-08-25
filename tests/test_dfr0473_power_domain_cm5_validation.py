@@ -40,6 +40,20 @@ class Dfr0473PowerDomainCm5ValidationTest(unittest.TestCase):
         self.assertIn('sp.get("extract_voltage") != 0.0', source)
         self.assertIn('s.get("output_state_known") is not True', source)
 
+    def test_stop_failure_is_diagnostic_and_cannot_reach_install_or_relay_changes(self) -> None:
+        source = HARNESS.read_text(encoding="utf-8")
+
+        self.assertIn("STOP FAILURE DIAGNOSTICS", source)
+        self.assertIn("raw STOP response:", source)
+        self.assertIn("current core status:", source)
+        self.assertIn("recent ventilation-core journal:", source)
+        self.assertIn("no service configuration or relay state was changed", source)
+        failure_guard_at = source.index('if [ "$STOP_RC" -ne 0 ]')
+        install_at = source.index("INSTALL STAGE14 UNITS")
+        relay_test_at = source.index("CONTROLLED POWER-DOMAIN OFF TEST")
+        self.assertLess(failure_guard_at, install_at)
+        self.assertLess(failure_guard_at, relay_test_at)
+
     def test_harness_physically_checks_off_then_on_and_core_returns_safe(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
 
