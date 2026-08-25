@@ -48,18 +48,21 @@ def notify_systemd_ready(status: str) -> None:
 class HostPowerAgent:
     """Privileged local agent for controlled CM5 shutdown/restart.
 
-    Both normal shutdown and restart follow the same safety ordering:
+    Both normal shutdown and restart follow the same ordering:
 
-    1. require local EC outputs to enter STOP / 0 V,
+    1. attempt local EC STOP / 0 V,
     2. make best-effort shutdown requests to communication peripherals,
     3. command the DFR0473-controlled 12 V domain OFF,
     4. launch the fixed systemd power action.
 
-    Communication failures of AERO or other peripherals are diagnostic only
-    during shutdown. They must never prevent the host from reaching OFF once
-    local EC outputs are confirmed safe. Failure of the local EC STOP/0 V
-    interlock or failure to command the 12 V domain OFF still rejects the
-    normal host power action.
+    A failed or unconfirmed local DAC STOP is a critical diagnostic condition,
+    but it must not make host shutdown impossible. The host-power path is the
+    final escape path from a failed actuator/control stack. Communication
+    failures of AERO or other peripherals are also diagnostic only.
+
+    Failure to command the dedicated DFR0473 12 V isolation relay OFF still
+    rejects the normal host power action because that would knowingly leave the
+    switched peripheral power domain energized after the CM5 goes down.
     """
 
     COMMANDS: dict[str, tuple[str, ...]] = {
@@ -179,22 +182,28 @@ class HostPowerAgent:
     def _prepare_peripherals_for_poweroff(self) -> None:
         LOGGER.warning("preparing ventilation outputs for CM5 host power action")
 
-        stop = self._core_requester({"command": "stop"})
-        self._require_core_ok(stop, "fan STOP")
-        state = stop.get("state")
-        if not isinstance(state, dict):
-            raise RuntimeError("fan STOP response has no state")
-        if state.get("mode") != "STOP":
-            raise RuntimeError(f"fan STOP did not enter STOP mode: {state.get('mode')!r}")
-        setpoints = state.get("setpoints")
-        if not isinstance(setpoints, dict):
-            raise RuntimeError("fan STOP response has no setpoints")
-        if setpoints.get("supply_voltage") != 0.0 or setpoints.get("extract_voltage") != 0.0:
-            raise RuntimeError(f"fan outputs are not 0 V: {setpoints!r}")
-        if state.get("output_state_known") is not True:
-            raise RuntimeError("fan output state is not confirmed")
+        state: dict[str, object] | None = None
+        local_stop_confirmed = False
+        try:
+            stop = self._core_requester({"command": "stop"})
+            self._require_core_ok(stop, "fan STOP")
+            candidate = stop.get("state")
+            if not isinstance(candidate, dict):
+                raise RuntimeError("fan STOP response has no state")
+            self._require_local_zero(candidate)
+            state = candidate
+            local_stop_confirmed = True
+            LOGGER.warning("local EC STOP / 0 V confirmed")
+        except Exception as exc:
+            LOGGER.error(
+                "CRITICAL: local EC STOP / 0 V was not confirmed (%s); "
+                "continuing host shutdown because actuator communication/state "
+                "must not make the system impossible to power off",
+                exc,
+            )
+            state = self._best_effort_core_state()
 
-        if self._aero_is_unavailable(state):
+        if state is not None and self._aero_is_unavailable(state):
             LOGGER.warning(
                 "AERO already offline/unusable before host power action; "
                 "continuing to 12 V isolation"
@@ -213,8 +222,33 @@ class HostPowerAgent:
         )
 
         LOGGER.warning(
-            "local EC outputs confirmed safe; peripheral shutdown attempts completed"
+            "peripheral shutdown attempts completed; local_stop_confirmed=%s",
+            local_stop_confirmed,
         )
+
+    def _best_effort_core_state(self) -> dict[str, object] | None:
+        try:
+            response = self._core_requester({"command": "status"})
+            self._require_core_ok(response, "core status after failed STOP")
+            state = response.get("state")
+            if isinstance(state, dict):
+                return state
+            LOGGER.warning("core status after failed STOP has no state object")
+        except Exception as exc:
+            LOGGER.warning("core status unavailable after failed STOP: %s", exc)
+        return None
+
+    @staticmethod
+    def _require_local_zero(state: dict[str, object]) -> None:
+        if state.get("mode") != "STOP":
+            raise RuntimeError(f"fan STOP did not enter STOP mode: {state.get('mode')!r}")
+        setpoints = state.get("setpoints")
+        if not isinstance(setpoints, dict):
+            raise RuntimeError("fan STOP response has no setpoints")
+        if setpoints.get("supply_voltage") != 0.0 or setpoints.get("extract_voltage") != 0.0:
+            raise RuntimeError(f"fan outputs are not 0 V: {setpoints!r}")
+        if state.get("output_state_known") is not True:
+            raise RuntimeError("fan output state is not confirmed")
 
     def _best_effort_aero_zero(
         self,
