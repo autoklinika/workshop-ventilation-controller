@@ -124,13 +124,15 @@ class AdbHmiPowerController:
     def _connect(self) -> None:
         command = (str(self._adb_path), "connect", self._target)
         returncode, output = self._runner(command, self._timeout_seconds)
-        normalized = output.lower()
         if returncode != 0:
             raise RuntimeError(f"adb connect exit={returncode}: {output or '<no output>'}")
-        if not (
-            normalized.startswith("connected to ")
-            or normalized.startswith("already connected to ")
-        ):
+
+        accepted = {
+            f"connected to {self._target}".lower(),
+            f"already connected to {self._target}".lower(),
+        }
+        output_lines = {line.strip().lower() for line in output.splitlines() if line.strip()}
+        if not accepted.intersection(output_lines):
             raise RuntimeError(f"adb connect did not confirm connection: {output or '<no output>'}")
 
     def _send_keyevent(self, keyevent: str) -> None:
