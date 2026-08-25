@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import socket
 import tempfile
 import threading
 import time
@@ -77,11 +78,30 @@ class HostPowerAgentTest(unittest.TestCase):
         )
         thread = threading.Thread(target=agent.serve, args=(stop,), daemon=True)
         thread.start()
+
+        # bind() creates the filesystem socket before listen() is guaranteed to
+        # have completed. Probe the protocol with an invalid action so the test
+        # waits for the server to be genuinely connectable without changing any
+        # power state or calling ventilation-core.
+        listening = False
         for _ in range(100):
-            if socket_path.exists():
-                break
+            if not socket_path.exists():
+                time.sleep(0.01)
+                continue
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(0.2)
+                    client.connect(str(socket_path))
+                    client.sendall(b'{"action":"probe"}\n')
+                    response = client.recv(4096)
+                if b"action must be shutdown or restart" in response:
+                    listening = True
+                    break
+            except OSError:
+                pass
             time.sleep(0.01)
-        self.assertTrue(socket_path.exists())
+
+        self.assertTrue(listening, "host-power test socket did not become ready")
         return stop, thread
 
     @staticmethod
