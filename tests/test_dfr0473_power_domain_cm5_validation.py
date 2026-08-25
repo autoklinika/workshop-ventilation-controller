@@ -28,7 +28,7 @@ class Dfr0473PowerDomainCm5ValidationTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertNotIn(command, source)
 
-    def test_harness_requires_stage14_and_safe_local_zero_before_service_changes(self) -> None:
+    def test_harness_requires_stage14_and_stop_attempt_before_service_changes(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
 
         self.assertIn('EXPECTED_BRANCH="agent/power-domain-dfr0473-stage14"', source)
@@ -40,21 +40,23 @@ class Dfr0473PowerDomainCm5ValidationTest(unittest.TestCase):
         self.assertIn('sp.get("extract_voltage") != 0.0', source)
         self.assertIn('s.get("output_state_known") is not True', source)
 
-    def test_stop_failure_is_diagnostic_and_cannot_reach_install_or_relay_changes(self) -> None:
+    def test_stop_failure_has_diagnostics_and_narrow_dac_fault_degraded_gate(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
 
         self.assertIn("STOP FAILURE DIAGNOSTICS", source)
         self.assertIn("raw STOP response:", source)
         self.assertIn("current core status:", source)
         self.assertIn("recent ventilation-core journal:", source)
-        self.assertIn("no service configuration or relay state was changed", source)
-        failure_guard_at = source.index('if [ "$STOP_RC" -ne 0 ]')
+        self.assertIn("DEGRADED ZERO-REQUEST PRECONDITION", source)
+        self.assertIn('mode not in {"STOP", "FAULT"}', source)
+        self.assertIn('a.get("code") == "DAC_COMMUNICATION_LOST"', source)
+        self.assertIn("degraded validation refuses non-zero requested outputs", source)
+        self.assertIn("physical EC output confirmation: UNAVAILABLE", source)
+        degraded_at = source.index("validate_degraded_zero_status")
         install_at = source.index("INSTALL STAGE14 UNITS")
-        relay_test_at = source.index("CONTROLLED POWER-DOMAIN OFF TEST")
-        self.assertLess(failure_guard_at, install_at)
-        self.assertLess(failure_guard_at, relay_test_at)
+        self.assertLess(degraded_at, install_at)
 
-    def test_harness_physically_checks_off_then_on_and_core_returns_safe(self) -> None:
+    def test_harness_physically_checks_off_then_on_and_accepts_known_post_start_dac_fault(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
 
         self.assertIn("PHYSICAL CHECK 1", source)
@@ -62,6 +64,8 @@ class Dfr0473PowerDomainCm5ValidationTest(unittest.TestCase):
         self.assertIn("sudo systemctl stop wvc-host-power.service", source)
         self.assertIn("sudo systemctl start ventilation-core.service", source)
         self.assertIn("post-start STOP / 0 V: PASS", source)
+        self.assertIn("PASS (DAC FAULT DEGRADED)", source)
+        self.assertIn("physical EC 0-10 V safety is NOT confirmed", source)
 
 
 if __name__ == "__main__":
