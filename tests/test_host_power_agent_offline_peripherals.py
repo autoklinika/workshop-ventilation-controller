@@ -115,7 +115,7 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "fan outputs are not 0 V"):
             agent._prepare_peripherals_for_poweroff()
 
-    def test_online_aero_still_requires_positive_zero_confirmation(self) -> None:
+    def test_online_aero_confirmation_failure_is_diagnostic_not_shutdown_interlock(self) -> None:
         calls: list[dict[str, object]] = []
 
         def core_requester(payload: dict[str, object]) -> dict[str, object]:
@@ -134,8 +134,9 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             core_requester=core_requester,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "AERO speed 0 failed"):
-            agent._prepare_peripherals_for_poweroff()
+        # Local EC STOP/0 V is the shutdown interlock. A peripheral
+        # communication/confirmation failure must not block host poweroff.
+        agent._prepare_peripherals_for_poweroff()
 
         self.assertEqual(
             calls,
@@ -146,13 +147,14 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             ],
         )
 
-    def test_ambiguous_aero_state_does_not_bypass_existing_fail_closed_path(self) -> None:
+    def test_ambiguous_aero_state_attempts_safe_but_does_not_block_shutdown(self) -> None:
         calls: list[dict[str, object]] = []
 
         def core_requester(payload: dict[str, object]) -> dict[str, object]:
             calls.append(dict(payload))
             if payload.get("command") == "stop":
                 response = _stop_response(aero_online=False, aero_usable=False)
+                # Ambiguous state: not the explicit offline+unusable shortcut.
                 response["state"]["aero_bus"] = {"online": False, "usable": True}
                 return response
             return {"ok": False, "error": "AERO unavailable"}
@@ -162,14 +164,16 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             core_requester=core_requester,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "AERO airing OFF failed"):
-            agent._prepare_peripherals_for_poweroff()
+        # Best effort means both safe commands are attempted, but their
+        # transport failures do not veto shutdown after local EC safety passed.
+        agent._prepare_peripherals_for_poweroff()
 
         self.assertEqual(
             calls,
             [
                 {"command": "stop"},
                 {"command": "aero-airing", "enabled": False},
+                {"command": "aero-speed", "speed": 0},
             ],
         )
 
