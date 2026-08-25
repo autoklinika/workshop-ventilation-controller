@@ -8,6 +8,8 @@ CORE_UNIT="/etc/systemd/system/ventilation-core.service"
 LOGIND_DROPIN_DIR="/etc/systemd/logind.conf.d"
 LOGIND_DROPIN="$LOGIND_DROPIN_DIR/50-wvc-power-button.conf"
 BACKUP_ROOT="/var/tmp/wvc-dfr0473-stage14-backup-$(date +%Y%m%d-%H%M%S)"
+DEGRADED_PRECHECK=0
+POST_DEGRADED=0
 
 fail() {
     echo "FAIL: $*" >&2
@@ -41,6 +43,67 @@ show_stop_failure_diagnostics() {
     sudo journalctl -u ventilation-core.service -n 50 --no-pager || true
 }
 
+validate_confirmed_stop() {
+    printf '%s\n' "$STOP_JSON" | python3 -c '
+import json,sys
+p=json.load(sys.stdin)
+if p.get("ok") is not True:
+    raise SystemExit("STOP response is not ok")
+s=p.get("state") or {}
+sp=s.get("setpoints") or {}
+if s.get("mode") != "STOP":
+    raise SystemExit(f"mode is not STOP: {s.get(chr(109)+chr(111)+chr(100)+chr(101))!r}")
+if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
+    raise SystemExit(f"outputs are not 0 V: {sp!r}")
+if s.get("output_state_known") is not True:
+    raise SystemExit("output_state_known is not true")
+print("SAFE STOP / 0 V: PASS")
+'
+}
+
+validate_degraded_zero_status() {
+    printf '%s\n' "$STATUS_JSON" | python3 -c '
+import json,sys
+p=json.load(sys.stdin)
+if p.get("ok") is not True:
+    raise SystemExit("status response is not ok")
+s=p.get("state") or {}
+sp=s.get("setpoints") or {}
+mode=s.get("mode")
+if mode not in {"STOP", "FAULT"}:
+    raise SystemExit(f"degraded validation refuses active mode: {mode!r}")
+if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
+    raise SystemExit(f"degraded validation refuses non-zero requested outputs: {sp!r}")
+alarms=s.get("active_alarms") or []
+if not any(isinstance(a, dict) and a.get("code") == "DAC_COMMUNICATION_LOST" for a in alarms):
+    raise SystemExit("degraded validation requires DAC_COMMUNICATION_LOST")
+print("requested EC setpoints: 0 V / 0 V")
+print("DAC_COMMUNICATION_LOST: present")
+print("physical EC output confirmation: UNAVAILABLE")
+print("DEGRADED ZERO-REQUEST PRECONDITION: ACCEPTED FOR POWER-DOMAIN TEST")
+'
+}
+
+validate_post_start_confirmed() {
+    printf '%s\n' "$STATUS_JSON" | python3 -c '
+import json,sys
+p=json.load(sys.stdin)
+s=p.get("state") or {}
+sp=s.get("setpoints") or {}
+print("mode:", s.get("mode"))
+print("supply_voltage:", sp.get("supply_voltage"))
+print("extract_voltage:", sp.get("extract_voltage"))
+print("output_state_known:", s.get("output_state_known"))
+if s.get("mode") != "STOP":
+    raise SystemExit("core did not return in STOP after service start")
+if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
+    raise SystemExit("core outputs are not 0 V after service start")
+if s.get("output_state_known") is not True:
+    raise SystemExit("output state is not known after service start")
+print("post-start STOP / 0 V: PASS")
+'
+}
+
 cd "$ROOT"
 
 section "SOURCE"
@@ -60,25 +123,21 @@ set +e
 STOP_JSON="$(PYTHONPATH=src python3 -m ventilation_core.ctl stop 2>&1)"
 STOP_RC=$?
 set -e
-if [ "$STOP_RC" -ne 0 ]; then
+
+if [ "$STOP_RC" -eq 0 ] && validate_confirmed_stop; then
+    :
+else
     show_stop_failure_diagnostics
-    fail "core STOP command failed; no service configuration or relay state was changed"
+    STATUS_JSON="$(PYTHONPATH=src python3 -m ventilation_core.ctl status)" \
+        || fail "cannot read core status after failed STOP"
+    validate_degraded_zero_status \
+        || fail "failed STOP is not eligible for degraded power-domain validation"
+    DEGRADED_PRECHECK=1
+    echo
+    echo "WARNING: continuing only because requested EC setpoints are already 0/0 V"
+    echo "and the failure is the known DAC communication fault."
+    echo "This does NOT claim that physical 0-10 V outputs are confirmed safe."
 fi
-printf '%s\n' "$STOP_JSON" | python3 -c '
-import json,sys
-p=json.load(sys.stdin)
-if p.get("ok") is not True:
-    raise SystemExit("STOP response is not ok")
-s=p.get("state") or {}
-sp=s.get("setpoints") or {}
-if s.get("mode") != "STOP":
-    raise SystemExit(f"mode is not STOP: {s.get(chr(109)+chr(111)+chr(100)+chr(101))!r}")
-if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
-    raise SystemExit(f"outputs are not 0 V: {sp!r}")
-if s.get("output_state_known") is not True:
-    raise SystemExit("output_state_known is not true")
-print("SAFE STOP / 0 V: PASS")
-'
 
 section "BACKUP INSTALLED CONFIG"
 sudo mkdir -p "$BACKUP_ROOT"
@@ -141,31 +200,27 @@ echo
 echo "PHYSICAL CHECK 2: DFR0473 should now be ON (relay energized / relay LED ON)."
 read -r -p "Confirm physically and press ENTER to continue... " _
 
-section "POST-START LOCAL SAFE STATE"
+section "POST-START LOCAL STATE"
 STATUS_JSON="$(PYTHONPATH=src python3 -m ventilation_core.ctl status)" || fail "core status failed"
-printf '%s\n' "$STATUS_JSON" | python3 -c '
-import json,sys
-p=json.load(sys.stdin)
-s=p.get("state") or {}
-sp=s.get("setpoints") or {}
-print("mode:", s.get("mode"))
-print("supply_voltage:", sp.get("supply_voltage"))
-print("extract_voltage:", sp.get("extract_voltage"))
-print("output_state_known:", s.get("output_state_known"))
-if s.get("mode") != "STOP":
-    raise SystemExit("core did not return in STOP after service start")
-if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
-    raise SystemExit("core outputs are not 0 V after service start")
-if s.get("output_state_known") is not True:
-    raise SystemExit("output state is not known after service start")
-print("post-start STOP / 0 V: PASS")
-'
+if validate_post_start_confirmed; then
+    :
+else
+    echo "Confirmed STOP/0 V is unavailable after restart; checking known DAC-fault degraded state."
+    validate_degraded_zero_status \
+        || fail "post-start core state is neither confirmed safe nor accepted DAC-fault degraded state"
+    POST_DEGRADED=1
+fi
 
 section "RECENT POWER-DOMAIN LOGS"
 sudo journalctl -u wvc-host-power.service -n 30 --no-pager
 
 section "RESULT"
-echo "STAGE14 NON-DESTRUCTIVE HARDWARE VALIDATION: PASS"
+if [ "$DEGRADED_PRECHECK" -eq 1 ] || [ "$POST_DEGRADED" -eq 1 ]; then
+    echo "STAGE14 NON-DESTRUCTIVE POWER-DOMAIN VALIDATION: PASS (DAC FAULT DEGRADED)"
+    echo "DFR0473 sequencing can be validated, but physical EC 0-10 V safety is NOT confirmed."
+else
+    echo "STAGE14 NON-DESTRUCTIVE HARDWARE VALIDATION: PASS"
+fi
 echo "No host shutdown or reboot was executed."
 echo "Next physical test is the controlled GUI shutdown, followed by PWR_BUT startup."
 echo "Backup directory: $BACKUP_ROOT"
