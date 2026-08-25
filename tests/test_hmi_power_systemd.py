@@ -22,12 +22,18 @@ class HmiPowerSystemdTest(unittest.TestCase):
         self.assertIn("--target ${WVC_HMI_ADB_TARGET}", text)
         self.assertNotIn("Environment=WVC_HMI_ADB_TARGET=192.168.1.39:5555", text)
 
-    def test_wake_waits_for_web_ui_and_short_settle_delay(self) -> None:
+    def test_wake_waits_for_authoritative_web_state_and_watchdog_recovery(self) -> None:
         text = UNIT.read_text(encoding="utf-8")
         self.assertIn("Wants=network-online.target wvc-web-ui.service", text)
         self.assertIn("After=network-online.target wvc-web-ui.service", text)
-        self.assertIn("ExecStartPre=/usr/bin/sleep 4", text)
-        self.assertIn("TimeoutStartSec=30", text)
+        self.assertIn("EnvironmentFile=-/etc/default/wvc-web-ui", text)
+        self.assertNotIn("ExecStartPre=/usr/bin/sleep 4", text)
+        self.assertIn("--wait-web-ready", text)
+        self.assertIn("--web-ready-timeout 15", text)
+        self.assertIn("--web-ready-poll 0.5", text)
+        self.assertIn("--web-ready-request-timeout 0.75", text)
+        self.assertIn("--web-settle 4.5", text)
+        self.assertIn("TimeoutStartSec=40", text)
 
     def test_hmi_is_network_capable_but_not_a_safety_dependency(self) -> None:
         text = UNIT.read_text(encoding="utf-8")
