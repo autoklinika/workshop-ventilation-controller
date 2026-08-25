@@ -16,6 +16,12 @@ class HmiPowerSystemdTest(unittest.TestCase):
         self.assertIn("RemainAfterExit=yes", text)
         self.assertIn("WantedBy=multi-user.target", text)
 
+    def test_hmi_target_is_runtime_configured(self) -> None:
+        text = UNIT.read_text(encoding="utf-8")
+        self.assertIn("EnvironmentFile=/etc/workshop-ventilation/hmi-power.env", text)
+        self.assertIn("--target ${WVC_HMI_ADB_TARGET}", text)
+        self.assertNotIn("Environment=WVC_HMI_ADB_TARGET=192.168.1.39:5555", text)
+
     def test_hmi_is_network_capable_but_not_a_safety_dependency(self) -> None:
         text = UNIT.read_text(encoding="utf-8")
         self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", text)
