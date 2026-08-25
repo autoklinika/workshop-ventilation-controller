@@ -19,6 +19,28 @@ section() {
     echo "===== $* ====="
 }
 
+show_stop_failure_diagnostics() {
+    section "STOP FAILURE DIAGNOSTICS"
+    echo "ctl exit code: $STOP_RC"
+    echo
+    echo "raw STOP response:"
+    printf '%s\n' "$STOP_JSON"
+    echo
+    echo "current core status:"
+    PYTHONPATH=src python3 -m ventilation_core.ctl status || true
+    echo
+    echo "ventilation-core process:"
+    systemctl show ventilation-core.service \
+        -p ActiveState \
+        -p SubState \
+        -p MainPID \
+        -p ExecMainStartTimestamp \
+        --no-pager || true
+    echo
+    echo "recent ventilation-core journal:"
+    sudo journalctl -u ventilation-core.service -n 50 --no-pager || true
+}
+
 cd "$ROOT"
 
 section "SOURCE"
@@ -34,7 +56,14 @@ systemctl is-active ventilation-core.service || fail "ventilation-core is not ac
 systemctl is-active wvc-host-power.service || fail "wvc-host-power is not active"
 
 section "FORCE LOCAL SAFE STOP"
-STOP_JSON="$(PYTHONPATH=src python3 -m ventilation_core.ctl stop)" || fail "core STOP command failed"
+set +e
+STOP_JSON="$(PYTHONPATH=src python3 -m ventilation_core.ctl stop 2>&1)"
+STOP_RC=$?
+set -e
+if [ "$STOP_RC" -ne 0 ]; then
+    show_stop_failure_diagnostics
+    fail "core STOP command failed; no service configuration or relay state was changed"
+fi
 printf '%s\n' "$STOP_JSON" | python3 -c '
 import json,sys
 p=json.load(sys.stdin)
