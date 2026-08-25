@@ -1,9 +1,11 @@
 [Unit]
-Description=Workshop Ventilation CM5 Host Power Agent
+Description=Workshop Ventilation CM5 Host Power Agent and 12 V Power Domain
 After=local-fs.target
+Before=ventilation-core.service
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=root
 Group=wentylacja
 WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
@@ -12,9 +14,10 @@ Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=wvc-host-power
 RuntimeDirectoryMode=0770
 UMask=0007
-ExecStart=/usr/bin/python3 -m ventilation_core.host_power_agent --socket /run/wvc-host-power/host-power.sock --action-delay 0.75 --log-level INFO
+ExecStart=/usr/bin/python3 -m ventilation_core.host_power_agent --socket /run/wvc-host-power/host-power.sock --action-delay 0.75 --power-domain-chip /dev/gpiochip0 --power-domain-line GPIO22 --power-domain-stabilization 1.0 --log-level INFO
 Restart=on-failure
 RestartSec=2
+TimeoutStartSec=10
 TimeoutStopSec=5
 KillSignal=SIGTERM
 NoNewPrivileges=true

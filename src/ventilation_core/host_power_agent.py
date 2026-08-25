@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 import signal
 import socket
@@ -10,30 +11,55 @@ import subprocess
 import threading
 from typing import Any, Callable
 
+from ventilation_core.power_domain import Dfr0473PowerDomain, PowerDomain
+
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SOCKET = Path("/run/wvc-host-power/host-power.sock")
 DEFAULT_CORE_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
 MAX_REQUEST_BYTES = 1024
 MAX_CORE_RESPONSE_BYTES = 1024 * 1024
-CORE_REQUEST_TIMEOUT_SECONDS = 75.0
+CORE_REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 CommandLauncher = Callable[[tuple[str, ...]], None]
 CoreRequester = Callable[[dict[str, object]], dict[str, object]]
+ReadyNotifier = Callable[[str], None]
+
+
+def notify_systemd_ready(status: str) -> None:
+    """Send READY=1 to systemd without adding a python-systemd dependency."""
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return
+
+    address: str | bytes
+    if notify_socket.startswith("@"):
+        address = b"\0" + notify_socket[1:].encode()
+    else:
+        address = notify_socket
+
+    payload = f"READY=1\nSTATUS={status}".encode()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+        client.connect(address)
+        client.sendall(payload)
 
 
 class HostPowerAgent:
-    """Privileged local agent exposing only shutdown/restart over AF_UNIX.
+    """Privileged local agent for controlled CM5 shutdown/restart.
 
-    Shutdown remains fail-closed for local EC outputs. Before host poweroff is
-    accepted the agent asks ventilation-core to enter STOP and positively
-    confirms both local fan outputs at 0 V with a known output state.
+    Both normal shutdown and restart follow the same safety ordering:
 
-    When AERO is online/usable, airing OFF and speed 0 still require positive
-    physical confirmation. When core already reports AERO as offline and
-    unusable, the unavailable peripheral cannot be commanded or confirmed, so
-    it does not block CM5 host poweroff after the local STOP/0 V checks pass.
+    1. require local EC outputs to enter STOP / 0 V,
+    2. make best-effort shutdown requests to communication peripherals,
+    3. command the DFR0473-controlled 12 V domain OFF,
+    4. launch the fixed systemd power action.
+
+    Communication failures of AERO or other peripherals are diagnostic only
+    during shutdown. They must never prevent the host from reaching OFF once
+    local EC outputs are confirmed safe. Failure of the local EC STOP/0 V
+    interlock or failure to command the 12 V domain OFF still rejects the
+    normal host power action.
     """
 
     COMMANDS: dict[str, tuple[str, ...]] = {
@@ -49,12 +75,16 @@ class HostPowerAgent:
         action_delay_seconds: float = 0.75,
         command_launcher: CommandLauncher | None = None,
         core_requester: CoreRequester | None = None,
+        power_domain: PowerDomain | None = None,
+        ready_notifier: ReadyNotifier | None = None,
     ) -> None:
         self._socket_path = Path(socket_path)
         self._core_socket_path = Path(core_socket_path)
         self._action_delay_seconds = float(action_delay_seconds)
         self._command_launcher = command_launcher or self._launch_command
         self._core_requester = core_requester or self._request_core
+        self._power_domain = power_domain
+        self._ready_notifier = ready_notifier or notify_systemd_ready
         self._pending_lock = threading.Lock()
         self._action_pending = False
 
@@ -63,12 +93,18 @@ class HostPowerAgent:
         if self._socket_path.exists() or self._socket_path.is_symlink():
             self._socket_path.unlink()
 
+        power_domain_started = False
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
+            if self._power_domain is not None:
+                self._power_domain.start()
+                power_domain_started = True
+
             server.bind(str(self._socket_path))
             self._socket_path.chmod(0o660)
             server.listen(4)
             server.settimeout(0.5)
+            self._ready_notifier("12 V domain ON; host-power agent ready")
             LOGGER.info("host-power agent listening on %s", self._socket_path)
 
             while not stop_event.is_set():
@@ -88,6 +124,8 @@ class HostPowerAgent:
                 self._socket_path.unlink()
             except FileNotFoundError:
                 pass
+            if power_domain_started and self._power_domain is not None:
+                self._power_domain.close()
 
     def _prepare_socket_parent(self) -> None:
         parent = self._socket_path.parent
@@ -105,21 +143,20 @@ class HostPowerAgent:
                     return
                 self._action_pending = True
 
-            if action == "shutdown":
-                try:
-                    self._prepare_peripherals_for_poweroff()
-                except Exception as exc:
-                    LOGGER.exception("safe peripheral shutdown preparation failed")
-                    with self._pending_lock:
-                        self._action_pending = False
-                    self._send(
-                        connection,
-                        {
-                            "ok": False,
-                            "error": f"peripheral shutdown not confirmed: {exc}",
-                        },
-                    )
-                    return
+            try:
+                self._prepare_for_host_power_action()
+            except Exception as exc:
+                LOGGER.exception("safe host power preparation failed")
+                with self._pending_lock:
+                    self._action_pending = False
+                self._send(
+                    connection,
+                    {
+                        "ok": False,
+                        "error": f"host power preparation failed: {exc}",
+                    },
+                )
+                return
 
             self._send(connection, {"ok": True, "accepted": True, "action": action})
             timer = threading.Timer(
@@ -134,8 +171,13 @@ class HostPowerAgent:
         except (OSError, TimeoutError) as exc:
             LOGGER.warning("host-power request failed: %s", exc)
 
+    def _prepare_for_host_power_action(self) -> None:
+        self._prepare_peripherals_for_poweroff()
+        if self._power_domain is not None:
+            self._power_domain.power_off()
+
     def _prepare_peripherals_for_poweroff(self) -> None:
-        LOGGER.warning("preparing ventilation peripherals for CM5 poweroff")
+        LOGGER.warning("preparing ventilation outputs for CM5 host power action")
 
         stop = self._core_requester({"command": "stop"})
         self._require_core_ok(stop, "fan STOP")
@@ -154,18 +196,47 @@ class HostPowerAgent:
 
         if self._aero_is_unavailable(state):
             LOGGER.warning(
-                "AERO already offline/unusable before CM5 poweroff; "
-                "skipping unavailable AERO shutdown confirmation"
+                "AERO already offline/unusable before host power action; "
+                "continuing to 12 V isolation"
             )
             return
 
-        airing = self._core_requester({"command": "aero-airing", "enabled": False})
-        self._require_aero_zero(airing, expected_kind="airing", label="AERO airing OFF")
+        self._best_effort_aero_zero(
+            {"command": "aero-airing", "enabled": False},
+            expected_kind="airing",
+            label="AERO airing OFF",
+        )
+        self._best_effort_aero_zero(
+            {"command": "aero-speed", "speed": 0},
+            expected_kind="speed",
+            label="AERO speed 0",
+        )
 
-        speed = self._core_requester({"command": "aero-speed", "speed": 0})
-        self._require_aero_zero(speed, expected_kind="speed", label="AERO speed 0")
+        LOGGER.warning(
+            "local EC outputs confirmed safe; peripheral shutdown attempts completed"
+        )
 
-        LOGGER.warning("all ventilation peripherals confirmed off before CM5 poweroff")
+    def _best_effort_aero_zero(
+        self,
+        payload: dict[str, object],
+        *,
+        expected_kind: str,
+        label: str,
+    ) -> None:
+        try:
+            response = self._core_requester(payload)
+            self._require_aero_zero(
+                response,
+                expected_kind=expected_kind,
+                label=label,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "%s not confirmed (%s); continuing because peripheral "
+                "communication must not block 12 V isolation",
+                label,
+                exc,
+            )
 
     @staticmethod
     def _aero_is_unavailable(state: dict[str, object]) -> bool:
@@ -295,6 +366,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", type=Path, default=DEFAULT_SOCKET)
     parser.add_argument("--core-socket", type=Path, default=DEFAULT_CORE_SOCKET)
     parser.add_argument("--action-delay", type=float, default=0.75)
+    parser.add_argument("--power-domain-chip", default="/dev/gpiochip0")
+    parser.add_argument("--power-domain-line", default="GPIO22")
+    parser.add_argument("--power-domain-stabilization", type=float, default=1.0)
+    parser.add_argument("--disable-power-domain", action="store_true")
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -315,10 +390,19 @@ def main() -> int:
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, request_stop)
 
+    power_domain: PowerDomain | None = None
+    if not args.disable_power_domain:
+        power_domain = Dfr0473PowerDomain(
+            chip_path=args.power_domain_chip,
+            line_name=args.power_domain_line,
+            stabilization_seconds=args.power_domain_stabilization,
+        )
+
     agent = HostPowerAgent(
         args.socket,
         core_socket_path=args.core_socket,
         action_delay_seconds=args.action_delay,
+        power_domain=power_domain,
     )
     try:
         agent.serve(stop_event)
