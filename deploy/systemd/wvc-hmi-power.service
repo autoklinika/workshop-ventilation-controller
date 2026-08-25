@@ -12,7 +12,7 @@ WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
 Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/var/lib/wvc-hmi-power
-Environment=WVC_HMI_ADB_TARGET=192.168.1.39:5555
+EnvironmentFile=/etc/workshop-ventilation/hmi-power.env
 StateDirectory=wvc-hmi-power
 StateDirectoryMode=0700
 ExecStart=/usr/bin/python3 -m ventilation_core.hmi_power wake --target ${WVC_HMI_ADB_TARGET} --adb /usr/bin/adb --timeout 1.5 --attempts 6 --retry-delay 2.0 --log-level INFO
