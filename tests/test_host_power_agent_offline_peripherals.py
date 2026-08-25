@@ -102,18 +102,33 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             self.assertEqual(launched, [("/usr/bin/systemctl", "--no-block", "poweroff")])
             self._stop_agent(stop, thread)
 
-    def test_shutdown_still_rejects_nonzero_local_output_when_aero_is_offline(self) -> None:
-        agent = HostPowerAgent(
-            Path("/tmp/not-used.sock"),
-            core_requester=lambda payload: _stop_response(
+    def test_nonzero_local_output_does_not_make_shutdown_preparation_impossible_when_aero_offline(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def core_requester(payload: dict[str, object]) -> dict[str, object]:
+            calls.append(dict(payload))
+            return _stop_response(
                 aero_online=False,
                 aero_usable=False,
                 extract_voltage=1.0,
-            ),
+            )
+
+        agent = HostPowerAgent(
+            Path("/tmp/not-used.sock"),
+            core_requester=core_requester,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "fan outputs are not 0 V"):
-            agent._prepare_peripherals_for_poweroff()
+        # A failed/unconfirmed EC STOP remains CRITICAL diagnostic information,
+        # but host shutdown must remain an available escape path.
+        agent._prepare_peripherals_for_poweroff()
+
+        self.assertEqual(
+            calls,
+            [
+                {"command": "stop"},
+                {"command": "status"},
+            ],
+        )
 
     def test_online_aero_confirmation_failure_is_diagnostic_not_shutdown_interlock(self) -> None:
         calls: list[dict[str, object]] = []
@@ -134,8 +149,6 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             core_requester=core_requester,
         )
 
-        # Local EC STOP/0 V is the shutdown interlock. A peripheral
-        # communication/confirmation failure must not block host poweroff.
         agent._prepare_peripherals_for_poweroff()
 
         self.assertEqual(
@@ -154,7 +167,6 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             calls.append(dict(payload))
             if payload.get("command") == "stop":
                 response = _stop_response(aero_online=False, aero_usable=False)
-                # Ambiguous state: not the explicit offline+unusable shortcut.
                 response["state"]["aero_bus"] = {"online": False, "usable": True}
                 return response
             return {"ok": False, "error": "AERO unavailable"}
@@ -164,8 +176,6 @@ class HostPowerOfflinePeripheralsTest(unittest.TestCase):
             core_requester=core_requester,
         )
 
-        # Best effort means both safe commands are attempted, but their
-        # transport failures do not veto shutdown after local EC safety passed.
         agent._prepare_peripherals_for_poweroff()
 
         self.assertEqual(
