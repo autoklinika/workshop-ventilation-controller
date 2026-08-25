@@ -37,6 +37,43 @@ GND   -> DB9 pin 3
 
 > DFR0971 jest zasilany z szyny 3,3 V CM5. Poziomy I²C muszą pozostać zgodne z logiką 3,3 V CM5.
 
+## DFR0473 — odcinanie domeny 12 V
+
+Moduł:
+
+```text
+DFRobot DFR0473
+Gravity: Digital 10A Relay Module
+```
+
+Podłączenie strony sterującej, fizycznie zwalidowane 2026-08-25:
+
+| DFR0473 | CM5 IO Board | GPIO / funkcja | Pin fizyczny CM5 |
+|---|---|---|---:|
+| `+` / VCC | 3,3 V | zasilanie modułu przekaźnika | 1 |
+| `-` / GND | GND | wspólna masa logiczna | 9 lub inny GND |
+| `D` | GPIO22 | `POWER_DOMAIN_12V_ENABLE` | 15 |
+
+Sterowanie:
+
+```text
+GPIO22 LOW / Hi-Z -> DFR0473 OFF -> COM-NO rozwarte -> 12 V OFF
+GPIO22 HIGH 3,3 V -> DFR0473 ON  -> COM-NO zwarte  -> 12 V ON
+```
+
+Strona mocy:
+
+```text
++12 V z zasilacza -> COM
+NO                -> +12 V SWITCHED do domeny peryferiów
+NC                -> niepodłączone
+GND 12 V          -> nieprzełączane, bezpośrednio do odbiorników
+```
+
+Fizyczny test `LOW -> HIGH -> LOW` na GPIO22 zakończony PASS.
+
+> DFR0473 odcina domenę +12 V. Nie odcina zasilania DFR0971, ponieważ DAC jest zasilany z 3,3 V CM5. `DFR0473 OFF` nie jest potwierdzeniem 0 V na VOUT0/VOUT1 DAC.
+
 ## Podłączenie modułów DFR0845 RS-485 do CM5
 
 Moduły:
@@ -146,7 +183,7 @@ Dwa wolne wejścia z 40-pinowego złącza CM5 IO Board pozostają zarezerwowane 
 | `TACHO_INPUT_1` | GPIO17 | 11 | wejście | wolny drugi kanał, niezwalidowany z osobnym wentylatorem |
 | `FAN_EXTRACT_TACHO` | GPIO27 | 13 | wejście | dynamicznie zwalidowany z laboratoryjnym wentylatorem na CH1/VOUT1; test STOP na finalnym GPIO27 pozostaje do wykonania |
 
-Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15) ani AERO BUS UART4 (GPIO12/13).
+Przydział nie koliduje z aktualnie używanymi liniami I²C1 (GPIO2/3), SENSOR BUS UART0 (GPIO14/15), AERO BUS UART4 (GPIO12/13) ani POWER DOMAIN (GPIO22).
 
 ### Aktualne stanowisko jednego wentylatora
 
