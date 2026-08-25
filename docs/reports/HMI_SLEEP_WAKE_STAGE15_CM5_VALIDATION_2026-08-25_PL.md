@@ -10,7 +10,7 @@ Gałąź:
 agent/hmi-sleep-wake-stage15
 ```
 
-Zweryfikowany HEAD podczas testu:
+Zweryfikowany HEAD podczas pierwszego testu:
 
 ```text
 93f9bfc9ad2617938ae9fadaba1685b7a047ac29
@@ -158,9 +158,58 @@ Wynik:
 SYSTEMD EXECSTART WAKE: PASS
 ```
 
+## Pełny POWER OFF / POWER ON — pierwsza obserwacja
+
+Przy pierwszym pełnym cyklu produkcyjnym HMI poprawnie zasnęło podczas POWER OFF oraz automatycznie wybudziło się po starcie CM5.
+
+Po boot wszystkie kluczowe usługi były aktywne:
+
+```text
+wvc-hmi-power.service: active
+wvc-host-power.service: active
+ventilation-core.service: active
+```
+
+Pierwszy boot ujawnił jednak drobny problem UX: HMI budziło się szybciej niż WebGUI było gotowe, przez co przez chwilę wyświetlało komunikat braku komunikacji, po czym samo przechodziło do poprawnej pracy.
+
+Log HMI z tego bootu:
+
+```text
+16:45:00 Starting wvc-hmi-power.service
+16:45:01 adb daemon uruchomiony, połączenie do 192.168.1.39:5555 zestawione
+16:45:03 HMI WAKE commanded via ADB target=192.168.1.39:5555 attempt=2/6
+16:45:03 Finished wvc-hmi-power.service
+```
+
+Dodatkowo parser pierwszej próby ADB traktował poprawne połączenie jako failure, gdy `adb` poprzedzał linię `connected to ...` komunikatem o starcie własnego demona. To był false warning, nie realny problem transportu.
+
+## Korekta kolejności WAKE
+
+Na tej samej gałęzi Stage15 poprawiono kolejność uruchamiania HMI:
+
+```text
+network-online.target
++ wvc-web-ui.service
++ 4 s stabilizacji
+-> HMI WAKE
+```
+
+Zainstalowany unit po aktualizacji został fizycznie sprawdzony na CM5:
+
+```text
+Wants=network-online.target wvc-web-ui.service
+After=network-online.target wvc-web-ui.service
+ExecStartPre=/usr/bin/sleep 4
+TimeoutStartSec=30
+```
+
+Równolegle parser ADB został poprawiony tak, aby akceptował wieloliniowy wynik pierwszego `adb connect`, w którym przed `connected to ...` pojawia się start lokalnego demona ADB.
+
+Ta zmiana pozostaje wyłącznie warstwą UX/startup i nie tworzy zależności safety. `wvc-hmi-power` nadal jest non-blocking wobec `wvc-host-power` i `ventilation-core`.
+
 ## Izolacja od safety/control plane
 
-Podczas całego testu:
+Podczas testów:
 
 ```text
 wvc-host-power.service: active
@@ -177,7 +226,7 @@ HMI = non-safety / best-effort
 
 Brak HMI, brak Ethernet, timeout ADB lub błąd ADB nie mogą blokować `wvc-host-power`, `ventilation-core`, shutdown ani reboot CM5.
 
-## Wynik końcowy
+## Wynik aktualny
 
 ```text
 STAGE15 HMI SLEEP/WAKE VALIDATION: PASS
@@ -191,26 +240,26 @@ Potwierdzono fizycznie:
 - WAKE działa z prawdziwego Android SLEEP,
 - systemd `ExecStop` usypia HMI,
 - systemd `ExecStart` wybudza HMI,
+- pełny POWER OFF usypia HMI,
+- pełny POWER ON automatycznie wybudza HMI,
 - HMI power layer jest niezależny od safety/control plane,
 - target HMI jest zapisany w osobnym pliku środowiskowym,
-- harness nie wykonał restartu ani wyłączenia CM5.
+- poprawiona kolejność startu HMI czeka na WebGUI i 4 s stabilizacji.
 
-## Następny krok
+## Ostatni test do wykonania
 
-Wykonać pełny test produkcyjnej kolejności:
+Powtórzyć pełny cykl produkcyjny po korekcie kolejności:
 
 ```text
 GUI POWER OFF
--> host-power SAFE + DFR0473 OFF
--> systemd zatrzymuje wvc-hmi-power
 -> HMI SLEEP
 -> CM5 OFF
 
 PWR_BUT
 -> CM5 boot
--> network online
--> wvc-hmi-power ExecStart
+-> wvc-web-ui.service start
+-> 4 s stabilizacji
 -> HMI WAKE
 ```
 
-W pełnym teście należy fizycznie potwierdzić, że HMI zasypia podczas shutdown i automatycznie wybudza się po ponownym starcie CM5.
+Kryterium PASS dla korekty UX: po automatycznym wybudzeniu HMI ma od razu pokazać działające WebGUI bez chwilowego komunikatu o braku komunikacji.
