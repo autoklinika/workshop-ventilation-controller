@@ -33,11 +33,13 @@ ventilation-core.service: active
 wvc-host-power.service:   active
 ```
 
-Polecenie lokalnego STOP nie mogło zostać potwierdzone z powodu istniejącej awarii DAC DFR0971 / GP8403:
+Polecenie lokalnego STOP nie mogło zostać potwierdzone, ponieważ DFR0971 / GP8403 był w czasie testu **fizycznie odłączony od CM5**. Odpowiedź I²C:
 
 ```text
 No response from GP8403 at 0x58: [Errno 121] Remote I/O error
 ```
+
+Nie jest to dowód uszkodzenia DAC. Jest to oczekiwany stan software przy fizycznie odłączonym urządzeniu.
 
 Stan core:
 
@@ -56,7 +58,7 @@ DAC_COMMUNICATION_LOST
 severity: critical
 ```
 
-Dodatkowo niedostępne były oba SEN55 oraz AERO. Te błędy nie były przyczyną awarii lokalnego STOP, ale stanowiły równoległą diagnostykę peryferiów.
+W tym samym czasie fizycznie niedostępne były również pozostałe odłączone peryferia, dlatego oba SEN55 oraz AERO były raportowane jako offline. Te stany nie są w tym teście interpretowane jako awarie sprzętu.
 
 ## Zdegradowany warunek wejściowy
 
@@ -69,7 +71,7 @@ physical EC output confirmation: UNAVAILABLE
 DEGRADED ZERO-REQUEST PRECONDITION: ACCEPTED FOR POWER-DOMAIN TEST
 ```
 
-Ten wynik NIE oznacza, że fizyczne wyjścia 0–10 V DFR0971 zostały potwierdzone jako 0 V.
+Ten wynik NIE oznacza, że fizyczne wyjścia 0–10 V DFR0971 zostały potwierdzone jako 0 V. W czasie testu DFR0971 był fizycznie odłączony, więc pomiar VOUT0/VOUT1 nie był możliwy ani potrzebny do samej walidacji sekwencji DFR0473.
 
 ## Instalacja i zależności systemd
 
@@ -128,7 +130,7 @@ Obie usługi wróciły do `active`.
 
 ## Stan po ponownym starcie core
 
-Ze względu na nadal istniejącą awarię DFR0971 / GP8403 core wrócił do:
+Ponieważ DFR0971 / GP8403 nadal był fizycznie odłączony, core zgodnie z projektem wrócił do:
 
 ```text
 mode: FAULT
@@ -151,25 +153,20 @@ Potwierdzono:
 - DFR0473 fizycznie przechodzi OFF po zatrzymaniu warstwy host-power,
 - DFR0473 fizycznie przechodzi ON przy starcie warstwy host-power,
 - zależności systemd wymuszają właściwą kolejność `wvc-host-power -> ventilation-core`,
-- znana awaria DAC nie blokuje walidacji domeny 12 V,
+- fizycznie odłączony DAC i inne peryferia nie blokują walidacji domeny 12 V,
 - test nie wykonał restartu ani wyłączenia CM5.
 
-Nie potwierdzono:
+Nie potwierdzono jeszcze:
 
-- fizycznego stanu VOUT0/VOUT1 DFR0971 podczas obecnej awarii I²C,
+- zachowania DFR0971 / VOUT0 / VOUT1 przy pełnym, podłączonym stanowisku,
 - zachowania VOUT0/VOUT1 podczas prawdziwego `poweroff` CM5,
 - pełnej sekwencji GUI shutdown -> DFR0473 OFF -> CM5 poweroff,
 - ponownego startu przez fizyczny `PWR_BUT`.
 
 ## Następny bezpieczny krok
 
-Przed pierwszym pełnym host `poweroff` należy zmierzyć multimetrem rzeczywiste napięcia:
+Do kolejnego testu nie trzeba teraz mierzyć VOUT0/VOUT1, ponieważ DFR0971 jest fizycznie odłączony.
 
-```text
-VOUT0 -> GND
-VOUT1 -> GND
-```
+Przed finalną walidacją pełnego systemu należy ponownie podłączyć BOX/DFR0971 i peryferia, potwierdzić prawidłową komunikację oraz wykonać osobny pomiar/charakterystykę toru 0–10 V przy kontrolowanym shutdown.
 
-przy aktualnym stanie `FAULT / DAC_COMMUNICATION_LOST`.
-
-Dopiero po zapisaniu rzeczywistych napięć można przejść do kontrolowanego testu pełnego POWER OFF i późniejszego startu przez `PWR_BUT`.
+Sam test sekwencji DFR0473 i systemd można uznać za zaliczony.
