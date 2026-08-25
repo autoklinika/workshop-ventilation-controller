@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from ventilation_core.hmi_power import AdbHmiPowerController
+from ventilation_core.hmi_power import AdbHmiPowerController, wait_for_web_state_ready
 
 
 class FakeRunner:
@@ -16,6 +16,19 @@ class FakeRunner:
         if not self.responses:
             raise AssertionError(f"unexpected command: {command!r}")
         return self.responses.pop(0)
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
 
 
 class HmiPowerControllerTest(unittest.TestCase):
@@ -94,6 +107,53 @@ class HmiPowerControllerTest(unittest.TestCase):
         self.assertTrue(controller.wake(strict=True))
         self.assertEqual(sleeps, [0.25])
         self.assertEqual(len(runner.calls), 3)
+
+    def test_web_ready_wait_polls_then_applies_watchdog_settle_window(self) -> None:
+        outcomes = iter([False, False, True])
+        probe_calls: list[tuple[str, float]] = []
+        clock = FakeClock()
+
+        def probe(url: str, timeout_seconds: float) -> bool:
+            probe_calls.append((url, timeout_seconds))
+            return next(outcomes)
+
+        self.assertTrue(
+            wait_for_web_state_ready(
+                url="http://127.0.0.1:18091/api/v1/state",
+                timeout_seconds=5.0,
+                poll_seconds=0.5,
+                request_timeout_seconds=0.25,
+                settle_seconds=4.5,
+                probe=probe,
+                sleeper=clock.sleep,
+                monotonic=clock.monotonic,
+            )
+        )
+        self.assertEqual(len(probe_calls), 3)
+        self.assertEqual(clock.sleeps, [0.5, 0.5, 4.5])
+
+    def test_web_ready_timeout_is_best_effort_and_does_not_settle(self) -> None:
+        clock = FakeClock()
+        probe_calls: list[tuple[str, float]] = []
+
+        def probe(url: str, timeout_seconds: float) -> bool:
+            probe_calls.append((url, timeout_seconds))
+            return False
+
+        self.assertFalse(
+            wait_for_web_state_ready(
+                url="http://127.0.0.1:18091/api/v1/state",
+                timeout_seconds=1.0,
+                poll_seconds=0.5,
+                request_timeout_seconds=0.25,
+                settle_seconds=4.5,
+                probe=probe,
+                sleeper=clock.sleep,
+                monotonic=clock.monotonic,
+            )
+        )
+        self.assertGreaterEqual(len(probe_calls), 2)
+        self.assertEqual(clock.sleeps, [0.5, 0.5])
 
     def test_rejects_invalid_target(self) -> None:
         with self.assertRaisesRegex(ValueError, "host:port"):
