@@ -1,0 +1,31 @@
+[Unit]
+Description=Workshop Ventilation Home Assistant Read-Only API
+After=network-online.target ventilation-core.service
+Wants=network-online.target
+Requires=ventilation-core.service
+
+[Service]
+Type=simple
+User=wentylacja
+Group=wentylacja
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/default/wvc-ha-api
+ExecStart=/usr/bin/python3 -m ventilation_core.ha_api.main
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
