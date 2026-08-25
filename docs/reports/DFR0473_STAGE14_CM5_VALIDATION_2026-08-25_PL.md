@@ -10,7 +10,7 @@ Gałąź:
 agent/power-domain-dfr0473-stage14
 ```
 
-Zweryfikowany HEAD podczas testu:
+Zweryfikowany HEAD podczas pierwszego harnessu:
 
 ```text
 e5e1f95f79542cf8b9c1f0beff0e656899e46087
@@ -22,7 +22,7 @@ Użyty harness:
 tools/install_validate_dfr0473_power_domain_cm5.sh
 ```
 
-Test nie wykonywał `poweroff` ani `reboot` hosta.
+Pierwszy harness nie wykonywał `poweroff` ani `reboot` hosta. Następnie wykonano osobny kontrolowany pełny cykl POWER OFF / POWER ON przy nadal fizycznie odłączonym BOX-ie.
 
 ## Stan wejściowy
 
@@ -141,7 +141,7 @@ output_state_known: false
 
 Harness ponownie zaakceptował wyłącznie jawny stan zdegradowany z `DAC_COMMUNICATION_LOST` i żądanymi setpointami `0.0 / 0.0`.
 
-## Wynik końcowy
+## Wynik harnessu
 
 ```text
 STAGE14 NON-DESTRUCTIVE POWER-DOMAIN VALIDATION: PASS (DAC FAULT DEGRADED)
@@ -154,19 +154,83 @@ Potwierdzono:
 - DFR0473 fizycznie przechodzi ON przy starcie warstwy host-power,
 - zależności systemd wymuszają właściwą kolejność `wvc-host-power -> ventilation-core`,
 - fizycznie odłączony DAC i inne peryferia nie blokują walidacji domeny 12 V,
-- test nie wykonał restartu ani wyłączenia CM5.
+- harness nie wykonał restartu ani wyłączenia CM5.
+
+## Pełny cykl POWER OFF / POWER ON
+
+Po zakończeniu harnessu wykonano pierwszy kontrolowany pełny POWER OFF z aplikacji przy nadal całkowicie odłączonym BOX-ie.
+
+Operator fizycznie potwierdził kluczową kolejność wyłączania:
+
+```text
+DFR0473 OFF / przekaźnik puścił
+-> dopiero później CM5 zgasł
+```
+
+To potwierdza na sprzęcie, że domena 12 V jest odłączana przed pełnym wyłączeniem CM5.
+
+Po ponownym uruchomieniu CM5 bieżący boot pokazał:
+
+```text
+wvc-host-power.service: active
+ventilation-core.service: active
+
+11:26:41 Starting wvc-host-power.service
+11:26:41 12 V power domain commanded ON via DFR0473 line=GPIO22
+11:26:42 Started wvc-host-power.service
+11:26:42 host-power agent listening
+```
+
+Czyli podczas POWER ON warstwa host-power przejmuje GPIO22, załącza DFR0473 i kończy własną inicjalizację przed normalną pracą core.
+
+## Dlaczego brak logów poprzedniego bootu jest oczekiwany
+
+Polecenia:
+
+```text
+journalctl -b -1 ...
+```
+
+zwróciły:
+
+```text
+Specifying boot ID or boot offset has no effect, no persistent journal was found.
+```
+
+To jest zgodne z konfiguracją ochrony eMMC projektu:
+
+```ini
+[Journal]
+Storage=volatile
+```
+
+Systemowy journal jest celowo runtime-only, więc po pełnym power cycle poprzedni boot nie jest dostępny. Weryfikacja kolejności POWER OFF opiera się w tym teście na bezpośredniej fizycznej obserwacji operatora.
+
+## Aktualny wynik etapu
+
+Dla testu z odłączonym BOX-em:
+
+```text
+DFR0473 standalone GPIO22 LOW/HIGH: PASS
+systemd OFF/ON sequencing:          PASS
+GUI POWER OFF -> DFR0473 OFF:      PASS (fizycznie)
+DFR0473 OFF przed CM5 OFF:         PASS (fizycznie)
+boot -> DFR0473 ON:                PASS
+wvc-host-power po boot:            active
+ventilation-core po boot:          active
+```
 
 Nie potwierdzono jeszcze:
 
 - zachowania DFR0971 / VOUT0 / VOUT1 przy pełnym, podłączonym stanowisku,
 - zachowania VOUT0/VOUT1 podczas prawdziwego `poweroff` CM5,
-- pełnej sekwencji GUI shutdown -> DFR0473 OFF -> CM5 poweroff,
-- ponownego startu przez fizyczny `PWR_BUT`.
+- pełnego shutdown z podłączonymi AERO/SEN55/BOX,
+- zachowania krótkiego `PWR_BUT` podczas RUNNING jako ignorowanego wejścia,
+- finalnego zachowania po utracie i powrocie głównego zasilania.
 
-## Następny bezpieczny krok
+## Następne kroki
 
-Do kolejnego testu nie trzeba teraz mierzyć VOUT0/VOUT1, ponieważ DFR0971 jest fizycznie odłączony.
-
-Przed finalną walidacją pełnego systemu należy ponownie podłączyć BOX/DFR0971 i peryferia, potwierdzić prawidłową komunikację oraz wykonać osobny pomiar/charakterystykę toru 0–10 V przy kontrolowanym shutdown.
-
-Sam test sekwencji DFR0473 i systemd można uznać za zaliczony.
+1. Przy nadal odłączonym BOX-ie zwalidować, że krótkie naciśnięcie fizycznego `PWR_BUT` przy działającym Linuxie jest ignorowane i nie powoduje shutdown/reboot.
+2. Później, po ponownym podłączeniu BOX/DFR0971 i peryferiów, potwierdzić prawidłową komunikację.
+3. Wykonać osobną walidację toru 0–10 V podczas kontrolowanego shutdown przy podłączonym DAC.
+4. Powtórzyć pełny shutdown z podłączonymi peryferiami i potwierdzić, że ich brak komunikacji nie blokuje wyłączenia.
