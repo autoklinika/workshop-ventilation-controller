@@ -49,6 +49,21 @@ class HmiPowerControllerTest(unittest.TestCase):
         self.assertTrue(controller.wake(strict=True))
         self.assertEqual(runner.calls[1][0][-2:], ("keyevent", "224"))
 
+    def test_wake_accepts_connection_after_adb_daemon_start_messages(self) -> None:
+        runner = FakeRunner([
+            (
+                0,
+                "* daemon not running; starting now at tcp:5037\n"
+                "* daemon started successfully\n"
+                "connected to 192.168.1.39:5555",
+            ),
+            (0, ""),
+        ])
+        controller = AdbHmiPowerController(runner=runner)
+
+        self.assertTrue(controller.wake(strict=True))
+        self.assertEqual(len(runner.calls), 2)
+
     def test_non_strict_failure_is_non_blocking(self) -> None:
         runner = FakeRunner([(0, "unable to connect to 192.168.1.39:5555")])
         controller = AdbHmiPowerController(runner=runner)
