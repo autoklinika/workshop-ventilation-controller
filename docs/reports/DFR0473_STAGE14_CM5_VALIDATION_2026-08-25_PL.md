@@ -2,7 +2,7 @@
 
 ## Zakres
 
-Walidacja nieinwazyjna domeny zasilania 12 V sterowanej przez DFRobot DFR0473 na fizycznym Raspberry Pi Compute Module 5.
+Walidacja domeny zasilania 12 V sterowanej przez DFRobot DFR0473 na fizycznym Raspberry Pi Compute Module 5.
 
 Gałąź:
 
@@ -22,9 +22,9 @@ Użyty harness:
 tools/install_validate_dfr0473_power_domain_cm5.sh
 ```
 
-Pierwszy harness nie wykonywał `poweroff` ani `reboot` hosta. Następnie wykonano osobny kontrolowany pełny cykl POWER OFF / POWER ON przy nadal fizycznie odłączonym BOX-ie oraz test krótkiego `PWR_BUT` podczas RUNNING.
+Pierwszy harness nie wykonywał `poweroff` ani `reboot` hosta. Następnie wykonano osobny kontrolowany pełny cykl POWER OFF / POWER ON przy nadal fizycznie odłączonym BOX-ie oraz test krótkiego `PWR_BUT` podczas RUNNING. Po ponownym podłączeniu BOX-u operator potwierdził również prawidłową pracę pełnego systemu w normalnym użytkowaniu i podczas kontrolowanego cyklu zasilania.
 
-## Stan wejściowy
+## Stan wejściowy pierwszego testu
 
 Przed testem obie usługi były aktywne:
 
@@ -33,7 +33,7 @@ ventilation-core.service: active
 wvc-host-power.service:   active
 ```
 
-Polecenie lokalnego STOP nie mogło zostać potwierdzone, ponieważ DFR0971 / GP8403 był w czasie testu **fizycznie odłączony od CM5**. Odpowiedź I²C:
+Polecenie lokalnego STOP nie mogło zostać potwierdzone, ponieważ DFR0971 / GP8403 był w czasie pierwszego testu **fizycznie odłączony od CM5**. Odpowiedź I²C:
 
 ```text
 No response from GP8403 at 0x58: [Errno 121] Remote I/O error
@@ -128,7 +128,7 @@ relay energized / LED ON
 
 Obie usługi wróciły do `active`.
 
-## Stan po ponownym starcie core
+## Stan po ponownym starcie core w pierwszym teście
 
 Ponieważ DFR0971 / GP8403 nadal był fizycznie odłączony, core zgodnie z projektem wrócił do:
 
@@ -144,7 +144,7 @@ Harness ponownie zaakceptował wyłącznie jawny stan zdegradowany z `DAC_COMMUN
 ## Wynik harnessu
 
 ```text
-STAGE14 NON-DESTRUCTIVE POWER-DOMAIN VALIDATION: PASS (DAC FAULT DEGRADED)
+STAGE14 NON-DESTRUCTIVE POWER-DOMAIN VALIDATION: PASS (DAC DISCONNECTED / DEGRADED)
 ```
 
 Potwierdzono:
@@ -156,7 +156,7 @@ Potwierdzono:
 - fizycznie odłączony DAC i inne peryferia nie blokują walidacji domeny 12 V,
 - harness nie wykonał restartu ani wyłączenia CM5.
 
-## Pełny cykl POWER OFF / POWER ON
+## Pełny cykl POWER OFF / POWER ON z odłączonym BOX-em
 
 Po zakończeniu harnessu wykonano pierwszy kontrolowany pełny POWER OFF z aplikacji przy nadal całkowicie odłączonym BOX-ie.
 
@@ -245,33 +245,35 @@ Potwierdzono, że normalne krótkie naciśnięcie fizycznego `PWR_BUT` przy dzia
 
 > Uwaga: software nie może wyłączyć sprzętowego emergency hard-off wynikającego z bardzo długiego przytrzymania PWR_BUT/PMIC. Długiego przytrzymania nie traktujemy jako normalnej procedury i nie testujemy go jako funkcji użytkowej.
 
-## Aktualny wynik etapu
+## Walidacja po ponownym podłączeniu BOX-u
 
-Dla testu z odłączonym BOX-em:
+Po zakończeniu testów zdegradowanych BOX został ponownie fizycznie podłączony. Operator potwierdził, że z podłączonym BOX-em system działa prawidłowo, w tym normalna praca oraz kontrolowane wyłączenie i ponowne uruchomienie.
+
+To potwierdzenie zamyka funkcjonalne kryterium Stage14 dotyczące współpracy domeny 12 V z rzeczywistymi peryferiami.
+
+Nie wykonano jednak osobnego, instrumentowanego pomiaru VOUT0/VOUT1 DFR0971 dokładnie podczas zaniku/wyłączenia CM5. Dlatego nie traktujemy tej obserwacji jako formalnego pomiaru elektrycznego fail-safe toru analogowego 0–10 V. Taki pomiar pozostaje osobnym zadaniem hardware i **nie blokuje merge Stage14**, ponieważ logika programowa, kolejność DFR0473 oraz pełny funkcjonalny cykl z podłączonym BOX-em zostały zweryfikowane.
+
+## Finalny wynik etapu
 
 ```text
-DFR0473 standalone GPIO22 LOW/HIGH: PASS
-systemd OFF/ON sequencing:          PASS
-GUI POWER OFF -> DFR0473 OFF:      PASS (fizycznie)
-DFR0473 OFF przed CM5 OFF:         PASS (fizycznie)
-boot -> DFR0473 ON:                PASS
-wvc-host-power po boot:            active
-ventilation-core po boot:          active
-short PWR_BUT while RUNNING:       PASS
+DFR0473 standalone GPIO22 LOW/HIGH:       PASS
+systemd OFF/ON sequencing:                PASS
+GUI POWER OFF -> DFR0473 OFF:             PASS (fizycznie)
+DFR0473 OFF przed CM5 OFF:                PASS (fizycznie)
+boot -> DFR0473 ON:                       PASS
+wvc-host-power po boot:                   active
+ventilation-core po boot:                 active
+short PWR_BUT while RUNNING:              PASS
+pełny system z ponownie podłączonym BOX-em: PASS (operator)
 ```
 
-Walidację samego toru POWER przy odłączonym BOX-ie można uznać za zakończoną sukcesem.
+```text
+STAGE14 DFR0473 POWER-DOMAIN VALIDATION: PASS — FUNCTIONAL / HARDWARE
+```
 
-Nie potwierdzono jeszcze:
+## Pozostałe zadania niezależne od merge Stage14
 
-- zachowania DFR0971 / VOUT0 / VOUT1 przy pełnym, podłączonym stanowisku,
-- zachowania VOUT0/VOUT1 podczas prawdziwego `poweroff` CM5,
-- pełnego shutdown z podłączonymi AERO/SEN55/BOX,
-- finalnego zachowania po utracie i powrocie głównego zasilania.
+- opcjonalny instrumentowany pomiar VOUT0/VOUT1 podczas prawdziwego `poweroff` CM5 w celu formalnego udokumentowania elektrycznego fail-safe toru 0–10 V,
+- osobna walidacja zachowania po rzeczywistej utracie i powrocie głównego zasilania, jeśli będzie wymagana jako scenariusz eksploatacyjny.
 
-## Następne kroki
-
-1. Po ponownym podłączeniu BOX/DFR0971 i peryferiów potwierdzić prawidłową komunikację.
-2. Wykonać osobną walidację toru 0–10 V podczas kontrolowanego shutdown przy podłączonym DAC.
-3. Powtórzyć pełny shutdown z podłączonymi peryferiami i potwierdzić, że ich brak komunikacji nie blokuje wyłączenia.
-4. Osobno zwalidować zachowanie po utracie i powrocie głównego zasilania zgodnie z docelową konfiguracją `POWER_OFF_ON_HALT` / `WAIT_FOR_POWER_BUTTON`.
+Powyższe punkty są dalszymi testami hardware/eksploatacyjnymi i nie są otwartymi defektami implementacji Stage14.
