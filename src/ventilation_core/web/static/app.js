@@ -72,7 +72,7 @@ function renderState(state) {
   ui.sensorBusHealth.textContent = sensorBus && sensorBus.ready && sensorBus.worker_alive ? "OK" : "NIEDOSTĘPNY";
   const aero = state.aero_bus; renderAero(aero); ui.aeroBusHealth.textContent = aero && aero.ready && aero.worker_alive && aero.online && aero.usable ? "OK" : "NIEDOSTĘPNY";
   syncDraftFromCore(state); ui.lastRefresh.textContent = new Intl.DateTimeFormat("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
-  const fanDisabled = !state.hardware_ready || !state.output_state_known || (Array.isArray(state.active_alarms) && state.active_alarms.length > 0) || fanCommandPending;
+  const fanDisabled = !state.hardware_ready || !state.output_state_known || fanCommandPending;
   ui.applyFansButton.disabled = fanDisabled; ui.stopFansButton.disabled = fanCommandPending; ui.supplyToggle.disabled = fanDisabled; ui.extractToggle.disabled = fanDisabled;
 }
 async function requestJson(path, options = {}) {

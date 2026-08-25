@@ -1,0 +1,36 @@
+[Unit]
+Description=Workshop Ventilation HMI Sleep/Wake Agent
+Wants=network-online.target wvc-web-ui.service
+After=network-online.target wvc-web-ui.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=wentylacja
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/var/lib/wvc-hmi-power
+EnvironmentFile=/etc/workshop-ventilation/hmi-power.env
+EnvironmentFile=-/etc/default/wvc-web-ui
+StateDirectory=wvc-hmi-power
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 -m ventilation_core.hmi_power wake --target ${WVC_HMI_ADB_TARGET} --adb /usr/bin/adb --timeout 1.5 --attempts 4 --retry-delay 1.0 --wait-web-ready --web-ready-timeout 15 --web-ready-poll 0.5 --web-ready-request-timeout 0.75 --web-settle 4.5 --log-level INFO
+ExecStop=/usr/bin/python3 -m ventilation_core.hmi_power sleep --target ${WVC_HMI_ADB_TARGET} --adb /usr/bin/adb --timeout 1.5 --attempts 2 --retry-delay 0.5 --log-level INFO
+TimeoutStartSec=40
+TimeoutStopSec=8
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
