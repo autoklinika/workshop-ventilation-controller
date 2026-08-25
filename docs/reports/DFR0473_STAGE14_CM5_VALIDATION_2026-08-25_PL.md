@@ -22,7 +22,7 @@ Użyty harness:
 tools/install_validate_dfr0473_power_domain_cm5.sh
 ```
 
-Pierwszy harness nie wykonywał `poweroff` ani `reboot` hosta. Następnie wykonano osobny kontrolowany pełny cykl POWER OFF / POWER ON przy nadal fizycznie odłączonym BOX-ie.
+Pierwszy harness nie wykonywał `poweroff` ani `reboot` hosta. Następnie wykonano osobny kontrolowany pełny cykl POWER OFF / POWER ON przy nadal fizycznie odłączonym BOX-ie oraz test krótkiego `PWR_BUT` podczas RUNNING.
 
 ## Stan wejściowy
 
@@ -206,6 +206,45 @@ Storage=volatile
 
 Systemowy journal jest celowo runtime-only, więc po pełnym power cycle poprzedni boot nie jest dostępny. Weryfikacja kolejności POWER OFF opiera się w tym teście na bezpośredniej fizycznej obserwacji operatora.
 
+## Test krótkiego PWR_BUT podczas RUNNING
+
+Po ponownym uruchomieniu CM5 zweryfikowano aktywną konfigurację logind:
+
+```text
+#HandlePowerKey=poweroff
+#HandlePowerKeyLongPress=ignore
+HandlePowerKey=ignore
+HandlePowerKeyLongPress=ignore
+```
+
+Stan przed krótkim naciśnięciem fizycznego przycisku POWER:
+
+```text
+11:31:02 up 4 min
+wvc-host-power.service: active
+ventilation-core.service: active
+```
+
+Po krótkim naciśnięciu `PWR_BUT`:
+
+```text
+11:31:13 up 4 min
+wvc-host-power.service: active
+ventilation-core.service: active
+```
+
+Uptime nie został przerwany, sesja pozostała aktywna, a obie kluczowe usługi pozostały `active`.
+
+Wynik:
+
+```text
+SHORT PWR_BUT WHILE RUNNING: PASS
+```
+
+Potwierdzono, że normalne krótkie naciśnięcie fizycznego `PWR_BUT` przy działającym Linuxie jest ignorowane i nie tworzy alternatywnej ścieżki shutdown poza `wvc-host-power`.
+
+> Uwaga: software nie może wyłączyć sprzętowego emergency hard-off wynikającego z bardzo długiego przytrzymania PWR_BUT/PMIC. Długiego przytrzymania nie traktujemy jako normalnej procedury i nie testujemy go jako funkcji użytkowej.
+
 ## Aktualny wynik etapu
 
 Dla testu z odłączonym BOX-em:
@@ -218,19 +257,21 @@ DFR0473 OFF przed CM5 OFF:         PASS (fizycznie)
 boot -> DFR0473 ON:                PASS
 wvc-host-power po boot:            active
 ventilation-core po boot:          active
+short PWR_BUT while RUNNING:       PASS
 ```
+
+Walidację samego toru POWER przy odłączonym BOX-ie można uznać za zakończoną sukcesem.
 
 Nie potwierdzono jeszcze:
 
 - zachowania DFR0971 / VOUT0 / VOUT1 przy pełnym, podłączonym stanowisku,
 - zachowania VOUT0/VOUT1 podczas prawdziwego `poweroff` CM5,
 - pełnego shutdown z podłączonymi AERO/SEN55/BOX,
-- zachowania krótkiego `PWR_BUT` podczas RUNNING jako ignorowanego wejścia,
 - finalnego zachowania po utracie i powrocie głównego zasilania.
 
 ## Następne kroki
 
-1. Przy nadal odłączonym BOX-ie zwalidować, że krótkie naciśnięcie fizycznego `PWR_BUT` przy działającym Linuxie jest ignorowane i nie powoduje shutdown/reboot.
-2. Później, po ponownym podłączeniu BOX/DFR0971 i peryferiów, potwierdzić prawidłową komunikację.
-3. Wykonać osobną walidację toru 0–10 V podczas kontrolowanego shutdown przy podłączonym DAC.
-4. Powtórzyć pełny shutdown z podłączonymi peryferiami i potwierdzić, że ich brak komunikacji nie blokuje wyłączenia.
+1. Po ponownym podłączeniu BOX/DFR0971 i peryferiów potwierdzić prawidłową komunikację.
+2. Wykonać osobną walidację toru 0–10 V podczas kontrolowanego shutdown przy podłączonym DAC.
+3. Powtórzyć pełny shutdown z podłączonymi peryferiami i potwierdzić, że ich brak komunikacji nie blokuje wyłączenia.
+4. Osobno zwalidować zachowanie po utracie i powrocie głównego zasilania zgodnie z docelową konfiguracją `POWER_OFF_ON_HALT` / `WAIT_FOR_POWER_BUTTON`.
