@@ -1,0 +1,126 @@
+# Workshop Ventilation Controller -> Home Assistant
+# READ-ONLY integration example.
+#
+# This configuration performs only HTTP GET requests against the dedicated
+# wvc-ha-api service. Do not add rest_command, command_line writes, switches,
+# buttons, numbers, selects or any other HA control path for WVC.
+#
+# Replace 192.168.1.64 if the CM5 address changes.
+
+rest:
+  - resource: "http://192.168.1.64:8082/api/ha/v1/snapshot"
+    method: GET
+    scan_interval: 10
+    timeout: 3
+
+    sensor:
+      - name: "WVC Mode"
+        unique_id: wvc_mode
+        value_template: "{{ value_json.mode }}"
+
+      - name: "WVC Active Alerts"
+        unique_id: wvc_active_alerts
+        value_template: "{{ value_json.alerts.active_count }}"
+
+      - name: "WVC Alert Set"
+        unique_id: wvc_alert_set
+        value_template: >-
+          {{ value_json.alerts.active_ids | join(',') if value_json.alerts.active_ids else 'none' }}
+        json_attributes_path: "$.alerts"
+        json_attributes:
+          - active_count
+          - active_weight
+          - hmi_color
+          - policy_version
+          - control_policy_applied
+          - active
+
+      - name: "WVC Alert Weight"
+        unique_id: wvc_alert_weight
+        value_template: "{{ value_json.alerts.active_weight }}"
+
+      - name: "WVC Sensor 1 Temperature"
+        unique_id: wvc_sensor_1_temperature
+        device_class: temperature
+        unit_of_measurement: "°C"
+        value_template: "{{ value_json.sensor_bus.nodes['1'].temperature_celsius }}"
+
+      - name: "WVC Sensor 1 Humidity"
+        unique_id: wvc_sensor_1_humidity
+        device_class: humidity
+        unit_of_measurement: "%"
+        value_template: "{{ value_json.sensor_bus.nodes['1'].humidity_percent }}"
+
+      - name: "WVC Sensor 1 PM2.5"
+        unique_id: wvc_sensor_1_pm25
+        device_class: pm25
+        unit_of_measurement: "µg/m³"
+        value_template: "{{ value_json.sensor_bus.nodes['1'].pm2_5_ug_m3 }}"
+
+      - name: "WVC Sensor 1 VOC Index"
+        unique_id: wvc_sensor_1_voc_index
+        value_template: "{{ value_json.sensor_bus.nodes['1'].voc_index }}"
+
+      - name: "WVC Sensor 1 NOx Index"
+        unique_id: wvc_sensor_1_nox_index
+        value_template: "{{ value_json.sensor_bus.nodes['1'].nox_index }}"
+
+      - name: "WVC Sensor 2 Temperature"
+        unique_id: wvc_sensor_2_temperature
+        device_class: temperature
+        unit_of_measurement: "°C"
+        value_template: "{{ value_json.sensor_bus.nodes['2'].temperature_celsius }}"
+
+      - name: "WVC Sensor 2 Humidity"
+        unique_id: wvc_sensor_2_humidity
+        device_class: humidity
+        unit_of_measurement: "%"
+        value_template: "{{ value_json.sensor_bus.nodes['2'].humidity_percent }}"
+
+      - name: "WVC Sensor 2 PM2.5"
+        unique_id: wvc_sensor_2_pm25
+        device_class: pm25
+        unit_of_measurement: "µg/m³"
+        value_template: "{{ value_json.sensor_bus.nodes['2'].pm2_5_ug_m3 }}"
+
+      - name: "WVC Sensor 2 VOC Index"
+        unique_id: wvc_sensor_2_voc_index
+        value_template: "{{ value_json.sensor_bus.nodes['2'].voc_index }}"
+
+      - name: "WVC Sensor 2 NOx Index"
+        unique_id: wvc_sensor_2_nox_index
+        value_template: "{{ value_json.sensor_bus.nodes['2'].nox_index }}"
+
+      - name: "WVC Supply RPM"
+        unique_id: wvc_supply_rpm
+        unit_of_measurement: "rpm"
+        value_template: "{{ value_json.fans.supply.rpm }}"
+
+      - name: "WVC Extract RPM"
+        unique_id: wvc_extract_rpm
+        unit_of_measurement: "rpm"
+        value_template: "{{ value_json.fans.extract.rpm }}"
+
+    binary_sensor:
+      - name: "WVC Hardware Ready"
+        unique_id: wvc_hardware_ready
+        value_template: "{{ value_json.hardware_ready == true }}"
+
+      - name: "WVC Output State Known"
+        unique_id: wvc_output_state_known
+        value_template: "{{ value_json.output_state_known == true }}"
+
+      - name: "WVC Sensor Bus Ready"
+        unique_id: wvc_sensor_bus_ready
+        device_class: connectivity
+        value_template: "{{ value_json.sensor_bus.ready == true and value_json.sensor_bus.worker_alive == true }}"
+
+      - name: "WVC AERO Online"
+        unique_id: wvc_aero_online
+        device_class: connectivity
+        value_template: "{{ value_json.aero.online == true }}"
+
+      - name: "WVC Zigbee Connected"
+        unique_id: wvc_zigbee_connected
+        device_class: connectivity
+        value_template: "{{ value_json.zigbee.connected == true }}"
