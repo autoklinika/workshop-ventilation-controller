@@ -4,6 +4,8 @@
 
 Projektowana integracja Home Assistant ma charakter wyłącznie obserwacyjny. Home Assistant nie jest elementem sterowania Workshop Ventilation Controller i nie może zmieniać stanu instalacji ani wykonywać operacji operatorskich.
 
+Status na 2026-08-26: warstwa `wvc-ha-api` została zwalidowana programowo w CI oraz fizycznie na rzeczywistym CM5 w odseparowanym worktree, bez zmiany produkcyjnego `main`.
+
 ## Twardy niezmiennik architektury
 
 ```text
@@ -75,6 +77,30 @@ Odpowiedź zawiera między innymi:
 
 `active_ids` pozwala Home Assistantowi wykrywać zmianę zestawu aktywnych alertów bez reagowania na sam wzrost licznika `occurrences` trwającej awarii.
 
+## Walidacja na rzeczywistym CM5 — 2026-08-26
+
+Test wykonano z odseparowanego worktree `wvc-ha-readonly-test`, podczas gdy produkcyjny checkout pozostał na:
+
+```text
+branch: main
+HEAD: d8ed6761882faba5e79f0c1d0d4133a769db508a
+```
+
+Zweryfikowano:
+
+- 11/11 dedykowanych testów HA PASS na CM5,
+- `GET /api/ha/v1/snapshot` -> `200 OK`,
+- snapshot zawierał rzeczywiste dane obu SEN55, TACHO, AERO, Zigbee i AlertV2,
+- `read_only = true`,
+- `schema_version = 1`,
+- `POST /api/ha/v1/snapshot` -> `405 Method Not Allowed`,
+- nagłówek `Allow: GET`,
+- wcześniejsze testy `PUT`, `PATCH`, `DELETE` również -> `405`,
+- nieznana trasa sterująca `/api/ha/v1/manual/fans` -> `404`,
+- po testach `ventilation-core` pozostał zdrowy i nie wykonał żadnej komendy sterującej z warstwy HA.
+
+Podczas testu AERO było fizycznie odłączone, dlatego aktywny `AERO_BUS_UNAVAILABLE` był oczekiwanym stanem diagnostycznym i potwierdził, że AlertV2 jest poprawnie przenoszony do `/snapshot`.
+
 ## Home Assistant
 
 Przykład konfiguracji znajduje się w:
@@ -84,6 +110,8 @@ deploy/home-assistant/wvc-readonly-rest.yaml.example
 ```
 
 Konfiguracja HA ma używać wyłącznie `GET` do `/api/ha/v1/snapshot`. Nie należy dodawać dla WVC `rest_command`, switchy, buttonów, number/select ani innych encji wykonujących zapis.
+
+Przykład korzysta z jednego współdzielonego odczytu REST i tworzy z niego wiele encji. Dodatkowe encje `WVC Alarm Active` i `WVC Critical Alert` są jedynie projekcjami gotowego wyniku AlertV2 (`active_count`, `active_weight`); Home Assistant nie implementuje własnych progów ani reguł wykrywania awarii WVC.
 
 ## Izolacja sieciowa
 
