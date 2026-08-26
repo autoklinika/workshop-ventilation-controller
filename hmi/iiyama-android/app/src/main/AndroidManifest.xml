@@ -10,6 +10,7 @@
         android:required="true" />
 
     <application
+        android:name=".HmiApplication"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:label="Workshop Ventilation HMI"
