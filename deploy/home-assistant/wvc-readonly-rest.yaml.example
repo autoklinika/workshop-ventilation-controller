@@ -5,6 +5,8 @@
 # wvc-ha-api service. Do not add rest_command, command_line writes, switches,
 # buttons, numbers, selects or any other HA control path for WVC.
 #
+# Production service default: CM5:8082.
+# Port 18082 is used only for isolated worktree/manual validation.
 # Replace 192.168.1.64 if the CM5 address changes.
 
 rest:
@@ -22,6 +24,9 @@ rest:
         unique_id: wvc_active_alerts
         value_template: "{{ value_json.alerts.active_count }}"
 
+      # State changes whenever the set of active AlertV2 episodes changes.
+      # The complete active-alert payload is retained as attributes for
+      # dashboards/notification automations without reproducing alert rules in HA.
       - name: "WVC Alert Set"
         unique_id: wvc_alert_set
         value_template: >-
@@ -29,6 +34,7 @@ rest:
         json_attributes_path: "$.alerts"
         json_attributes:
           - active_count
+          - active_ids
           - active_weight
           - hmi_color
           - policy_version
@@ -124,3 +130,14 @@ rest:
         unique_id: wvc_zigbee_connected
         device_class: connectivity
         value_template: "{{ value_json.zigbee.connected == true }}"
+
+      # These are projections of AlertV2 output, not HA-owned alarm rules.
+      - name: "WVC Alarm Active"
+        unique_id: wvc_alarm_active
+        device_class: problem
+        value_template: "{{ value_json.alerts.active_count | int(0) > 0 }}"
+
+      - name: "WVC Critical Alert"
+        unique_id: wvc_critical_alert
+        device_class: problem
+        value_template: "{{ value_json.alerts.active_weight | int(0) >= 4 }}"
