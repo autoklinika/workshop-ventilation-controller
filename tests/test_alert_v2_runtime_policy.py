@@ -86,7 +86,7 @@ class AlertV2RuntimePolicyTests(unittest.TestCase):
         metadata = manager.metadata()
         self.assertTrue(metadata["loaded"])
         self.assertEqual(metadata["runtime_mode"], "read_only_mapping")
-        self.assertEqual(metadata["policy_version"], "2026-08-21.1")
+        self.assertEqual(metadata["policy_version"], "2026-08-21.2")
         self.assertEqual(metadata["alert_count"], 50)
         self.assertEqual(len(metadata["sha256"]), 64)
         self.assertFalse(metadata["control_policy_applied"])
@@ -140,7 +140,7 @@ class AlertV2RuntimePolicyTests(unittest.TestCase):
         service = AlertV2ReadOnlyPolicyService(_FakeService(), manager)
 
         state = service.state().to_dict()
-        self.assertEqual(state["alert_v2"]["policy_version"], "2026-08-21.1")
+        self.assertEqual(state["alert_v2"]["policy_version"], "2026-08-21.2")
         self.assertEqual(len(state["alert_v2"]["sha256"]), 64)
         self.assertEqual(state["alert_v2"]["active_weight"], 4)
         self.assertEqual(state["alert_v2"]["hmi_color"], "red")
