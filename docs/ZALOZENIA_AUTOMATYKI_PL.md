@@ -621,3 +621,188 @@ Pierwszy etap kodowania powinien obejmować:
 10. shadow mode bez wpływu nowej logiki na fizyczne wyjścia.
 
 Po poprawnej walidacji tego etapu będzie można rozpocząć strojenie rzeczywistych poziomów oraz bezpiecznie włączać sterowanie automatyczne na fizycznych wentylatorach.
+
+### 16.14. Harmonogram wielopoziomowy — rok, miesiące, tygodnie i dni
+
+Harmonogram nie może być ograniczony wyłącznie do dni tygodnia. Powinien umożliwiać opis normalnego cyklu pracy obiektu w skali całego roku.
+
+Model harmonogramu powinien obejmować:
+
+1. **bazowy harmonogram tygodniowy** — typowe godziny pracy dla poszczególnych dni tygodnia,
+2. **zakresy dat** — czasowe profile obowiązujące od konkretnej daty do konkretnej daty,
+3. **miesiące / sezony** — wybór profilu sezonowego, np. ZIMA / WIOSNA / LATO / JESIEŃ,
+4. **tygodnie roku** — jako wygodny sposób edycji lub wyboru zakresu, ale nie jako jedyny mechanizm adresowania czasu,
+5. **wyjątki roczne i konkretne daty** — święta, dni zamknięcia, urlopy zakładowe, dni serwisowe i inne odstępstwa.
+
+Technicznie podstawowym mechanizmem powinny być daty i zakresy dat. Numery tygodni mogą być prezentowane w GUI jako wygodna forma wyboru, ponieważ tygodnie na przełomie roku mogą być niejednoznaczne.
+
+### 16.15. Bazowy harmonogram tygodniowy
+
+Każdy dzień powinien umożliwiać zdefiniowanie co najmniej godziny rozpoczęcia i zakończenia pracy oraz wybranego trybu harmonogramowego.
+
+Przykład:
+
+| Dzień | Start | Koniec | Tryb |
+|---|---:|---:|---|
+| Poniedziałek–Piątek | 06:30 | 18:00 | `AUTO` |
+| Sobota | 08:00 | 14:00 | `AUTO` |
+| Niedziela | — | — | `STANDBY` |
+
+Model danych powinien umożliwiać więcej niż jeden przedział czasu w ciągu jednego dnia, np. `06:30–12:00` oraz `13:00–18:00`.
+
+### 16.16. Znaczenie trybów harmonogramowych
+
+Harmonogram nie powinien ustawiać stanu `MANUAL`, ponieważ `MANUAL` ma jednoznacznie oznaczać świadome przejęcie sterowania przez operatora.
+
+Do harmonogramu należy przewidzieć co najmniej:
+
+- `AUTO` — harmonogram określa aktywność obiektu i poziom bazowy, a rzeczywistą wydajność ustala automatyka na podstawie pomiarów,
+- `FIXED` / `SCHEDULED_FIXED` — harmonogram narzuca skonfigurowany poziom bazowy lub zadany poziom pracy,
+- `STANDBY` — obiekt jest poza normalnymi godzinami pracy, ale pomiary, AlertV2 i nadrzędne reakcje bezpieczeństwa pozostają aktywne,
+- `OFF` — świadome wyłączenie funkcji wentylacji w zakresie dozwolonym przez politykę bezpieczeństwa; nie oznacza zatrzymania pomiarów ani warstwy bezpieczeństwa,
+- `MANUAL` — wyłącznie ręczne przejęcie przez operatora, niezależne od harmonogramu.
+
+Ta separacja ma być zachowana w modelu danych, API, GUI i logach diagnostycznych.
+
+### 16.17. Semantyka godzin ON / OFF
+
+Godziny `ON` i `OFF` nie powinny oznaczać fizycznego włączenia i wyłączenia całego systemu.
+
+`ON` oznacza początek aktywnego okresu pracy obiektu, a `OFF` oznacza koniec tego okresu. Na tej podstawie core może automatycznie wyznaczać `PREVENTILATION` i `PURGE`.
+
+Przykład:
+
+```text
+start_pracy: 07:00
+koniec_pracy: 17:00
+preventilation: 30 min
+purge: 30 min
+```
+
+Core interpretuje to jako:
+
+```text
+06:30 PREVENTILATION
+07:00 AUTO/NORMAL
+17:00 PURGE
+17:30 STANDBY
+```
+
+Dzięki temu operator nie musi osobno wpisywać czterech godzin dla jednego dnia pracy.
+
+### 16.18. Profile sezonowe i miesięczne
+
+Rok powinien umożliwiać przypisanie profili sezonowych, np. `ZIMA`, `WIOSNA`, `LATO`, `JESIEŃ`.
+
+Profil sezonowy nie powinien bezpośrednio sterować wentylatorami. Powinien wybierać zestaw parametrów automatyki, np.:
+
+- minimalne poziomy wentylacji,
+- wpływ temperatury na ograniczenie bazowego przepływu,
+- czasy `PREVENTILATION` i `PURGE`,
+- progi lub parametry strategii oszczędzania ciepła.
+
+Przykładowo profil `ZIMA` może stosować niższe minimum i silniejszą ochronę cieplną przy dobrym powietrzu, natomiast `LATO` może pozwalać na większą wymianę bez ograniczeń temperaturowych.
+
+### 16.19. Wyjątki, święta i okresy specjalne
+
+System musi umożliwiać definiowanie wyjątków o wyższym priorytecie niż standardowy harmonogram tygodniowy.
+
+Przykłady:
+
+- święto ustawowo wolne,
+- pojedynczy dzień zamknięcia,
+- urlop zakładowy,
+- dzień serwisowy,
+- niestandardowe godziny pracy,
+- czasowy profil wakacyjny.
+
+Przykładowo zakres `2026-08-10`–`2026-08-23` może wymusić profil `STANDBY` niezależnie od tego, że bazowo są to dni robocze.
+
+### 16.20. Hierarchia rozstrzygania harmonogramu
+
+Przy nakładaniu się reguł scheduler powinien stosować jednoznaczną hierarchię:
+
+1. wyjątek dla konkretnej daty,
+2. specjalny zakres dat / profil okresowy,
+3. profil sezonowy / miesięczny,
+4. bazowy harmonogram tygodniowy,
+5. profil domyślny.
+
+Ponad harmonogramem znajduje się ręczny override operatora `MANUAL`, natomiast ponad nim pozostaje warstwa `SAFETY / EMERGENCY`.
+
+Koncepcyjnie:
+
+`SAFETY > MANUAL_OVERRIDE > DATE_EXCEPTION > PERIOD_PROFILE > SEASON_PROFILE > WEEKLY_SCHEDULE > DEFAULT`
+
+Przy czym warstwa bezpieczeństwa może nadpisać nawet ręczne ustawienie operatora.
+
+### 16.21. Czasowy override operatora
+
+Ręczne przejęcie sterowania powinno mieć możliwość ustawienia czasu wygaśnięcia.
+
+Przykład:
+
+`MANUAL: nawiew 60%, wyciąg 65%, przez 2 godziny`
+
+Po upływie czasu system automatycznie wraca do aktualnie obowiązującego harmonogramu.
+
+Core powinien jednocześnie raportować aktywny override oraz to, co wynikałoby z harmonogramu bez override'u, np.:
+
+```text
+control_mode: MANUAL
+manual_supply_pct: 60
+manual_extract_pct: 65
+manual_until: 2026-08-27T15:30:00+02:00
+scheduled_mode: AUTO
+scheduled_profile: NORMAL_WORKDAY
+```
+
+Override bez czasu wygaśnięcia może być dopuszczony wyłącznie jako świadoma opcja operatorska i powinien być wyraźnie sygnalizowany w GUI.
+
+### 16.22. Przykładowe profile harmonogramowe
+
+Przykład typowego dnia roboczego:
+
+```text
+profile: NORMAL_WORKDAY
+applies_to: MON-FRI
+start_work: 07:00
+end_work: 17:00
+preventilation: 30 min
+purge: 30 min
+control_mode: AUTO
+minimum_supply_pct: 25
+minimum_extract_pct: 30
+```
+
+Przykład dnia specjalnego:
+
+```text
+profile: SERVICE_DAY
+date: 2026-09-12
+start_work: 08:00
+end_work: 13:00
+control_mode: FIXED
+supply_pct: 35
+extract_pct: 40
+```
+
+### 16.23. Wymagania diagnostyczne schedulera
+
+Core powinien publikować co najmniej:
+
+- aktualny czas lokalny i strefę czasową,
+- aktywny profil harmonogramowy,
+- źródło wybranej reguły (`weekly`, `season`, `date_range`, `date_exception`, `manual_override`),
+- aktualny tryb (`AUTO`, `FIXED`, `STANDBY`, `OFF`, `MANUAL`),
+- czas rozpoczęcia i zakończenia aktywnego przedziału,
+- czas następnego przejścia harmonogramu,
+- aktywny profil sezonowy,
+- informację o aktywnym wyjątku,
+- stan i czas wygaśnięcia ręcznego override'u.
+
+Scheduler powinien korzystać z lokalnej strefy czasowej systemu i poprawnie obsługiwać zmianę czasu letniego/zimowego.
+
+### 16.24. Zasada projektowa schedulera
+
+Harmonogram nie jest jedynie zegarem ON/OFF. Jest warstwą opisującą **kiedy i w jakim profilu obiekt ma pracować**, natomiast `ventilation-core` nadal podejmuje końcową decyzję o wydajności na podstawie harmonogramu, jakości powietrza, temperatury, stanu urządzeń i warstwy bezpieczeństwa.
