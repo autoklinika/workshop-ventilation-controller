@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import unittest
 
 from ventilation_core.application.power_scheduler import (
+    HOST_POWER_REQUEST_FAILED,
     RTC_WAKE_ARM_FAILED,
     PowerScheduler,
 )
@@ -33,27 +34,62 @@ class FakeCalendar:
 
 
 class FakeRtc:
-    def __init__(self, *, fail: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail: Exception | None = None,
+        verified: bool = True,
+        verified_epoch_delta: int = 0,
+        clear_fail: Exception | None = None,
+    ) -> None:
         self.fail = fail
+        self.verified = verified
+        self.verified_epoch_delta = verified_epoch_delta
+        self.clear_fail = clear_fail
         self.calls: list[tuple[datetime, int]] = []
+        self.clear_calls = 0
+        self.armed_epoch: int | None = None
 
     def read_epoch(self):
-        return None
+        return self.armed_epoch
 
     def clear(self):
-        return None
+        self.clear_calls += 1
+        if self.clear_fail is not None:
+            raise self.clear_fail
+        self.armed_epoch = None
 
     def arm(self, wake_at: datetime, *, minimum_lead_seconds: int = 60):
         self.calls.append((wake_at, minimum_lead_seconds))
         if self.fail is not None:
             raise self.fail
         epoch = int(wake_at.timestamp())
+        verified_epoch = epoch + self.verified_epoch_delta
+        self.armed_epoch = verified_epoch
         return RtcWakeArmResult(
             requested_epoch=epoch,
-            verified_epoch=epoch,
+            verified_epoch=verified_epoch,
             requested_at_utc=wake_at.astimezone(timezone.utc).isoformat(),
-            verified=True,
+            verified=self.verified,
         )
+
+
+class FakeHostPower:
+    def __init__(
+        self,
+        response: dict[str, object] | None = None,
+        *,
+        fail: Exception | None = None,
+    ) -> None:
+        self.response = response or {"ok": True, "accepted": True, "action": "shutdown"}
+        self.fail = fail
+        self.actions: list[str] = []
+
+    def request(self, action: str) -> dict[str, object]:
+        self.actions.append(action)
+        if self.fail is not None:
+            raise self.fail
+        return dict(self.response)
 
 
 def resolution(
@@ -198,6 +234,73 @@ class PowerSchedulerTest(unittest.TestCase):
         self.assertEqual(state.shutdown_inhibited_reason, "rtc_wake_arm_failed")
         self.assertEqual(state.alert_code, RTC_WAKE_ARM_FAILED)
         self.assertIn("read-back mismatch", state.last_error)
+
+    def test_defence_in_depth_rejects_unverified_rtc_result(self) -> None:
+        rtc = FakeRtc(verified=False)
+        host = FakeHostPower()
+        scheduler = PowerScheduler(FakeCalendar(resolution()), rtc, enabled=True)
+
+        result = scheduler.execute_scheduled_shutdown(host, self.NOW)
+
+        self.assertFalse(result.host_power_requested)
+        self.assertFalse(result.host_power_accepted)
+        self.assertEqual(result.state.alert_code, RTC_WAKE_ARM_FAILED)
+        self.assertIsNone(rtc.read_epoch())
+        self.assertEqual(host.actions, [])
+
+    def test_verified_rtc_is_required_before_exact_shutdown_request(self) -> None:
+        rtc = FakeRtc()
+        host = FakeHostPower()
+        scheduler = PowerScheduler(FakeCalendar(resolution()), rtc, enabled=True)
+
+        result = scheduler.execute_scheduled_shutdown(host, self.NOW)
+
+        self.assertTrue(result.state.shutdown_ready)
+        self.assertTrue(result.state.rtc_alarm_verified)
+        self.assertTrue(result.host_power_requested)
+        self.assertTrue(result.host_power_accepted)
+        self.assertEqual(host.actions, ["shutdown"])
+        self.assertIsNotNone(rtc.read_epoch())
+
+    def test_host_power_rejection_clears_rtc_and_inhibits_shutdown(self) -> None:
+        rtc = FakeRtc()
+        host = FakeHostPower({"ok": False, "error": "12 V isolation failed"})
+        scheduler = PowerScheduler(FakeCalendar(resolution()), rtc, enabled=True)
+
+        result = scheduler.execute_scheduled_shutdown(host, self.NOW)
+
+        self.assertEqual(host.actions, ["shutdown"])
+        self.assertTrue(result.host_power_requested)
+        self.assertFalse(result.host_power_accepted)
+        self.assertFalse(result.state.shutdown_ready)
+        self.assertEqual(result.state.shutdown_inhibited_reason, "host_power_request_failed")
+        self.assertEqual(result.alert_code, HOST_POWER_REQUEST_FAILED)
+        self.assertIsNone(rtc.read_epoch())
+        self.assertIn("12 V isolation failed", result.last_error)
+
+    def test_host_power_transport_failure_clears_rtc_and_leaves_cm5_running(self) -> None:
+        rtc = FakeRtc()
+        host = FakeHostPower(fail=RuntimeError("socket unavailable"))
+        scheduler = PowerScheduler(FakeCalendar(resolution()), rtc, enabled=True)
+
+        result = scheduler.execute_scheduled_shutdown(host, self.NOW)
+
+        self.assertEqual(host.actions, ["shutdown"])
+        self.assertFalse(result.host_power_accepted)
+        self.assertEqual(result.alert_code, HOST_POWER_REQUEST_FAILED)
+        self.assertIsNone(rtc.read_epoch())
+        self.assertIn("socket unavailable", result.last_error)
+
+    def test_disabled_scheduler_never_crosses_host_power_boundary(self) -> None:
+        rtc = FakeRtc()
+        host = FakeHostPower()
+        scheduler = PowerScheduler(FakeCalendar(resolution()), rtc, enabled=False)
+
+        result = scheduler.execute_scheduled_shutdown(host, self.NOW)
+
+        self.assertFalse(result.host_power_requested)
+        self.assertEqual(host.actions, [])
+        self.assertEqual(rtc.calls, [])
 
     def test_dst_offset_is_converted_to_unambiguous_utc(self) -> None:
         rtc = FakeRtc()
