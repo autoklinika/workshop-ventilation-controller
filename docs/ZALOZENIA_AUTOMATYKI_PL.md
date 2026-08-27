@@ -2,7 +2,7 @@
 
 ## Status dokumentu
 
-Dokument definiuje aktualne założenia projektowe automatyki Workshop Ventilation Controller uzgodnione podczas prac koncepcyjnych 2026-08-12.
+Dokument definiuje aktualne założenia projektowe automatyki Workshop Ventilation Controller uzgodnione podczas prac koncepcyjnych rozpoczętych 2026-08-12 i rozszerzone 2026-08-27.
 
 Nie jest to jeszcze finalna specyfikacja progów ani dokument potwierdzający zgodność BHP. Wartości opisane jako **progi procesowe** są punktami startowymi do implementacji i późniejszego strojenia na podstawie pomiarów z rzeczywistych pomieszczeń.
 
@@ -418,3 +418,206 @@ System nie ma maksymalizować wentylacji. Ma zapewniać **minimalną wystarczaj�
 W pomieszczeniu bez rekuperatora głównym problemem regulacyjnym jest więc równowaga:
 
 **świeże i bezpieczne powietrze ↔ minimalizacja wychładzania pomieszczenia**.
+
+---
+
+## 16. Automatyka V1 — harmonogram, maszyna stanów i shadow mode
+
+Poniższe założenia definiują pierwszą, konserwatywną warstwę automatyki przeznaczoną do wdrożenia przed bardziej zaawansowanym regulatorem.
+
+### 16.1. Podział odpowiedzialności
+
+`ventilation-core` pozostaje jedynym miejscem podejmującym decyzje sterujące. GUI jest klientem prezentującym stan i umożliwiającym operatorowi zmianę dozwolonych nastaw. Home Assistant pozostaje integracją wyłącznie read-only. AI może analizować dane i proponować zmiany, ale nie znajduje się w bezpośredniej pętli sterowania.
+
+Pierwsza wersja automatyki ma być:
+
+- deterministyczna,
+- przewidywalna,
+- łatwa do przetestowania,
+- łatwa do diagnostyki,
+- bezpieczna przy utracie części pomiarów.
+
+### 16.2. Trzy warstwy decyzji
+
+Sterowanie należy rozdzielić na trzy logiczne warstwy:
+
+1. **HARMONOGRAM** — wyznacza bazowy lub minimalny poziom wentylacji wynikający z pory dnia i trybu pracy obiektu.
+2. **JAKOŚĆ POWIETRZA** — może zwiększyć zapotrzebowanie ponad poziom harmonogramu.
+3. **TEMPERATURA / BEZPIECZEŃSTWO** — ogranicza straty ciepła przy dobrym powietrzu, ale nie może zablokować wentylacji wymaganej przez bezpieczeństwo.
+
+Koncepcyjnie:
+
+`final_request = max(schedule_request, air_quality_request, safety_request)`
+
+z osobną logiką `temperature_limit`, stosowaną wyłącznie tam, gdzie nie narusza priorytetu jakości powietrza i bezpieczeństwa.
+
+### 16.3. Stany automatyki V1
+
+Pierwsza maszyna stanów powinna przewidywać co najmniej:
+
+| Stan | Znaczenie |
+|---|---|
+| `OFF` | system świadomie wyłączony |
+| `STANDBY` | poza godzinami pracy; pomiary i zabezpieczenia pozostają aktywne |
+| `PREVENTILATION` | przewietrzenie przed rozpoczęciem pracy |
+| `NORMAL` | standardowa praca według harmonogramu |
+| `BOOST` | zwiększona wentylacja z powodu pogorszenia jakości powietrza |
+| `PURGE` | przewietrzanie po zakończeniu pracy |
+| `TEMP_LIMIT` | ograniczenie bazowej wentylacji z powodu niskiej temperatury przy dobrej jakości powietrza |
+| `EMERGENCY_VENT` | wymuszone intensywne przewietrzanie z priorytetem bezpieczeństwa |
+| `MANUAL` | ręczne zadanie operatora, nadal podlegające nadrzędnym zabezpieczeniom |
+| `FAULT` | stan awaryjny wymagający zdefiniowanego bezpiecznego fallbacku |
+
+Nazwy stanów są robocze i mogą zostać skorygowane podczas implementacji, ale ich znaczenie ma pozostać jawne.
+
+### 16.4. Harmonogram bazowy
+
+Dla dnia roboczego przyjmujemy koncepcyjnie:
+
+- przed rozpoczęciem pracy: `PREVENTILATION`, np. przez około 30 min,
+- w godzinach pracy: `NORMAL`, z minimalnym poziomem wynikającym z konfiguracji,
+- po zakończeniu pracy: `PURGE`, np. przez 30–60 min,
+- poza godzinami pracy: `STANDBY`.
+
+Wartości procentowe i czasy są parametrami konfiguracyjnymi i nie są jeszcze finalnymi nastawami.
+
+W weekendy i dni wolne system może pozostawać w `STANDBY`, ale nadal musi:
+
+- mierzyć parametry,
+- obsługiwać AlertV2,
+- reagować na pogorszenie jakości powietrza,
+- realizować diagnostykę urządzeń.
+
+Na tym etapie nie zakładamy cyklicznego przewietrzania „co godzinę” przy dobrych pomiarach, ponieważ zimą może to powodować niepotrzebne straty ciepła.
+
+### 16.5. Poziomy jakości powietrza
+
+Pierwsza implementacja powinna używać dyskretnych poziomów zamiast ciągłego regulatora.
+
+Koncepcyjny model:
+
+| Poziom | Znaczenie | Reakcja |
+|---:|---|---|
+| 0 | powietrze dobre | poziom wynikający z harmonogramu |
+| 1 | lekkie pogorszenie | niewielkie zwiększenie minimum |
+| 2 | wyraźne pogorszenie | `BOOST` |
+| 3 | złe warunki | silny `BOOST` |
+| 4 | stan krytyczny | `EMERGENCY_VENT` / maksymalna wymiana |
+
+Mapowanie PM/VOC/NOx na poziomy będzie korzystać z osobnych konfigurowalnych progów procesowych opisanych wcześniej w tym dokumencie.
+
+### 16.6. Histereza i potwierdzanie stanów
+
+Automatyka nie może reagować na pojedynczą próbkę.
+
+Dla wejścia w stan o wyższym poziomie należy stosować czas potwierdzenia przekroczenia, przykładowo 60–120 s zależnie od parametru.
+
+Powrót do niższego poziomu powinien następować dopiero po:
+
+- spadku poniżej niższego progu histerezy,
+- utrzymaniu poprawnych wartości przez określony czas, przykładowo kilka minut.
+
+Celem jest uniknięcie ciągłego przełączania stanów i zmian prędkości wentylatorów wokół jednego progu.
+
+### 16.7. Temperatura w V1
+
+Temperatura ma wpływać przede wszystkim na bazową wentylację przy dobrej jakości powietrza.
+
+Koncepcyjnie:
+
+- temperatura komfortowa — normalna praca,
+- lekko obniżona — redukcja minimum,
+- niska — `TEMP_LIMIT`,
+- bardzo niska — minimalizacja wentylacji niewymaganej przez jakość powietrza.
+
+Jeżeli równocześnie występuje warunek `BOOST` lub `EMERGENCY_VENT`, priorytet jakości powietrza / bezpieczeństwa ma pierwszeństwo nad ochroną cieplną.
+
+### 16.8. Temperatura zewnętrzna / nawiewu
+
+Po dostępności wiarygodnego pomiaru temperatury powietrza pobieranego z zewnątrz należy rozszerzyć regulator o różnicę temperatur, np.:
+
+`delta_t = T_inside - T_supply`
+
+Pozwoli to rozróżniać sytuacje, w których takie samo `T_inside` występuje przy łagodnych i bardzo mroźnych warunkach zewnętrznych.
+
+W V1 parametr ten może być przygotowany w modelu danych, ale jego wpływ na sterowanie powinien być wdrażany etapowo i po walidacji pomiarów.
+
+### 16.9. Sterowanie ręczne
+
+Operator powinien mieć tryby `AUTO` i `MANUAL`.
+
+W `MANUAL` operator może ustawić zadanie wentylatorów, ale ręczne sterowanie nie może wyłączyć nadrzędnych zabezpieczeń.
+
+Przykład:
+
+`MANUAL 20% + warunek krytyczny -> EMERGENCY_VENT`
+
+Core powinien wtedy jawnie raportować, że ręczne zadanie zostało nadpisane przez warstwę bezpieczeństwa.
+
+### 16.10. Zachowanie po utracie pomiarów
+
+Utrata czujnika nie może prowadzić automatycznie do zatrzymania wentylacji.
+
+Przykładowa polityka V1:
+
+- utrata SEN55 podczas aktywnych godzin pracy -> bezpieczny, konfigurowalny poziom fallback + AlertV2,
+- utrata zewnętrznego czujnika temperatury -> wyłączenie optymalizacji temperaturowej, ale zachowanie normalnej automatyki jakości powietrza,
+- utrata TACHO -> AlertV2 i przejście do zdefiniowanej polityki awaryjnej zależnej od kanału i zadanego sterowania.
+
+Dokładne wartości fallback są parametrami konfiguracyjnymi i wymagają walidacji sprzętowej.
+
+### 16.11. Jawna diagnostyka decyzji
+
+`ventilation-core` powinien zawsze publikować nie tylko wynik sterowania, ale także źródło decyzji.
+
+Przykładowy stan diagnostyczny:
+
+```text
+mode: AUTO
+automation_state: BOOST
+schedule_state: NORMAL
+schedule_minimum_pct: 30
+air_quality_request_pct: 60
+temperature_limit_pct: 40
+safety_request_pct: 0
+final_request_pct: 60
+control_reason: VOC_HIGH
+```
+
+Należy unikać sytuacji, w której końcowe zadanie jest wynikiem niejawnej sumy wielu korekt i nie da się jednoznacznie ustalić przyczyny działania systemu.
+
+### 16.12. Shadow mode jako pierwszy etap uruchomienia
+
+Pierwsze wdrożenie automatyki powinno zostać uruchomione w trybie **shadow mode**.
+
+W tym trybie core:
+
+- oblicza harmonogram,
+- przełącza logiczne stany automatyki,
+- wylicza `requested_output`,
+- zapisuje przyczyny decyzji,
+- udostępnia wynik w API / GUI / telemetrii,
+- ale nie zmienia rzeczywistych wyjść 0–10 V na podstawie tej nowej logiki.
+
+Rzeczywiste sterowanie pozostaje na dotychczasowej bezpiecznej ścieżce.
+
+Celem shadow mode jest obserwacja przez kilka dni, czy decyzje odpowiadają rzeczywistym warunkom, np. czy system prawidłowo proponuje `BOOST` po wzroście VOC i wraca do `NORMAL` po oczyszczeniu powietrza.
+
+Dopiero po walidacji zachowania na rzeczywistym CM5 należy dopuścić przejście z `requested_output` do fizycznego sterowania.
+
+### 16.13. Zakres pierwszego etapu implementacyjnego
+
+Pierwszy etap kodowania powinien obejmować:
+
+1. scheduler dzień roboczy / weekend,
+2. stany `PREVENTILATION`, `NORMAL`, `PURGE`, `STANDBY`,
+3. poziomy jakości powietrza co najmniej `NORMAL`, `BOOST`, `EMERGENCY`,
+4. histerezę,
+5. czasy potwierdzenia przekroczeń i wygaszania,
+6. `AUTO` / `MANUAL`,
+7. fallback po utracie SEN55,
+8. jawny model przyczyny decyzji,
+9. telemetrię stanu automatyki,
+10. shadow mode bez wpływu nowej logiki na fizyczne wyjścia.
+
+Po poprawnej walidacji tego etapu będzie można rozpocząć strojenie rzeczywistych poziomów oraz bezpiecznie włączać sterowanie automatyczne na fizycznych wentylatorach.
