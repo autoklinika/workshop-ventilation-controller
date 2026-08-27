@@ -6,10 +6,11 @@ from typing import Protocol
 
 from ventilation_core.calendar.engine import CalendarRuntime
 from ventilation_core.calendar.model import CalendarMode, CalendarPhase, CalendarResolution
-from ventilation_core.infrastructure.rtc_wake import RtcWakeAlarm, RtcWakeArmError
+from ventilation_core.infrastructure.rtc_wake import RtcWakeAlarm
 
 
 RTC_WAKE_ARM_FAILED = "RTC_WAKE_ARM_FAILED"
+HOST_POWER_REQUEST_FAILED = "HOST_POWER_REQUEST_FAILED"
 
 
 @dataclass(frozen=True)
@@ -44,17 +45,38 @@ class PowerSchedulerState:
         }
 
 
+@dataclass(frozen=True)
+class ScheduledShutdownExecution:
+    state: PowerSchedulerState
+    host_power_requested: bool
+    host_power_accepted: bool
+    host_power_response: dict[str, object] | None
+    alert_code: str | None
+    last_error: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "state": self.state.to_dict(),
+            "host_power_requested": self.host_power_requested,
+            "host_power_accepted": self.host_power_accepted,
+            "host_power_response": self.host_power_response,
+            "alert_code": self.alert_code,
+            "last_error": self.last_error,
+        }
+
+
 class HostPowerRequester(Protocol):
-    def request_shutdown(self) -> None: ...
+    def request(self, action: str) -> dict[str, object]: ...
 
 
 class PowerScheduler:
     """Calendar-driven scheduled shutdown coordinator.
 
-    M4 deliberately does not invoke host power. It validates calendar intent and,
-    when explicitly asked to prepare a scheduled shutdown, arms and verifies RTC.
-    A later production stage may consume `shutdown_ready=True` and call the existing
-    privileged host-power agent.
+    The coordinator is fail-safe: the host-power boundary is never called until
+    the Calendar Engine explicitly resolves an inactive STANDBY/OFF period and
+    the RTC wake alarm has been armed and read back exactly. If the host-power
+    request is rejected or fails, the RTC alarm is cleared best-effort and the
+    CM5 remains running.
     """
 
     def __init__(
@@ -103,12 +125,23 @@ class PowerScheduler:
             return _replace_inhibited(planned, "next_wake_unavailable")
 
         wake_utc = datetime.fromisoformat(planned.next_wake_at_utc)
+        expected_epoch = int(wake_utc.timestamp())
         try:
             armed = self._rtc.arm(
                 wake_utc,
                 minimum_lead_seconds=self._minimum_wake_lead_seconds,
             )
+            if armed.verified is not True or armed.verified_epoch != expected_epoch:
+                raise RuntimeError(
+                    "RTC wake verification mismatch: "
+                    f"expected={expected_epoch}, verified={armed.verified_epoch}, "
+                    f"flag={armed.verified!r}"
+                )
         except Exception as exc:
+            clear_error = self._best_effort_clear_rtc()
+            error = str(exc)
+            if clear_error:
+                error = f"{error}; RTC cleanup failed: {clear_error}"
             return PowerSchedulerState(
                 scheduled_shutdown_enabled=self._enabled,
                 shutdown_ready=False,
@@ -121,7 +154,7 @@ class PowerScheduler:
                 rtc_alarm_value=None,
                 shutdown_inhibited_reason="rtc_wake_arm_failed",
                 alert_code=RTC_WAKE_ARM_FAILED,
-                last_error=str(exc),
+                last_error=error,
             )
 
         return PowerSchedulerState(
@@ -132,12 +165,118 @@ class PowerScheduler:
             next_wake_at_utc=planned.next_wake_at_utc,
             next_wake_reason=planned.next_wake_reason,
             rtc_alarm_armed=True,
-            rtc_alarm_verified=armed.verified,
+            rtc_alarm_verified=True,
             rtc_alarm_value=armed.verified_epoch,
             shutdown_inhibited_reason=None,
             alert_code=None,
             last_error="",
         )
+
+    def execute_scheduled_shutdown(
+        self,
+        host_power: HostPowerRequester,
+        now_utc: datetime | None = None,
+    ) -> ScheduledShutdownExecution:
+        """Prepare RTC and cross the existing host-power boundary only on PASS.
+
+        This method contains no shell/systemd power command. The only external
+        power intent is the exact ``shutdown`` action passed to the narrow
+        HostPowerRequester protocol after RTC verification succeeds.
+        """
+
+        prepared = self.prepare_scheduled_shutdown(now_utc)
+        if not (
+            prepared.shutdown_ready is True
+            and prepared.rtc_alarm_armed is True
+            and prepared.rtc_alarm_verified is True
+            and prepared.rtc_alarm_value is not None
+        ):
+            return ScheduledShutdownExecution(
+                state=prepared,
+                host_power_requested=False,
+                host_power_accepted=False,
+                host_power_response=None,
+                alert_code=prepared.alert_code,
+                last_error=prepared.last_error,
+            )
+
+        try:
+            response = host_power.request("shutdown")
+        except Exception as exc:
+            return self._host_power_failure(prepared, None, str(exc))
+
+        if not isinstance(response, dict):
+            return self._host_power_failure(
+                prepared,
+                None,
+                "host-power returned a non-object response",
+            )
+
+        normalized = dict(response)
+        accepted = (
+            normalized.get("ok") is True
+            and normalized.get("accepted") is True
+            and normalized.get("action") == "shutdown"
+        )
+        if not accepted:
+            return self._host_power_failure(
+                prepared,
+                normalized,
+                f"host-power rejected scheduled shutdown: {normalized!r}",
+            )
+
+        return ScheduledShutdownExecution(
+            state=prepared,
+            host_power_requested=True,
+            host_power_accepted=True,
+            host_power_response=normalized,
+            alert_code=None,
+            last_error="",
+        )
+
+    def _host_power_failure(
+        self,
+        prepared: PowerSchedulerState,
+        response: dict[str, object] | None,
+        error: str,
+    ) -> ScheduledShutdownExecution:
+        clear_error = self._best_effort_clear_rtc()
+        rtc_cleared = clear_error == ""
+        full_error = error
+        if clear_error:
+            full_error = f"{error}; RTC cleanup failed: {clear_error}"
+
+        failed_state = PowerSchedulerState(
+            scheduled_shutdown_enabled=prepared.scheduled_shutdown_enabled,
+            shutdown_ready=False,
+            next_shutdown_at=prepared.next_shutdown_at,
+            next_wake_at_local=prepared.next_wake_at_local,
+            next_wake_at_utc=prepared.next_wake_at_utc,
+            next_wake_reason=prepared.next_wake_reason,
+            rtc_alarm_armed=False if rtc_cleared else prepared.rtc_alarm_armed,
+            rtc_alarm_verified=False if rtc_cleared else prepared.rtc_alarm_verified,
+            rtc_alarm_value=None if rtc_cleared else prepared.rtc_alarm_value,
+            shutdown_inhibited_reason="host_power_request_failed",
+            alert_code=HOST_POWER_REQUEST_FAILED,
+            last_error=full_error,
+        )
+        return ScheduledShutdownExecution(
+            state=failed_state,
+            host_power_requested=True,
+            host_power_accepted=False,
+            host_power_response=response,
+            alert_code=HOST_POWER_REQUEST_FAILED,
+            last_error=full_error,
+        )
+
+    def _best_effort_clear_rtc(self) -> str:
+        try:
+            self._rtc.clear()
+            if self._rtc.read_epoch() is not None:
+                return "RTC wakealarm remained armed after clear"
+        except Exception as exc:
+            return str(exc)
+        return ""
 
     def _plan(self, resolution: CalendarResolution, now_utc: datetime) -> PowerSchedulerState:
         if not self._enabled:
