@@ -5,6 +5,7 @@ ROOT=/home/wentylacja/workshop-ventilation-controller
 WT=/home/wentylacja/wvc-calendar-m3-validation
 BRANCH=agent/automation-v1-scheduler-assumptions
 EXPECTED_BASE=7628c407cfc9c0ea72d262566759ea2d4598fec8
+EXPECTED_BRANCH_SHA="${M3_EXPECTED_BRANCH_SHA:-}"
 UNIT=ventilation-core.service
 DROPIN_DIR=/etc/systemd/system/${UNIT}.d
 DROPIN_PATH=${DROPIN_DIR}/99-zz-calendar-m3-validation.conf
@@ -170,6 +171,10 @@ trap emergency_rollback EXIT INT TERM
 echo "===== CALENDAR ENGINE M3 CM5 VALIDATION ====="
 cd "$ROOT"
 
+[ -n "$EXPECTED_BRANCH_SHA" ] || {
+    echo "FAIL: M3_EXPECTED_BRANCH_SHA must pin the exact CI-tested branch commit" >&2
+    exit 1
+}
 [ "$(git branch --show-current)" = "main" ] || {
     echo "FAIL: production repo is not on main" >&2
     exit 1
@@ -205,6 +210,10 @@ git fetch origin main "$BRANCH"
     exit 1
 }
 BRANCH_SHA="$(git rev-parse "origin/$BRANCH")"
+[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ] || {
+    echo "FAIL: fetched branch SHA $BRANCH_SHA differs from CI-tested $EXPECTED_BRANCH_SHA" >&2
+    exit 1
+}
 echo "main:   $EXPECTED_BASE"
 echo "branch: $BRANCH_SHA"
 
