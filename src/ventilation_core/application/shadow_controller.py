@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
+from threading import RLock
+from typing import Callable, Protocol
 
 from ventilation_core.domain.models import AlarmSeverity, CoreState
 from ventilation_core.domain.shadow import (
     ShadowAutomationState,
     ShadowAutomationStatus,
     ShadowZoneProposal,
+)
+from ventilation_core.domain.shadow_dynamics import (
+    AirQualityDynamicsTracker,
+    ThermalDynamicsTracker,
 )
 from ventilation_core.domain.shadow_policy import AirQualityLevel, ShadowPolicyV1, ThermalBand
 
@@ -112,24 +117,49 @@ class UnconfiguredShadowAutomationEvaluator:
 
 
 class PolicyShadowAutomationEvaluator:
-    """Deterministic, versioned SHADOW evaluator with no actuation authority."""
+    """Stateful, deterministic Control Engine V1 running strictly in SHADOW mode.
+
+    The evaluator owns hysteresis/debounce state per logical zone, but it has no
+    actuator port and therefore cannot change DAC or AERO outputs. Until site
+    tuning is explicitly configured it retains the previous transparent SHADOW
+    classification behaviour.
+    """
 
     def __init__(
         self,
         policy: ShadowPolicyV1 | None = None,
         *,
         zone_bindings: tuple[ShadowZoneBinding, ...] = DEFAULT_SHADOW_ZONE_BINDINGS,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         _validate_bindings(zone_bindings)
         self._policy = policy or ShadowPolicyV1()
         self._zone_bindings = tuple(zone_bindings)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._lock = RLock()
+        self._air_dynamics = {
+            binding.zone: AirQualityDynamicsTracker() for binding in self._zone_bindings
+        }
+        self._thermal_dynamics = {
+            binding.zone: ThermalDynamicsTracker()
+            for binding in self._zone_bindings
+            if binding.actuator_kind == "fans"
+        }
 
     @property
     def policy(self) -> ShadowPolicyV1:
         return self._policy
 
     def evaluate(self, state: CoreState) -> ShadowAutomationState:
-        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            return self._evaluate_locked(state)
+
+    def _evaluate_locked(self, state: CoreState) -> ShadowAutomationState:
+        now_dt = self._clock()
+        if now_dt.tzinfo is None or now_dt.utcoffset() is None:
+            raise ValueError("SHADOW Control Engine clock must be timezone-aware")
+        now_dt = now_dt.astimezone(timezone.utc)
+        now = now_dt.isoformat()
         safety_blocked = _safety_blocked(state)
         calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
         sensor_by_address = _sensor_by_address(state)
@@ -155,17 +185,28 @@ class PolicyShadowAutomationEvaluator:
             pm2_5_level = self._policy.classify_pm2_5(pm2_5)
             voc_level = self._policy.classify_voc(voc)
             nox_level = self._policy.classify_nox(nox)
-            air_level, air_driver = self._policy.classify_air_quality(
+
+            dynamics = self._air_dynamics[binding.zone].update(
+                self._policy,
                 pm2_5_ug_m3=pm2_5,
                 voc_index=voc,
                 nox_index=nox,
+                now_utc=now_dt,
             )
+            raw_air_level = dynamics.raw_level
+            raw_air_driver = dynamics.raw_driver
+            air_level = dynamics.effective_level
+            air_driver = dynamics.effective_driver
 
-            thermal_band = (
-                self._policy.classify_temperature(inside_temperature)
-                if binding.actuator_kind == "fans"
-                else ThermalBand.NOT_APPLICABLE
-            )
+            if binding.actuator_kind == "fans":
+                raw_thermal_band, thermal_band = self._thermal_dynamics[binding.zone].update(
+                    self._policy,
+                    temperature_celsius=inside_temperature,
+                )
+            else:
+                raw_thermal_band = ThermalBand.NOT_APPLICABLE
+                thermal_band = ThermalBand.NOT_APPLICABLE
+
             air_request_pct = self._policy.air_request_pct(air_level)
             temperature_limit_pct = (
                 self._policy.temperature_limit_pct(thermal_band)
@@ -177,7 +218,8 @@ class PolicyShadowAutomationEvaluator:
                 binding.actuator_kind == "fans"
                 and air_level is not None
                 and air_level > AirQualityLevel.NORMAL
-                and thermal_band in {
+                and thermal_band
+                in {
                     ThermalBand.LIMITING,
                     ThermalBand.MINIMUM,
                     ThermalBand.PROTECTION,
@@ -199,11 +241,21 @@ class PolicyShadowAutomationEvaluator:
                         final_supply_pct = air_request_pct
                     final_extract_pct = min(
                         100.0,
-                        final_supply_pct + float(self._policy.tuning.extract_bias_pct or 0.0),
+                        final_supply_pct
+                        + float(self._policy.tuning.extract_bias_pct or 0.0),
                     )
                 elif binding.actuator_kind == "aero":
                     proposed_aero_speed = self._policy.aero_speed(air_level)
 
+            automation_state = self._automation_state(
+                binding=binding,
+                safety_blocked=safety_blocked,
+                calendar_phase=calendar_phase,
+                calendar_mode=calendar_mode,
+                sensor_usable=sensor_usable,
+                air_level=air_level,
+                thermal_band=thermal_band,
+            )
             reason = self._control_reason(
                 binding=binding,
                 safety_blocked=safety_blocked,
@@ -213,6 +265,8 @@ class PolicyShadowAutomationEvaluator:
                 air_driver=air_driver,
                 thermal_band=thermal_band,
                 air_quality_override=air_quality_override,
+                dynamics_pending_level=dynamics.pending_level,
+                dynamics_transition_reason=dynamics.transition_reason,
             )
 
             if (
@@ -234,16 +288,29 @@ class PolicyShadowAutomationEvaluator:
                     calendar_profile=calendar_profile,
                     sensor_address=binding.sensor_address,
                     sensor_usable=sensor_usable,
+                    automation_state=automation_state,
+                    raw_air_quality_level=(
+                        None if raw_air_level is None else raw_air_level.name
+                    ),
+                    raw_air_quality_driver=raw_air_driver,
                     air_quality_level=None if air_level is None else air_level.name,
                     air_quality_driver=air_driver,
                     pm2_5_level=None if pm2_5_level is None else pm2_5_level.name,
                     voc_level=None if voc_level is None else voc_level.name,
                     nox_level=None if nox_level is None else nox_level.name,
                     pm10_reference_exceeded=self._policy.pm10_reference_exceeded(pm10),
+                    air_quality_effective_since_utc=dynamics.effective_since_utc,
+                    dynamics_pending_level=(
+                        None if dynamics.pending_level is None else dynamics.pending_level.name
+                    ),
+                    dynamics_pending_driver=dynamics.pending_driver,
+                    dynamics_pending_since_utc=dynamics.pending_since_utc,
+                    dynamics_transition_reason=dynamics.transition_reason,
                     inside_temperature_celsius=inside_temperature,
                     # Outdoor/supply-air temperature is intentionally unavailable
                     # until the selected Zigbee measurement path is integrated.
                     outside_temperature_celsius=None,
+                    raw_thermal_band=raw_thermal_band.value,
                     thermal_band=thermal_band.value,
                     air_request_pct=air_request_pct,
                     temperature_limit_pct=temperature_limit_pct,
@@ -277,6 +344,43 @@ class PolicyShadowAutomationEvaluator:
             zones=tuple(proposals),
         )
 
+    def _automation_state(
+        self,
+        *,
+        binding: ShadowZoneBinding,
+        safety_blocked: bool,
+        calendar_phase: str,
+        calendar_mode: str | None,
+        sensor_usable: bool,
+        air_level: AirQualityLevel | None,
+        thermal_band: ThermalBand,
+    ) -> str:
+        if safety_blocked or calendar_phase == "UNKNOWN" or not sensor_usable:
+            return "FAULT"
+        if air_level is None:
+            return "FAULT"
+        if binding.actuator_kind == "fans" and thermal_band == ThermalBand.UNKNOWN:
+            return "FAULT"
+        if air_level == AirQualityLevel.MAX:
+            return "EMERGENCY_VENT"
+        if air_level >= AirQualityLevel.BOOST:
+            return "BOOST"
+        if calendar_phase == "PREVENTILATION":
+            return "PREVENTILATION"
+        if calendar_phase == "PURGE":
+            return "PURGE"
+        if calendar_phase == "ACTIVE":
+            if binding.actuator_kind == "fans" and thermal_band in {
+                ThermalBand.LIMITING,
+                ThermalBand.MINIMUM,
+                ThermalBand.PROTECTION,
+            }:
+                return "TEMP_LIMIT"
+            return "NORMAL"
+        if calendar_mode == "OFF":
+            return "OFF"
+        return "STANDBY"
+
     def _control_reason(
         self,
         *,
@@ -288,6 +392,8 @@ class PolicyShadowAutomationEvaluator:
         air_driver: str | None,
         thermal_band: ThermalBand,
         air_quality_override: bool,
+        dynamics_pending_level: AirQualityLevel | None,
+        dynamics_transition_reason: str,
     ) -> str:
         if safety_blocked:
             return "SAFETY_BLOCK_ACTIVE"
@@ -299,6 +405,11 @@ class PolicyShadowAutomationEvaluator:
             return "AIR_QUALITY_INPUTS_UNAVAILABLE"
         if binding.actuator_kind == "fans" and thermal_band == ThermalBand.UNKNOWN:
             return "TEMPERATURE_CONTEXT_UNAVAILABLE"
+        if (
+            dynamics_pending_level is not None
+            and dynamics_transition_reason == "ESCALATION_CONFIRMING"
+        ):
+            return f"AIR_QUALITY_CONFIRMING:{dynamics_pending_level.name}"
         if air_quality_override:
             return "LOW_TEMPERATURE + AIR_QUALITY_OVERRIDE"
         if air_level == AirQualityLevel.MAX:
