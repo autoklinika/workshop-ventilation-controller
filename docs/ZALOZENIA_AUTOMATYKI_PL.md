@@ -806,3 +806,160 @@ Scheduler powinien korzystać z lokalnej strefy czasowej systemu i poprawnie obs
 ### 16.24. Zasada projektowa schedulera
 
 Harmonogram nie jest jedynie zegarem ON/OFF. Jest warstwą opisującą **kiedy i w jakim profilu obiekt ma pracować**, natomiast `ventilation-core` nadal podejmuje końcową decyzję o wydajności na podstawie harmonogramu, jakości powietrza, temperatury, stanu urządzeń i warstwy bezpieczeństwa.
+
+### 16.25. Noc, weekendy i dni wolne — pełny kontrolowany shutdown
+
+Założenie docelowe dla WVC jest następujące: w nocy, w weekendy oraz w zadeklarowane dni wolne CM5 nie pozostaje przez wiele godzin w normalnie działającym stanie `STANDBY`. Po zakończeniu wymaganych czynności system wykonuje **pełny, kontrolowany shutdown Linuxa**, a następnie pozostaje w stanie niskiego poboru do czasu następnego wybudzenia.
+
+`STANDBY` pozostaje stanem logicznym przydatnym dla krótkich przerw, chwilowego oczekiwania, serwisu lub konfiguracji, ale nie jest podstawowym stanem nocnym WVC.
+
+Docelowa sekwencja końca dnia:
+
+```text
+NORMAL / AUTO
+    -> PURGE
+    -> bezpieczne zatrzymanie funkcji peryferyjnych
+    -> wyłączenie domeny 12 V
+    -> wyznaczenie następnego aktywnego okresu przez scheduler
+    -> zaprogramowanie alarmu RTC
+    -> odczyt i weryfikacja alarmu RTC
+    -> kontrolowany shutdown CM5
+    -> stan niskiego poboru
+```
+
+### 16.26. Zasada zasilania CM5 podczas oczekiwania na RTC
+
+Automatyczne wybudzenie RTC zakłada, że główne zasilanie 5 V CM5 pozostaje dostępne. Nie wolno traktować baterii RTC jako źródła energii do ponownego uruchomienia całego modułu.
+
+W docelowej architekturze nocnej:
+
+- zasilacz / domena 5 V CM5 pozostaje zasilona,
+- CM5 jest poprawnie zatrzymany i pozostaje w stanie niskiego poboru,
+- bateria RTC podtrzymuje zegar w warunkach wymagających podtrzymania czasu,
+- domena 12 V urządzeń wykonawczych i peryferiów może być odłączona przez DFR0473 zgodnie z architekturą zasilania,
+- fizyczne odcięcie 5 V CM5 nie jest normalnym mechanizmem nocnego wyłączania, ponieważ uniemożliwiłoby automatyczny start wywołany przez RTC.
+
+Fizyczny przycisk uruchamiający CM5 pozostaje niezależną ścieżką ręcznego startu systemu.
+
+### 16.27. RTC przechowuje tylko najbliższe wybudzenie
+
+Cały kalendarz roczny pozostaje w schedulerze `ventilation-core`. RTC nie ma przechowywać kompletnego harmonogramu dni, tygodni i miesięcy.
+
+Przed każdym planowanym shutdownem scheduler oblicza wyłącznie **najbliższy moment, w którym WVC musi ponownie się uruchomić**.
+
+Przykład:
+
+```text
+piątek: koniec pracy 18:00
+sobota: dzień wolny
+niedziela: dzień wolny
+poniedziałek: start pracy 07:00
+PREVENTILATION: 30 min
+```
+
+Następny alarm RTC powinien zostać ustawiony na:
+
+```text
+poniedziałek 06:30
+```
+
+Jeżeli poniedziałek jest wyjątkiem `HOLIDAY/OFF`, scheduler przechodzi do następnego aktywnego dnia. Analogicznie urlop zakładowy może spowodować ustawienie następnego wybudzenia dopiero po wielu dniach.
+
+Najbliższe wybudzenie powinno odpowiadać początkowi `PREVENTILATION`, a nie dopiero godzinie `start_work`.
+
+### 16.28. Fail-safe przed shutdownem
+
+Planowany shutdown nie może zostać wykonany, jeśli system nie ma wiarygodnie uzbrojonego następnego wybudzenia.
+
+Minimalna sekwencja bezpieczeństwa:
+
+1. scheduler wyznacza `next_wake`,
+2. czas jest walidowany względem aktualnego czasu i aktywnego kalendarza,
+3. alarm jest zapisywany do RTC,
+4. alarm RTC jest ponownie odczytywany,
+5. odczytana wartość jest porównywana z oczekiwanym `next_wake`,
+6. dopiero po poprawnej weryfikacji można przejść do shutdownu.
+
+Jeżeli którykolwiek etap zawiedzie:
+
+```text
+RTC_WAKE_ARM_FAILED
+    -> AlertV2
+    -> scheduled shutdown ABORT
+    -> CM5 pozostaje uruchomiony
+```
+
+Zasada bezpieczeństwa brzmi: **lepiej pozostawić WVC uruchomiony przez noc lub dzień wolny niż dopuścić do sytuacji, w której nie uruchomi się przed następnym okresem pracy**.
+
+Dla świadomego ręcznego shutdownu operatora można przewidzieć osobną politykę, ale nie może ona być mylona z automatycznym shutdownem harmonogramowym.
+
+### 16.29. Czas lokalny, UTC i zmiana czasu
+
+Harmonogram operatorski jest definiowany w lokalnej strefie czasu obiektu, docelowo `Europe/Warsaw`.
+
+Scheduler powinien:
+
+1. rozstrzygnąć następny aktywny termin w czasie lokalnym,
+2. uwzględnić zmianę czasu letniego / zimowego,
+3. przeliczyć moment wybudzenia do reprezentacji używanej przez RTC / kernel,
+4. zapisać jednoznaczny timestamp następnego wybudzenia,
+5. po restarcie ponownie obliczyć przyszłe zdarzenia na podstawie pełnego kalendarza.
+
+Nie należy przechowywać logiki DST w samym RTC. Odpowiedzialność za interpretację kalendarza pozostaje w schedulerze.
+
+### 16.30. Start po wybudzeniu RTC
+
+Po uruchomieniu CM5 przez RTC system powinien przejść przez normalną, deterministyczną sekwencję startową.
+
+Koncepcyjnie:
+
+```text
+RTC WAKE
+    -> boot CM5
+    -> start ventilation-core
+    -> walidacja czasu, konfiguracji i wymaganych usług
+    -> uruchomienie domeny 12 V
+    -> inicjalizacja i diagnostyka urządzeń
+    -> PREVENTILATION
+    -> AUTO / NORMAL
+```
+
+Awaria pojedynczego urządzenia przy starcie nie może powodować niejawnego pominięcia diagnostyki. Core powinien jawnie publikować stan startu, brakujące urządzenia i aktywne fallbacki / AlertV2.
+
+### 16.31. Diagnostyka planowanego shutdownu i wybudzenia
+
+Core powinien publikować co najmniej:
+
+- `scheduled_shutdown_enabled`,
+- `next_shutdown_at`,
+- `next_wake_at_local`,
+- `next_wake_at_utc` lub równoważny jednoznaczny timestamp,
+- `next_wake_reason`,
+- `rtc_alarm_armed`,
+- `rtc_alarm_verified`,
+- `rtc_alarm_value`,
+- `shutdown_inhibited_reason`,
+- źródło wybudzenia po starcie, jeśli platforma umożliwia jego wiarygodne ustalenie.
+
+Dzięki temu GUI i logi mogą jednoznacznie pokazać np.:
+
+```text
+Następne wyłączenie: piątek 18:30
+Następne uruchomienie: poniedziałek 06:30
+Powód: NORMAL_WORKDAY / PREVENTILATION
+RTC: ARMED + VERIFIED
+```
+
+### 16.32. Aktualizacja zasady `STANDBY`
+
+Wcześniejsze założenie, że weekendy i dni wolne są realizowane jako wielogodzinny `STANDBY` z aktywnym Linuxem, należy traktować jako założenie przejściowe.
+
+Docelowo:
+
+- krótka przerwa / oczekiwanie -> `STANDBY`,
+- noc -> `SCHEDULED_SHUTDOWN`,
+- weekend / dzień wolny -> `SCHEDULED_SHUTDOWN`,
+- urlop / długi okres zamknięcia -> `SCHEDULED_SHUTDOWN`,
+- ręczne uruchomienie przez fizyczny przycisk pozostaje możliwe niezależnie od zaplanowanego alarmu RTC.
+
+Funkcja `SCHEDULED_SHUTDOWN -> RTC WAKE` musi przed włączeniem produkcyjnym przejść osobną walidację na fizycznym CM5, obejmującą co najmniej poprawny shutdown, skuteczne wybudzenie RTC, zachowanie po długim okresie wyłączenia, restart po utracie zasilania oraz zmianę czasu letniego / zimowego.
