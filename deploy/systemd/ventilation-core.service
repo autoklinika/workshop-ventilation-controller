@@ -2,7 +2,9 @@
 Description=Workshop Ventilation Core
 Requires=wvc-host-power.service
 Wants=mosquitto.service zigbee2mqtt.service
+Wants=wvc-rtc-wake.service
 After=local-fs.target wvc-host-power.service mosquitto.service zigbee2mqtt.service
+After=wvc-rtc-wake.service
 
 [Service]
 Type=simple
@@ -20,7 +22,7 @@ RuntimeDirectoryMode=0770
 StateDirectory=workshop-ventilation
 StateDirectoryMode=0770
 UMask=0007
-ExecStart=/usr/bin/python3 -m ventilation_core.main --socket /run/workshop-ventilation/ventilation-core.sock --alerts-db /srv/wvc-data/workshop-ventilation/alerts.sqlite3 --automation-db /var/lib/workshop-ventilation/automation.sqlite3 --sensor-port /dev/ttyAMA0 --sensor-addresses 1,2 --sensor-baud 19200 --sensor-timeout 0.5 --sensor-poll-interval 1.0 --sensor-inter-node-delay 0.010 --sensor-reconnect-delay 1.0 --aero-port /dev/ttyAMA4 --aero-address 44 --aero-baud 9600 --aero-timeout 0.5 --aero-poll-interval 2.0 --aero-inter-register-delay 0.050 --aero-reconnect-delay 1.0 --enable-supply-tacho --enable-extract-tacho --tacho-chip /dev/gpiochip0 --supply-tacho-line GPIO17 --extract-tacho-line GPIO27 --tacho-timeout 0.25 --tacho-averaging-periods 6 --zigbee-mqtt-host 127.0.0.1 --zigbee-mqtt-port 1883 --zigbee-base-topic zigbee2mqtt --zigbee-supply-name temp_nawiew --zigbee-supply-ieee 0xa4c13810e66fffff --zigbee-extract-name temp_wywiew --zigbee-extract-ieee 0xa4c13810bdedffff --zigbee-roles-file /var/lib/workshop-ventilation/zigbee-roles.json --log-level INFO
+ExecStart=/usr/bin/python3 -m ventilation_core.main --socket /run/workshop-ventilation/ventilation-core.sock --alerts-db /srv/wvc-data/workshop-ventilation/alerts.sqlite3 --automation-db /var/lib/workshop-ventilation/automation.sqlite3 --sensor-port /dev/ttyAMA0 --sensor-addresses 1,2 --sensor-baud 19200 --sensor-timeout 0.5 --sensor-poll-interval 1.0 --sensor-inter-node-delay 0.010 --sensor-reconnect-delay 1.0 --aero-port /dev/ttyAMA4 --aero-address 44 --aero-baud 9600 --aero-timeout 0.5 --aero-poll-interval 2.0 --aero-inter-register-delay 0.050 --aero-reconnect-delay 1.0 --enable-supply-tacho --enable-extract-tacho --tacho-chip /dev/gpiochip0 --supply-tacho-line GPIO17 --extract-tacho-line GPIO27 --tacho-timeout 0.25 --tacho-averaging-periods 6 --zigbee-mqtt-host 127.0.0.1 --zigbee-mqtt-port 1883 --zigbee-base-topic zigbee2mqtt --zigbee-supply-name temp_nawiew --zigbee-supply-ieee 0xa4c13810e66fffff --zigbee-extract-name temp_wywiew --zigbee-extract-ieee 0xa4c13810bdedffff --zigbee-roles-file /var/lib/workshop-ventilation/zigbee-roles.json --rtc-agent-socket /run/wvc-rtc/rtc-wake.sock --host-power-socket /run/wvc-host-power/host-power.sock --log-level INFO
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=20

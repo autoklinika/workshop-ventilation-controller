@@ -4,8 +4,8 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
 
+from ventilation_core.calendar.model import CalendarResolution
 from ventilation_core.domain.aero import AeroBusState
-from ventilation_core.domain.schedule import ScheduleState
 from ventilation_core.domain.sensors import SensorBusState
 from ventilation_core.domain.shadow import ShadowAutomationState
 from ventilation_core.domain.tacho import TachoMonitorState
@@ -50,6 +50,8 @@ class AlarmCode(StrEnum):
     ZIGBEE_DEVICE_OFFLINE = "ZIGBEE_DEVICE_OFFLINE"
     ZIGBEE_DEVICE_DATA_STALE = "ZIGBEE_DEVICE_DATA_STALE"
     ZIGBEE_LOW_BATTERY = "ZIGBEE_LOW_BATTERY"
+    RTC_WAKE_ARM_FAILED = "RTC_WAKE_ARM_FAILED"
+    HOST_POWER_REQUEST_FAILED = "HOST_POWER_REQUEST_FAILED"
 
 
 class AlarmSeverity(StrEnum):
@@ -110,8 +112,9 @@ class CoreState:
     aero_bus: AeroBusState | None = None
     tacho: TachoMonitorState | None = None
     zigbee: ZigbeeMqttState | None = None
-    schedule: ScheduleState | None = None
+    calendar: CalendarResolution | None = None
     shadow_automation: ShadowAutomationState | None = None
+    power_scheduler: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,8 +128,9 @@ class CoreState:
             "aero_bus": None if self.aero_bus is None else self.aero_bus.to_dict(),
             "tacho": None if self.tacho is None else self.tacho.to_dict(),
             "zigbee": None if self.zigbee is None else self.zigbee.to_dict(),
-            "schedule": None if self.schedule is None else self.schedule.to_dict(),
+            "calendar": None if self.calendar is None else self.calendar.to_dict(),
             "shadow_automation": (
                 None if self.shadow_automation is None else self.shadow_automation.to_dict()
             ),
+            "power_scheduler": self.power_scheduler,
         }
