@@ -40,9 +40,11 @@ class PowerSchedulerRuntimeSnapshot:
 class PowerSchedulerRuntime:
     """Non-blocking periodic runtime for the Calendar-driven PowerScheduler.
 
-    Status reads never execute anything.  The worker owns the only automatic
+    Status reads never execute anything. The worker owns the only automatic
     execution path and records at most one failed/accepted shutdown attempt per
     next_wake timestamp, preventing repeated power requests on periodic ticks.
+    The first automatic tick is deliberately delayed by one poll interval so
+    the core Unix server is already available to the host-power safety path.
     """
 
     def __init__(
@@ -93,10 +95,13 @@ class PowerSchedulerRuntime:
         host_accepted = False
         resulting_state = planned
 
+        with self._lock:
+            attempted_wake = self._last_attempted_wake
+
         should_attempt = (
             self._scheduler.enabled
             and wake_key is not None
-            and wake_key != self._last_attempted_wake
+            and wake_key != attempted_wake
         )
         if should_attempt:
             execution = self._scheduler.execute_scheduled_shutdown(self._host_power, now)
@@ -108,16 +113,19 @@ class PowerSchedulerRuntime:
                 or execution.alert_code in {RTC_WAKE_ARM_FAILED, HOST_POWER_REQUEST_FAILED}
                 or execution.state.shutdown_ready is True
             ):
-                self._last_attempted_wake = wake_key
+                attempted_wake = wake_key
 
         with self._lock:
             self._state = resulting_state
             self._last_tick_at = now.isoformat()
+            self._last_attempted_wake = attempted_wake
             self._last_host_power_requested = host_requested
             self._last_host_power_accepted = host_accepted
         return self.snapshot()
 
     def _run(self) -> None:
+        if self._stop.wait(self._poll_interval_seconds):
+            return
         while not self._stop.is_set():
             try:
                 self.tick_once()
