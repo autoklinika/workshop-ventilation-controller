@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from threading import RLock
 from typing import Callable, Protocol
 
+from ventilation_core.application.zigbee_measurements import normalize_zigbee_temperature
 from ventilation_core.domain.models import AlarmSeverity, CoreState
 from ventilation_core.domain.shadow import (
     ShadowAutomationState,
@@ -168,6 +169,7 @@ class PolicyShadowAutomationEvaluator:
         calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
         schedule_supply_pct, schedule_extract_pct, schedule_request_source = _calendar_request(state)
         sensor_by_address = _sensor_by_address(state)
+        supply_air = normalize_zigbee_temperature(state.zigbee, "supply", now_utc=now_dt)
         degraded = False
         proposals: list[ShadowZoneProposal] = []
 
@@ -208,9 +210,31 @@ class PolicyShadowAutomationEvaluator:
                     self._policy,
                     temperature_celsius=inside_temperature,
                 )
+                outside_temperature = supply_air.temperature_celsius
+                outside_temperature_usable = supply_air.usable
+                outside_temperature_stale = supply_air.stale
+                outside_temperature_age_seconds = supply_air.age_seconds
+                outside_temperature_source = "zigbee:supply"
+                outside_temperature_reason = supply_air.reason
+                temperature_delta = (
+                    float(inside_temperature) - float(outside_temperature)
+                    if (
+                        inside_temperature is not None
+                        and outside_temperature is not None
+                        and outside_temperature_usable
+                    )
+                    else None
+                )
             else:
                 raw_thermal_band = ThermalBand.NOT_APPLICABLE
                 thermal_band = ThermalBand.NOT_APPLICABLE
+                outside_temperature = None
+                outside_temperature_usable = False
+                outside_temperature_stale = False
+                outside_temperature_age_seconds = None
+                outside_temperature_source = None
+                outside_temperature_reason = "NOT_APPLICABLE"
+                temperature_delta = None
 
             air_request_pct = self._policy.air_request_pct(air_level)
             temperature_limit_pct = (
@@ -244,8 +268,6 @@ class PolicyShadowAutomationEvaluator:
                         "PURGE",
                     }
                     if air_level > AirQualityLevel.NORMAL:
-                        # Degraded air outranks thermal/energy reduction and may
-                        # override STANDBY/OFF. Calendar remains a minimum baseline.
                         final_supply_pct = max(schedule_supply_pct or 0.0, air_request_pct)
                         final_extract_pct = max(
                             schedule_extract_pct or 0.0,
@@ -275,8 +297,6 @@ class PolicyShadowAutomationEvaluator:
                                 else min(desired_extract, extract_thermal_limit)
                             )
                     else:
-                        # Good air outside an active period does not invent a
-                        # background ventilation demand.
                         final_supply_pct = 0.0
                         final_extract_pct = 0.0
                 elif binding.actuator_kind == "aero":
@@ -351,7 +371,13 @@ class PolicyShadowAutomationEvaluator:
                     dynamics_pending_since_utc=dynamics.pending_since_utc,
                     dynamics_transition_reason=dynamics.transition_reason,
                     inside_temperature_celsius=inside_temperature,
-                    outside_temperature_celsius=None,
+                    outside_temperature_celsius=outside_temperature,
+                    outside_temperature_usable=outside_temperature_usable,
+                    outside_temperature_stale=outside_temperature_stale,
+                    outside_temperature_age_seconds=outside_temperature_age_seconds,
+                    outside_temperature_source=outside_temperature_source,
+                    outside_temperature_reason=outside_temperature_reason,
+                    temperature_delta_celsius=temperature_delta,
                     raw_thermal_band=raw_thermal_band.value,
                     thermal_band=thermal_band.value,
                     air_request_pct=air_request_pct,
