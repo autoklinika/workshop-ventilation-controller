@@ -129,11 +129,15 @@ prepare() {
 
     # On a successful run we never reach here because the CM5 powers off.  If
     # PREPARE returned, restore the 12 V owner and remove any RTC alarm.  Keep
-    # state/worktree diagnostics for analysis.
+    # state/worktree diagnostics for analysis and fail closed even if an
+    # unexpected validator path returned status 0.
     echo "FAIL: M5B PREPARE returned rc=$rc instead of being terminated by host poweroff" >&2
     sudo sh -c "echo 0 > '$WAKEALARM'" >/dev/null 2>&1 || true
     sudo systemctl restart wvc-host-power.service >/dev/null 2>&1 || true
-    exit "${rc:-1}"
+    if [ "$rc" -eq 0 ]; then
+        rc=1
+    fi
+    exit "$rc"
 }
 
 verify() {
