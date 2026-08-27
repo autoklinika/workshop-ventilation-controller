@@ -74,6 +74,7 @@ class UnconfiguredShadowAutomationEvaluator:
         now = datetime.now(timezone.utc).isoformat()
         safety_blocked = _safety_blocked(state)
         calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
+        schedule_supply_pct, schedule_extract_pct, schedule_request_source = _calendar_request(state)
         sensor_by_address = _sensor_by_address(state)
 
         proposals: list[ShadowZoneProposal] = []
@@ -96,6 +97,9 @@ class UnconfiguredShadowAutomationEvaluator:
                     calendar_profile=calendar_profile,
                     sensor_address=binding.sensor_address,
                     sensor_usable=sensor_usable,
+                    schedule_supply_pct=schedule_supply_pct,
+                    schedule_extract_pct=schedule_extract_pct,
+                    schedule_request_source=schedule_request_source,
                     safety_override=safety_blocked,
                     control_reason=reason,
                 )
@@ -162,6 +166,7 @@ class PolicyShadowAutomationEvaluator:
         now = now_dt.isoformat()
         safety_blocked = _safety_blocked(state)
         calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
+        schedule_supply_pct, schedule_extract_pct, schedule_request_source = _calendar_request(state)
         sensor_by_address = _sensor_by_address(state)
         degraded = False
         proposals: list[ShadowZoneProposal] = []
@@ -231,21 +236,57 @@ class PolicyShadowAutomationEvaluator:
             proposed_aero_speed = None
             if self._policy.tuning.outputs_configured and not safety_blocked and sensor_usable:
                 if binding.actuator_kind == "fans" and air_request_pct is not None:
+                    bias = float(self._policy.tuning.extract_bias_pct or 0.0)
+                    air_extract_request_pct = min(100.0, air_request_pct + bias)
+                    active_calendar_phase = calendar_phase in {
+                        "PREVENTILATION",
+                        "ACTIVE",
+                        "PURGE",
+                    }
+                    if air_level > AirQualityLevel.NORMAL:
+                        # Degraded air outranks thermal/energy reduction and may
+                        # override STANDBY/OFF. Calendar remains a minimum baseline.
+                        final_supply_pct = max(schedule_supply_pct or 0.0, air_request_pct)
+                        final_extract_pct = max(
+                            schedule_extract_pct or 0.0,
+                            air_extract_request_pct,
+                        )
+                    elif active_calendar_phase:
+                        desired_supply = _max_optional(schedule_supply_pct, air_request_pct)
+                        desired_extract = _max_optional(
+                            schedule_extract_pct,
+                            air_extract_request_pct,
+                        )
+                        if desired_supply is not None:
+                            final_supply_pct = (
+                                desired_supply
+                                if temperature_limit_pct is None
+                                else min(desired_supply, temperature_limit_pct)
+                            )
+                        if desired_extract is not None:
+                            extract_thermal_limit = (
+                                None
+                                if temperature_limit_pct is None
+                                else min(100.0, temperature_limit_pct + bias)
+                            )
+                            final_extract_pct = (
+                                desired_extract
+                                if extract_thermal_limit is None
+                                else min(desired_extract, extract_thermal_limit)
+                            )
+                    else:
+                        # Good air outside an active period does not invent a
+                        # background ventilation demand.
+                        final_supply_pct = 0.0
+                        final_extract_pct = 0.0
+                elif binding.actuator_kind == "aero":
                     if (
                         air_level == AirQualityLevel.NORMAL
-                        and temperature_limit_pct is not None
+                        and calendar_phase == "INACTIVE"
                     ):
-                        final_supply_pct = min(air_request_pct, temperature_limit_pct)
+                        proposed_aero_speed = 0
                     else:
-                        # AIR QUALITY outranks temperature/energy when air is degraded.
-                        final_supply_pct = air_request_pct
-                    final_extract_pct = min(
-                        100.0,
-                        final_supply_pct
-                        + float(self._policy.tuning.extract_bias_pct or 0.0),
-                    )
-                elif binding.actuator_kind == "aero":
-                    proposed_aero_speed = self._policy.aero_speed(air_level)
+                        proposed_aero_speed = self._policy.aero_speed(air_level)
 
             automation_state = self._automation_state(
                 binding=binding,
@@ -289,6 +330,9 @@ class PolicyShadowAutomationEvaluator:
                     sensor_address=binding.sensor_address,
                     sensor_usable=sensor_usable,
                     automation_state=automation_state,
+                    schedule_supply_pct=schedule_supply_pct,
+                    schedule_extract_pct=schedule_extract_pct,
+                    schedule_request_source=schedule_request_source,
                     raw_air_quality_level=(
                         None if raw_air_level is None else raw_air_level.name
                     ),
@@ -307,8 +351,6 @@ class PolicyShadowAutomationEvaluator:
                     dynamics_pending_since_utc=dynamics.pending_since_utc,
                     dynamics_transition_reason=dynamics.transition_reason,
                     inside_temperature_celsius=inside_temperature,
-                    # Outdoor/supply-air temperature is intentionally unavailable
-                    # until the selected Zigbee measurement path is integrated.
                     outside_temperature_celsius=None,
                     raw_thermal_band=raw_thermal_band.value,
                     thermal_band=thermal_band.value,
@@ -446,6 +488,22 @@ def _calendar_context(state: CoreState) -> tuple[str, str | None, str | None]:
         return "UNKNOWN", None, None
     mode = None if calendar.effective_mode is None else calendar.effective_mode.value
     return calendar.phase.value, mode, calendar.effective_profile
+
+
+def _calendar_request(state: CoreState) -> tuple[float | None, float | None, str | None]:
+    calendar = state.calendar
+    if calendar is None or calendar.available is not True:
+        return None, None, None
+    return (
+        calendar.schedule_supply_pct,
+        calendar.schedule_extract_pct,
+        calendar.schedule_request_source,
+    )
+
+
+def _max_optional(first: float | None, second: float | None) -> float | None:
+    values = [float(value) for value in (first, second) if value is not None]
+    return None if not values else max(values)
 
 
 def _sensor_by_address(state: CoreState) -> dict[int, object]:
