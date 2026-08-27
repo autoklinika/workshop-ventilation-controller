@@ -22,15 +22,28 @@ class ShadowZoneProposal:
     sensor_address: int | None
     sensor_usable: bool
 
+    automation_state: str | None = None
+
+    # Raw classification is retained next to the stabilized effective level so
+    # operators can see both the instantaneous sensor interpretation and the
+    # stateful decision that would be used by the future Control Engine.
+    raw_air_quality_level: str | None = None
+    raw_air_quality_driver: str | None = None
     air_quality_level: str | None = None
     air_quality_driver: str | None = None
     pm2_5_level: str | None = None
     voc_level: str | None = None
     nox_level: str | None = None
     pm10_reference_exceeded: bool | None = None
+    air_quality_effective_since_utc: str | None = None
+    dynamics_pending_level: str | None = None
+    dynamics_pending_driver: str | None = None
+    dynamics_pending_since_utc: str | None = None
+    dynamics_transition_reason: str | None = None
 
     inside_temperature_celsius: float | None = None
     outside_temperature_celsius: float | None = None
+    raw_thermal_band: str | None = None
     thermal_band: str | None = None
 
     air_request_pct: float | None = None
@@ -53,14 +66,23 @@ class ShadowZoneProposal:
             "calendar_profile": self.calendar_profile,
             "sensor_address": self.sensor_address,
             "sensor_usable": self.sensor_usable,
+            "automation_state": self.automation_state,
+            "raw_air_quality_level": self.raw_air_quality_level,
+            "raw_air_quality_driver": self.raw_air_quality_driver,
             "air_quality_level": self.air_quality_level,
             "air_quality_driver": self.air_quality_driver,
             "pm2_5_level": self.pm2_5_level,
             "voc_level": self.voc_level,
             "nox_level": self.nox_level,
             "pm10_reference_exceeded": self.pm10_reference_exceeded,
+            "air_quality_effective_since_utc": self.air_quality_effective_since_utc,
+            "dynamics_pending_level": self.dynamics_pending_level,
+            "dynamics_pending_driver": self.dynamics_pending_driver,
+            "dynamics_pending_since_utc": self.dynamics_pending_since_utc,
+            "dynamics_transition_reason": self.dynamics_transition_reason,
             "inside_temperature_celsius": self.inside_temperature_celsius,
             "outside_temperature_celsius": self.outside_temperature_celsius,
+            "raw_thermal_band": self.raw_thermal_band,
             "thermal_band": self.thermal_band,
             "air_request_pct": self.air_request_pct,
             "temperature_limit_pct": self.temperature_limit_pct,
