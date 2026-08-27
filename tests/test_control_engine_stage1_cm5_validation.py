@@ -30,7 +30,7 @@ class ControlEngineStage1Cm5ValidationTest(unittest.TestCase):
         self.assertIn('[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ]', self.text)
         self.assertIn('git worktree add --detach "$WT" "$BRANCH_SHA"', self.text)
 
-    def test_branch_core_keeps_scheduled_shutdown_disabled_at_runtime(self) -> None:
+    def test_branch_core_cannot_opt_in_to_scheduled_shutdown(self) -> None:
         exec_lines = [
             line
             for line in self.text.splitlines()
@@ -39,16 +39,14 @@ class ControlEngineStage1Cm5ValidationTest(unittest.TestCase):
         self.assertEqual(len(exec_lines), 1)
         self.assertNotIn("--enable-scheduled-shutdown", exec_lines[0])
         self.assertIn("--power-scheduler-poll-interval 1.0", exec_lines[0])
-        for expected in (
-            'power.get("scheduled_shutdown_enabled") is not False',
-            'power.get("shutdown_ready") is not False',
-            'power.get("rtc_alarm_armed") is not False',
-            'power.get("rtc_alarm_verified") is not False',
-            'power.get("last_host_power_requested") is not False',
-            'power.get("last_host_power_accepted") is not False',
-        ):
-            self.assertIn(expected, self.text)
-        self.assertGreaterEqual(self.text.count("require_power_scheduler_disabled"), 4)
+        self.assertIn(
+            'grep -q -- "--enable-scheduled-shutdown" "$WT/deploy/systemd/ventilation-core.service"',
+            self.text,
+        )
+        self.assertIn(
+            'echo "FAIL: production systemd unit unexpectedly enables scheduled shutdown"',
+            self.text,
+        )
 
     def test_harness_requires_zero_output_and_no_observed_fan_motion(self) -> None:
         self.assertIn('sp.get("supply_voltage") != 0.0', self.text)
@@ -74,7 +72,13 @@ class ControlEngineStage1Cm5ValidationTest(unittest.TestCase):
             'ctl "$WT/src" shutdown',
         ):
             self.assertNotIn(forbidden, self.text)
-        self.assertGreaterEqual(self.text.count("assert_host_not_touched"), 5)
+        for required_call in (
+            'assert_host_not_touched "Control Engine branch first boot"',
+            'assert_host_not_touched "after Control Engine hot reload"',
+            'assert_host_not_touched "Control Engine branch after restart"',
+            'assert_host_not_touched "final production main"',
+        ):
+            self.assertIn(required_call, self.text)
 
     def test_control_engine_remains_persistent_shadow_without_actuation(self) -> None:
         for expected in (
