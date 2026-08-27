@@ -80,6 +80,57 @@ def _tuning_to_dict(tuning: ShadowOutputTuning) -> dict[str, Any]:
     return {item.name: getattr(tuning, item.name) for item in fields(ShadowOutputTuning)}
 
 
+def _validate_policy(policy: ShadowPolicyV1) -> None:
+    if not isinstance(policy.version, str) or not policy.version.strip() or len(policy.version) > 80:
+        raise ValueError("control_engine.policy.version must be non-empty text up to 80 characters")
+
+    for name in (
+        "pm2_5_reference_ug_m3",
+        "pm2_5_high_ug_m3",
+        "pm2_5_max_ug_m3",
+        "pm10_reference_ug_m3",
+        "voc_boost_index",
+        "voc_high_index",
+        "voc_max_index",
+        "nox_boost_index",
+        "nox_high_index",
+        "nox_max_index",
+    ):
+        value = getattr(policy, name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(float(value)):
+            raise ValueError(f"control_engine.policy.{name} must be finite numeric")
+        if float(value) < 0.0:
+            raise ValueError(f"control_engine.policy.{name} must be non-negative")
+
+    for name in (
+        "temperature_normal_above_celsius",
+        "temperature_limiting_from_celsius",
+        "temperature_minimum_from_celsius",
+    ):
+        value = getattr(policy, name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(float(value)):
+            raise ValueError(f"control_engine.policy.{name} must be finite numeric")
+
+    if not (
+        policy.pm2_5_reference_ug_m3
+        <= policy.pm2_5_high_ug_m3
+        <= policy.pm2_5_max_ug_m3
+    ):
+        raise ValueError("PM2.5 thresholds must be monotonic reference <= high <= max")
+    if not policy.voc_boost_index <= policy.voc_high_index <= policy.voc_max_index:
+        raise ValueError("VOC thresholds must be monotonic boost <= high <= max")
+    if not policy.nox_boost_index <= policy.nox_high_index <= policy.nox_max_index:
+        raise ValueError("NOx thresholds must be monotonic boost <= high <= max")
+    if not (
+        policy.temperature_normal_above_celsius
+        >= policy.temperature_limiting_from_celsius
+        >= policy.temperature_minimum_from_celsius
+    ):
+        raise ValueError(
+            "Temperature thresholds must be monotonic normal >= limiting >= minimum"
+        )
+
+
 @dataclass(frozen=True)
 class ControlEngineConfig:
     """Persistent configuration of the non-actuating Automation Control Engine.
@@ -100,6 +151,7 @@ class ControlEngineConfig:
             raise ValueError("unsupported control_engine schema_version")
         if not isinstance(self.policy, ShadowPolicyV1):
             raise ValueError("policy must be ShadowPolicyV1")
+        _validate_policy(self.policy)
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ControlEngineConfig":
