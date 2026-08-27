@@ -19,9 +19,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("sensors")
     subparsers.add_parser("aero")
     subparsers.add_parser("calendar")
+    subparsers.add_parser("control-engine")
 
     calendar_replace = subparsers.add_parser("calendar-replace")
     calendar_replace.add_argument("--file", type=Path, required=True)
+
+    control_engine_replace = subparsers.add_parser("control-engine-replace")
+    control_engine_replace.add_argument("--file", type=Path, required=True)
 
     alerts = subparsers.add_parser("alerts")
     alerts.add_argument("--limit", type=int, default=200)
@@ -43,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _read_one_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} file must contain one JSON object")
+    return payload
+
+
 def build_request(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "set":
         return {
@@ -51,10 +62,15 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
             "extract_voltage": args.extract,
         }
     if args.command == "calendar-replace":
-        payload = json.loads(args.file.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("Calendar file must contain one JSON object")
-        return {"command": "calendar-replace", "config": payload}
+        return {
+            "command": "calendar-replace",
+            "config": _read_one_json_object(args.file, label="Calendar"),
+        }
+    if args.command == "control-engine-replace":
+        return {
+            "command": "control-engine-replace",
+            "config": _read_one_json_object(args.file, label="Control Engine"),
+        }
     if args.command == "alerts":
         return {"command": "alerts", "limit": args.limit}
     if args.command == "ack-alert":
