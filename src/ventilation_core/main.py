@@ -10,11 +10,13 @@ from ventilation_core.alert_policy import DEFAULT_RUNTIME_POLICY_PATH
 from ventilation_core.alert_policy_runtime import RuntimeAlertPolicyManager
 from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.application.alert_v2_policy_service import AlertV2ReadOnlyPolicyService
+from ventilation_core.application.power_scheduler import PowerScheduler
+from ventilation_core.application.power_scheduler_runtime import PowerSchedulerRuntime
+from ventilation_core.application.power_scheduler_service import PowerSchedulingVentilationService
 from ventilation_core.application.service_plane_alert_registry import (
     ServicePlaneCorrelatingAlertRegistry,
 )
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
-from ventilation_core.application.shadow_service import ShadowAlertingVentilationService
 from ventilation_core.calendar import (
     CalendarEngine,
     UnavailableCalendarEngine,
@@ -23,7 +25,15 @@ from ventilation_core.calendar import (
 from ventilation_core.domain.policy import FanSetpointPolicy
 from ventilation_core.domain.shadow_policy import ShadowPolicyV1
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
+from ventilation_core.infrastructure.host_power_client import (
+    DEFAULT_HOST_POWER_SOCKET,
+    HostPowerClient,
+)
 from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActuator
+from ventilation_core.infrastructure.rtc_wake_client import (
+    DEFAULT_RTC_AGENT_SOCKET,
+    RtcWakeAgentClient,
+)
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
 from ventilation_core.infrastructure.sqlite_calendar_store import SqliteCalendarStore
@@ -95,6 +105,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--system-power-timeout", type=float, default=0.5)
     parser.add_argument("--disable-system-power-monitor", action="store_true")
 
+    parser.add_argument(
+        "--enable-scheduled-shutdown",
+        action="store_true",
+        help="Explicit opt-in for Calendar-driven automatic CM5 shutdown; disabled by default",
+    )
+    parser.add_argument("--power-scheduler-poll-interval", type=float, default=30.0)
+    parser.add_argument("--power-scheduler-minimum-wake-lead", type=int, default=120)
+    parser.add_argument("--rtc-agent-socket", type=Path, default=DEFAULT_RTC_AGENT_SOCKET)
+    parser.add_argument("--rtc-agent-timeout", type=float, default=2.0)
+    parser.add_argument("--host-power-socket", type=Path, default=DEFAULT_HOST_POWER_SOCKET)
+    parser.add_argument("--host-power-timeout", type=float, default=165.0)
+
     parser.add_argument("--sensor-port", default="/dev/ttyAMA0")
     parser.add_argument("--sensor-addresses", type=parse_sensor_addresses, default=(1, 2))
     parser.add_argument("--sensor-baud", type=int, default=19200)
@@ -148,6 +170,7 @@ async def run_core(args: argparse.Namespace) -> None:
     tacho = None
     zigbee = None
     system_power_monitor = None
+    power_scheduler_runtime = None
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
@@ -261,7 +284,28 @@ async def run_core(args: argparse.Namespace) -> None:
             )
             if enabled
         )
-        legacy_service = ShadowAlertingVentilationService(
+
+        rtc_wake = RtcWakeAgentClient(
+            args.rtc_agent_socket,
+            timeout_seconds=args.rtc_agent_timeout,
+        )
+        host_power = HostPowerClient(
+            args.host_power_socket,
+            timeout_seconds=args.host_power_timeout,
+        )
+        power_scheduler = PowerScheduler(
+            calendar_engine,
+            rtc_wake,
+            enabled=args.enable_scheduled_shutdown,
+            minimum_wake_lead_seconds=args.power_scheduler_minimum_wake_lead,
+        )
+        power_scheduler_runtime = PowerSchedulerRuntime(
+            power_scheduler,
+            host_power,
+            poll_interval_seconds=args.power_scheduler_poll_interval,
+        )
+
+        legacy_service = PowerSchedulingVentilationService(
             actuator=actuator,
             policy=FanSetpointPolicy(
                 minimum_running_voltage=args.minimum_running_voltage,
@@ -277,6 +321,7 @@ async def run_core(args: argparse.Namespace) -> None:
             required_tacho_channels=required_tacho_channels,
             system_power_monitor=system_power_monitor,
             shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
+            power_scheduler_runtime=power_scheduler_runtime,
         )
         alert_policy_manager = RuntimeAlertPolicyManager(args.alert_policy)
         service = AlertV2ReadOnlyPolicyService(
@@ -308,6 +353,13 @@ async def run_core(args: argparse.Namespace) -> None:
                 "Raspberry Pi system power monitor enabled read-only command=%s get_throttled",
                 args.system_power_command,
             )
+        LOGGER.info(
+            "Power Scheduler runtime initialized enabled=%s poll=%.1fs rtc_socket=%s host_power_socket=%s",
+            args.enable_scheduled_shutdown,
+            args.power_scheduler_poll_interval,
+            args.rtc_agent_socket,
+            args.host_power_socket,
+        )
         server = CoreServer(
             service=service,
             socket_path=args.socket,
@@ -318,35 +370,39 @@ async def run_core(args: argparse.Namespace) -> None:
             service.close()
         else:
             try:
-                if zigbee is not None:
-                    zigbee.close()
+                if power_scheduler_runtime is not None:
+                    power_scheduler_runtime.close()
             finally:
                 try:
-                    if tacho is not None:
-                        tacho.close()
+                    if zigbee is not None:
+                        zigbee.close()
                 finally:
                     try:
-                        if aero_bus is not None:
-                            aero_bus.close()
+                        if tacho is not None:
+                            tacho.close()
                     finally:
                         try:
-                            if sensor_bus is not None:
-                                sensor_bus.close()
+                            if aero_bus is not None:
+                                aero_bus.close()
                         finally:
                             try:
-                                if system_power_monitor is not None:
-                                    system_power_monitor.close()
+                                if sensor_bus is not None:
+                                    sensor_bus.close()
                             finally:
                                 try:
-                                    if actuator is not None:
-                                        actuator.close()
+                                    if system_power_monitor is not None:
+                                        system_power_monitor.close()
                                 finally:
                                     try:
-                                        if calendar_engine is not None:
-                                            calendar_engine.close()
+                                        if actuator is not None:
+                                            actuator.close()
                                     finally:
-                                        if alert_registry is not None:
-                                            alert_registry.close()
+                                        try:
+                                            if calendar_engine is not None:
+                                                calendar_engine.close()
+                                        finally:
+                                            if alert_registry is not None:
+                                                alert_registry.close()
         raise
 
     loop = asyncio.get_running_loop()
