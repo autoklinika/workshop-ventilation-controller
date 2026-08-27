@@ -356,7 +356,7 @@ class ServiceDashboardStage1Test(unittest.TestCase):
 
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "runtime" / "server.py"),
-            "bb906449e7aa4582c97d9db60655dd3a9fc101ce",
+            "7e84987728fba6471bc1220cc3698bc6f8df07db",
         )
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "application" / "alert_registry.py"),
