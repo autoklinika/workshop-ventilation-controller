@@ -57,6 +57,7 @@ class ShadowZoneProposal:
     final_supply_pct: float | None = None
     final_extract_pct: float | None = None
 
+    sensor_fallback_applied: bool = False
     safety_override: bool = False
     air_quality_override: bool = False
     proposed_supply_voltage: float | None = None
@@ -103,6 +104,7 @@ class ShadowZoneProposal:
             "temperature_limit_pct": self.temperature_limit_pct,
             "final_supply_pct": self.final_supply_pct,
             "final_extract_pct": self.final_extract_pct,
+            "sensor_fallback_applied": self.sensor_fallback_applied,
             "safety_override": self.safety_override,
             "air_quality_override": self.air_quality_override,
             "proposed_supply_voltage": self.proposed_supply_voltage,
