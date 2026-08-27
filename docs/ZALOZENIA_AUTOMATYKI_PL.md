@@ -963,3 +963,211 @@ Docelowo:
 - ręczne uruchomienie przez fizyczny przycisk pozostaje możliwe niezależnie od zaplanowanego alarmu RTC.
 
 Funkcja `SCHEDULED_SHUTDOWN -> RTC WAKE` musi przed włączeniem produkcyjnym przejść osobną walidację na fizycznym CM5, obejmującą co najmniej poprawny shutdown, skuteczne wybudzenie RTC, zachowanie po długim okresie wyłączenia, restart po utracie zasilania oraz zmianę czasu letniego / zimowego.
+
+### 16.33. Kalendarz jako niezależna warstwa domenowa
+
+Przy rozbudowanym harmonogramie obejmującym cały rok kalendarz należy wydzielić jako **niezależną warstwę logiczną**. Nie jest to drugi sterownik wentylacji ani alternatywny „mózg” systemu. Jego jedyną odpowiedzialnością jest deterministyczne rozstrzyganie czasu, profili i przyszłych zdarzeń kalendarzowych.
+
+Warstwa ta powinna być nazywana roboczo `Calendar Engine`.
+
+Koncepcyjny przepływ:
+
+```text
+CALENDAR ENGINE
+      |
+      | schedule_intent / calendar_state
+      v
+VENTILATION-CORE
+      |
+      +-- jakość powietrza
+      +-- temperatura
+      +-- stan urządzeń
+      +-- operator override
+      +-- SAFETY / EMERGENCY
+      |
+      v
+WYJŚCIA / URZĄDZENIA
+```
+
+`ventilation-core` pozostaje jedyną warstwą podejmującą końcowe decyzje sterujące.
+
+### 16.34. Odpowiedzialność `Calendar Engine`
+
+`Calendar Engine` powinien odpowiadać za:
+
+- rozstrzyganie bazowego harmonogramu tygodniowego,
+- miesiące i profile sezonowe,
+- zakresy dat,
+- konkretne daty i wyjątki,
+- święta i dni wolne,
+- wiele przedziałów w jednym dniu,
+- hierarchię reguł kalendarzowych,
+- strefę czasu i DST,
+- obowiązujący profil harmonogramowy,
+- obowiązujący tryb harmonogramowy (`AUTO`, `FIXED`, `STANDBY`, `OFF`),
+- bieżący okres kalendarzowy,
+- następne przejście harmonogramu,
+- następny aktywny okres,
+- następny wymagany start systemu,
+- moment `PREVENTILATION`,
+- dane potrzebne do wyznaczenia `next_wake`.
+
+Warstwa kalendarza ma odpowiadać na pytanie:
+
+**„Jaki profil pracy wynika teraz z kalendarza i kiedy kalendarz zmieni ten stan?”**
+
+### 16.35. Czego `Calendar Engine` nie robi
+
+Kalendarz nie może:
+
+- analizować danych SEN55,
+- wyznaczać `BOOST` na podstawie PM/VOC/NOx,
+- wykonywać regulatora temperatury,
+- interpretować TACHO jako decyzji sterującej,
+- generować końcowego zadania 0–10 V,
+- bezpośrednio sterować wentylatorami,
+- nadpisywać warstwy `SAFETY / EMERGENCY`,
+- wykonywać ręcznego `MANUAL` operatora,
+- samodzielnie wyłączać CM5.
+
+Calendar Engine dostarcza **intencję czasową**, a nie decyzję wykonawczą.
+
+### 16.36. Kontrakt pomiędzy kalendarzem a core
+
+`ventilation-core` nie powinien samodzielnie przeszukiwać wszystkich reguł rocznych. Powinien korzystać z jednego jawnego interfejsu, koncepcyjnie:
+
+```python
+calendar.resolve(now)
+```
+
+Wynik powinien zawierać co najmniej:
+
+```text
+effective_profile
+effective_mode
+current_period
+rule_source
+next_transition
+next_active_period
+next_wake
+```
+
+Rozszerzony wynik może zawierać również:
+
+```text
+preventilation_start
+work_start
+work_end
+purge_end
+season_profile
+active_exception
+```
+
+Dzięki temu logika kalendarza jest testowalna niezależnie od czujników i sprzętu.
+
+### 16.37. `MANUAL` pozostaje poza kalendarzem
+
+Ręczny override operatora nie jest regułą kalendarzową. Calendar Engine powinien nadal raportować, co wynikałoby z harmonogramu, nawet gdy operator przejął sterowanie.
+
+Przykład:
+
+```text
+calendar_mode: AUTO
+calendar_profile: NORMAL_WORKDAY
+operator_mode: MANUAL
+manual_until: 14:00
+```
+
+Dopiero `ventilation-core` rozstrzyga końcową hierarchię:
+
+`SAFETY > MANUAL_OVERRIDE > CALENDAR_INTENT`
+
+Pozwala to zawsze stwierdzić, czy aktualne zachowanie wynika z kalendarza, operatora czy warstwy bezpieczeństwa.
+
+### 16.38. Relacja `Calendar Engine` -> `Power Scheduler` -> RTC
+
+Obsługę wyłączenia i RTC należy rozdzielić od samego kalendarza:
+
+```text
+Calendar Engine
+      |
+      | next_active_period / next_wake
+      v
+Power Scheduler
+      |
+      | arm + verify
+      v
+RTC / shutdown
+```
+
+`Calendar Engine` wyznacza czas następnego wymaganego uruchomienia. `Power Scheduler` odpowiada za politykę `SCHEDULED_SHUTDOWN`, zaprogramowanie RTC, jego weryfikację i bezpieczne uruchomienie procedury shutdownu.
+
+RTC jest więc mechanizmem wykonawczym warstwy zasilania, a nie częścią modelu kalendarza.
+
+Wcześniejsze określenia „scheduler” w sekcjach dotyczących kalendarza należy interpretować jako funkcjonalność docelowo realizowaną przez `Calendar Engine`; funkcje bezpiecznego shutdownu i RTC należą do `Power Scheduler`.
+
+### 16.39. Implementacja — osobny moduł, nie osobny demon
+
+W pierwszej implementacji `Calendar Engine` powinien być niezależną warstwą architektoniczną, ale nie osobnym procesem Linux. Pozostaje uruchamiany wewnątrz `ventilation-core` jako wydzielony moduł domenowy.
+
+Koncepcyjna struktura kodu:
+
+```text
+src/ventilation_core/
+    calendar/
+        model.py
+        resolver.py
+        profiles.py
+        exceptions.py
+        timezone.py
+
+    power_schedule/
+        rtc.py
+        shutdown.py
+        wake_plan.py
+```
+
+Taki podział zapewnia separację odpowiedzialności bez dokładania kolejnego demona, IPC i dodatkowego punktu awarii. Jeżeli w przyszłości pojawi się realna potrzeba, granica modułu pozwoli Calendar Engine wydzielić bez przebudowy logiki automatyki.
+
+### 16.40. GUI kalendarza
+
+GUI powinno traktować kalendarz jako osobną funkcjonalność użytkową, np. z widokami:
+
+- tydzień,
+- miesiąc,
+- rok,
+- profile,
+- wyjątki / święta / urlopy,
+- następne przejście,
+- następne wyłączenie,
+- następne uruchomienie RTC.
+
+GUI pozostaje klientem. Może edytować dozwoloną konfigurację Calendar Engine i prezentować jej wynik, ale nie rozstrzyga reguł czasu lokalnie.
+
+### 16.41. Fail-safe warstwy kalendarza
+
+Błąd konfiguracji, niespójna reguła albo brak możliwości jednoznacznego wyznaczenia przyszłego aktywnego okresu nie może prowadzić do niekontrolowanego shutdownu.
+
+W takim przypadku:
+
+```text
+CALENDAR_RESOLUTION_FAILED
+    -> AlertV2
+    -> scheduled shutdown INHIBITED
+    -> CM5 pozostaje uruchomiony
+```
+
+`ventilation-core` powinien nadal działać zgodnie ze swoją bezpieczną polityką fallback. Błąd Calendar Engine nie może wyłączyć warstwy bezpieczeństwa ani bezpośrednio zmienić fizycznych wyjść.
+
+### 16.42. Zasada architektoniczna
+
+Docelowa separacja odpowiedzialności jest następująca:
+
+```text
+Calendar Engine  = KIEDY i JAKI PROFIL
+Power Scheduler  = KIEDY UŚPIĆ/WYŁĄCZYĆ I JAK UZBROIĆ RTC
+ventilation-core = CO W DANEJ CHWILI ZROBIĆ Z WENTYLACJĄ
+GUI              = KONFIGURACJA I PREZENTACJA
+```
+
+Ta granica ma być zachowana w modelu danych, testach, API i dalszej implementacji automatyki.
