@@ -97,8 +97,12 @@ class CalendarEngineM3Cm5ValidationTest(unittest.TestCase):
         source = HARNESS.read_text(encoding="utf-8")
         self.assertIn(f"BRANCH={BRANCH}", source)
         self.assertIn(f"EXPECTED_BASE={MAIN_SHA}", source)
+        self.assertIn('EXPECTED_BRANCH_SHA="${M3_EXPECTED_BRANCH_SHA:-}"', source)
+        self.assertIn('M3_EXPECTED_BRANCH_SHA must pin the exact CI-tested branch commit', source)
         self.assertIn('git fetch origin main "$BRANCH"', source)
         self.assertIn('BRANCH_SHA="$(git rev-parse "origin/$BRANCH")"', source)
+        self.assertIn('[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ]', source)
+        self.assertIn('differs from CI-tested $EXPECTED_BRANCH_SHA', source)
         self.assertIn('git worktree add --detach "$WT" "$BRANCH_SHA"', source)
         self.assertNotIn("sudo git ", source)
 
