@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--core-socket", type=Path, default=DEFAULT_CORE_SOCKET)
     parser.add_argument("--state-file", type=Path, required=True)
     parser.add_argument("--web-url", default="http://127.0.0.1:18092")
+    parser.add_argument(
+        "--lab-mode",
+        action="store_true",
+        default=os.environ.get("M3_LAB_MODE", "0") == "1",
+        help=(
+            "Allow STOP or FAULT with output_state_known=false when actuator/sensor hardware "
+            "is intentionally disconnected. Zero logical outputs, zero observed motion and "
+            "non-actuating shadow automation remain mandatory."
+        ),
+    )
     return parser
 
 
@@ -70,16 +81,30 @@ def _calendar(socket_path: Path) -> dict[str, Any]:
     )
 
 
-def _require_non_actuating_safe_state(state: dict[str, Any], label: str) -> None:
-    if state.get("mode") != "STOP":
-        raise ValidationError(f"{label}: mode is not STOP: {state.get('mode')!r}")
+def _require_non_actuating_safe_state(
+    state: dict[str, Any],
+    label: str,
+    *,
+    lab_mode: bool = False,
+) -> None:
     setpoints = _require_object(state.get("setpoints"), f"{label}.setpoints")
     if setpoints.get("supply_voltage") != 0.0 or setpoints.get("extract_voltage") != 0.0:
         raise ValidationError(f"{label}: EC outputs are not 0 V: {setpoints!r}")
-    if state.get("output_state_known") is not True:
-        raise ValidationError(f"{label}: output_state_known is not true")
 
-    automation = _require_object(state.get("automation"), f"{label}.automation")
+    mode = state.get("mode")
+    if lab_mode:
+        if mode not in {"STOP", "FAULT"}:
+            raise ValidationError(
+                f"{label}: LAB mode accepts only STOP/FAULT, got {mode!r}"
+            )
+    else:
+        if mode != "STOP":
+            raise ValidationError(f"{label}: mode is not STOP: {mode!r}")
+        if state.get("output_state_known") is not True:
+            raise ValidationError(f"{label}: output_state_known is not true")
+
+    automation_raw = state.get("automation") or state.get("shadow_automation")
+    automation = _require_object(automation_raw, f"{label}.shadow_automation")
     if automation.get("enabled") is not True:
         raise ValidationError(f"{label}: shadow automation is not enabled")
     if automation.get("actuation_supported") is not False:
@@ -346,7 +371,11 @@ def _load_state_file(path: Path) -> dict[str, Any]:
 
 def prepare(args: argparse.Namespace) -> dict[str, Any]:
     before = _status(args.core_socket)
-    _require_non_actuating_safe_state(before, "before Calendar Engine validation")
+    _require_non_actuating_safe_state(
+        before,
+        "before Calendar Engine validation",
+        lab_mode=args.lab_mode,
+    )
 
     semantic_matrix = _validate_semantic_matrix()
 
@@ -377,7 +406,11 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         raise ValidationError("core calendar readback differs after WebGUI replace")
 
     state = _status(args.core_socket)
-    _require_non_actuating_safe_state(state, "after Calendar Engine validation")
+    _require_non_actuating_safe_state(
+        state,
+        "after Calendar Engine validation",
+        lab_mode=args.lab_mode,
+    )
     calendar_state = _require_object(state.get("calendar"), "state.calendar")
     if calendar_state.get("effective_profile") != "M3_STANDBY":
         raise ValidationError(f"runtime safe calendar profile is wrong: {calendar_state!r}")
@@ -398,6 +431,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     )
     return {
         "phase": "prepare",
+        "lab_mode": bool(args.lab_mode),
         "calendar_revision": revision,
         "config_sha256": _canonical_hash(config),
         "semantic_checks": {
@@ -425,7 +459,11 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         raise ValidationError("missing expected config hash")
 
     state = _status(args.core_socket)
-    _require_non_actuating_safe_state(state, "after Calendar Engine core restart")
+    _require_non_actuating_safe_state(
+        state,
+        "after Calendar Engine core restart",
+        lab_mode=args.lab_mode,
+    )
 
     readback = _calendar(args.core_socket)
     if readback.get("revision") != expected_revision:
@@ -453,6 +491,7 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "phase": "verify",
+        "lab_mode": bool(args.lab_mode),
         "persistence": "PASS",
         "calendar_revision": expected_revision,
         "config_sha256": expected_hash,
