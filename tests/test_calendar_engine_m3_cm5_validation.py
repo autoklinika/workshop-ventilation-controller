@@ -83,6 +83,31 @@ class CalendarEngineM3Cm5ValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(validator.ValidationError, "supports actuation"):
             validator._require_non_actuating_safe_state(unsafe, "test")
 
+    def test_validator_lab_mode_accepts_fault_unknown_outputs_but_keeps_zero_output_guards(self) -> None:
+        validator = load_validator_module()
+        lab = {
+            "mode": "FAULT",
+            "setpoints": {"supply_voltage": 0.0, "extract_voltage": 0.0},
+            "output_state_known": False,
+            "shadow_automation": {"enabled": True, "actuation_supported": False},
+            "tacho": {
+                "supply": {"rpm": 0.0},
+                "extract": {"rpm": 0.0},
+            },
+            "aero_bus": {
+                "telemetry": {"fan_1_percent": None, "fan_2_percent": None},
+            },
+        }
+        validator._require_non_actuating_safe_state(lab, "lab", lab_mode=True)
+
+        with self.assertRaisesRegex(validator.ValidationError, "mode is not STOP"):
+            validator._require_non_actuating_safe_state(lab, "production", lab_mode=False)
+
+        nonzero = dict(lab)
+        nonzero["setpoints"] = {"supply_voltage": 1.0, "extract_voltage": 0.0}
+        with self.assertRaisesRegex(validator.ValidationError, "EC outputs are not 0 V"):
+            validator._require_non_actuating_safe_state(nonzero, "lab", lab_mode=True)
+
     def test_harness_has_valid_bash_syntax(self) -> None:
         completed = subprocess.run(
             ["bash", "-n", str(HARNESS)],
