@@ -113,7 +113,6 @@ def _selectors_can_align(
             for weekday in first.weekdays
         )
     if kind == CalendarRuleKind.SEASON:
-        # One leap year covers every month boundary, including February 29.
         representative = date(2028, 1, 1)
         for day_index in range(366):
             first_date = representative + timedelta(days=day_index)
@@ -137,14 +136,7 @@ def _selectors_can_align(
 
 
 def validate_calendar_configuration(config: CalendarConfig) -> None:
-    """Reject latent same-priority conflicts before configuration persistence.
-
-    Runtime precedence is date-kind based. Rules with different priorities may
-    intentionally cover the same dates, but rules at the same priority must not
-    create ambiguous effective periods. Validation includes adjacent start dates,
-    overnight windows and PREVENTILATION/PURGE extensions, so a conflict cannot
-    remain dormant until a future date.
-    """
+    """Reject latent same-priority conflicts before configuration persistence."""
 
     enabled = [rule for rule in config.rules if rule.enabled]
     profiles = {profile.profile_id: profile for profile in config.profiles}
@@ -159,11 +151,6 @@ def validate_calendar_configuration(config: CalendarConfig) -> None:
             second_profile = profiles[second.profile_id]
             second_start, second_end = _rule_effective_bounds(second, second_profile)
 
-            # A timed overnight window may end almost two days after its rule
-            # date and PURGE may extend another full day. PREVENTILATION may
-            # begin one day before the other rule date, so start dates up to
-            # three days apart must be checked. Four days can only touch, not
-            # overlap, at the configured maxima.
             for day_offset in range(-3, 4):
                 if first_index == second_index and day_offset == 0:
                     continue
@@ -217,6 +204,26 @@ def _full_day_context(config: CalendarConfig, local_date: date) -> tuple[Calenda
     return None
 
 
+def _profile_schedule_request(
+    profile: CalendarProfile,
+) -> tuple[float | None, float | None, str]:
+    if profile.mode == CalendarMode.AUTO:
+        return (
+            None if profile.minimum_supply_pct is None else float(profile.minimum_supply_pct),
+            None if profile.minimum_extract_pct is None else float(profile.minimum_extract_pct),
+            "CALENDAR_AUTO_MINIMUM",
+        )
+    if profile.mode == CalendarMode.FIXED:
+        return (
+            None if profile.fixed_supply_pct is None else float(profile.fixed_supply_pct),
+            None if profile.fixed_extract_pct is None else float(profile.fixed_extract_pct),
+            "CALENDAR_FIXED",
+        )
+    if profile.mode == CalendarMode.STANDBY:
+        return 0.0, 0.0, "CALENDAR_STANDBY"
+    return 0.0, 0.0, "CALENDAR_OFF"
+
+
 def resolve_calendar(
     config: CalendarConfig,
     *,
@@ -232,9 +239,6 @@ def resolve_calendar(
     tz = ZoneInfo(config.timezone)
     local_now = now.astimezone(tz)
 
-    # A configured period may begin PREVENTILATION on the previous local day,
-    # and an overnight period with a long PURGE may remain current for up to two
-    # days after its rule date. Include exactly that bounded start-date envelope.
     candidate_periods: list[_Period] = []
     for offset in (-2, -1, 0, 1):
         candidate_periods.extend(_periods_for_date(config, local_now.date() + timedelta(days=offset), tz))
@@ -271,27 +275,38 @@ def resolve_calendar(
         full_day = _full_day_context(config, local_now.date())
         if full_day is not None:
             rule, mode = full_day
+            profile = config.profile(rule.profile_id)
             effective_profile = rule.profile_id
             effective_mode = mode
             rule_id = rule.rule_id
             rule_source = rule.kind
+            schedule_supply_pct, schedule_extract_pct, schedule_request_source = (
+                _profile_schedule_request(profile)
+            )
         else:
             effective_profile = None
             effective_mode = CalendarMode.OFF
             rule_id = None
             rule_source = None
+            schedule_supply_pct = 0.0
+            schedule_extract_pct = 0.0
+            schedule_request_source = "CALENDAR_OFF_FALLBACK"
         if next_period is not None:
             next_transition = next_period.pre_start
             next_reason = "START_PREVENTILATION"
         current_start = None
         current_end = None
     else:
+        profile = config.profile(current.profile_id)
         effective_profile = current.profile_id
         effective_mode = current.mode
         rule_id = current.rule.rule_id
         rule_source = current.rule.kind
         current_start = current.pre_start.isoformat()
         current_end = current.purge_end.isoformat()
+        schedule_supply_pct, schedule_extract_pct, schedule_request_source = (
+            _profile_schedule_request(profile)
+        )
 
     return CalendarResolution(
         available=True,
@@ -309,4 +324,7 @@ def resolve_calendar(
         next_transition_reason=next_reason,
         next_active_period=None if next_period is None else next_period.active_start.isoformat(),
         next_wake=None if next_period is None else next_period.pre_start.isoformat(),
+        schedule_supply_pct=schedule_supply_pct,
+        schedule_extract_pct=schedule_extract_pct,
+        schedule_request_source=schedule_request_source,
     )
