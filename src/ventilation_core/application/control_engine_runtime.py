@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from threading import RLock
-from typing import Callable, Mapping, Protocol, Any
+from typing import Any, Callable, Mapping, Protocol
 
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
@@ -51,7 +52,13 @@ class PersistentControlEngineEvaluator:
     def evaluate(self, state: CoreState) -> ShadowAutomationState:
         with self._lock:
             evaluator = self._evaluator
-        return evaluator.evaluate(state)
+            revision = self._revision
+        result = evaluator.evaluate(state)
+        return replace(
+            result,
+            configuration_revision=revision,
+            configuration_persistent=True,
+        )
 
     def configuration(self) -> dict[str, Any]:
         with self._lock:
