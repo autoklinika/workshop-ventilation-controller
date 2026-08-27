@@ -122,13 +122,7 @@ class UnconfiguredShadowAutomationEvaluator:
 
 
 class PolicyShadowAutomationEvaluator:
-    """Stateful, deterministic Control Engine V1 running strictly in SHADOW mode.
-
-    The evaluator owns hysteresis/debounce state per logical zone, but it has no
-    actuator port and therefore cannot change DAC or AERO outputs. Until site
-    tuning is explicitly configured it retains the previous transparent SHADOW
-    classification behaviour.
-    """
+    """Stateful, deterministic Control Engine V1 running strictly in SHADOW mode."""
 
     def __init__(
         self,
@@ -168,6 +162,7 @@ class PolicyShadowAutomationEvaluator:
         safety_blocked = _safety_blocked(state)
         calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
         schedule_supply_pct, schedule_extract_pct, schedule_request_source = _calendar_request(state)
+        active_calendar_phase = calendar_phase in {"PREVENTILATION", "ACTIVE", "PURGE"}
         sensor_by_address = _sensor_by_address(state)
         supply_air = normalize_zigbee_temperature(state.zigbee, "supply", now_utc=now_dt)
         degraded = False
@@ -182,7 +177,7 @@ class PolicyShadowAutomationEvaluator:
             voc = None
             nox = None
             inside_temperature = None
-            if node is not None:
+            if node is not None and sensor_usable:
                 pm2_5 = node.reading.pm2_5_ug_m3
                 pm10 = node.reading.pm10_0_ug_m3
                 voc = node.reading.voc_index
@@ -258,55 +253,89 @@ class PolicyShadowAutomationEvaluator:
             final_supply_pct = None
             final_extract_pct = None
             proposed_aero_speed = None
-            if self._policy.tuning.outputs_configured and not safety_blocked and sensor_usable:
-                if binding.actuator_kind == "fans" and air_request_pct is not None:
-                    bias = float(self._policy.tuning.extract_bias_pct or 0.0)
-                    air_extract_request_pct = min(100.0, air_request_pct + bias)
-                    active_calendar_phase = calendar_phase in {
-                        "PREVENTILATION",
-                        "ACTIVE",
-                        "PURGE",
-                    }
-                    if air_level > AirQualityLevel.NORMAL:
-                        final_supply_pct = max(schedule_supply_pct or 0.0, air_request_pct)
-                        final_extract_pct = max(
-                            schedule_extract_pct or 0.0,
-                            air_extract_request_pct,
-                        )
-                    elif active_calendar_phase:
-                        desired_supply = _max_optional(schedule_supply_pct, air_request_pct)
-                        desired_extract = _max_optional(
-                            schedule_extract_pct,
-                            air_extract_request_pct,
-                        )
-                        if desired_supply is not None:
-                            final_supply_pct = (
-                                desired_supply
-                                if temperature_limit_pct is None
-                                else min(desired_supply, temperature_limit_pct)
+            sensor_fallback_applied = False
+
+            if not safety_blocked:
+                if binding.actuator_kind == "fans":
+                    if not sensor_usable:
+                        if (
+                            active_calendar_phase
+                            and self._policy.tuning.fan_sensor_fallback_configured
+                        ):
+                            final_supply_pct = max(
+                                schedule_supply_pct or 0.0,
+                                float(self._policy.tuning.sensor_fallback_supply_pct or 0.0),
                             )
-                        if desired_extract is not None:
-                            extract_thermal_limit = (
-                                None
-                                if temperature_limit_pct is None
-                                else min(100.0, temperature_limit_pct + bias)
+                            final_extract_pct = max(
+                                schedule_extract_pct or 0.0,
+                                float(self._policy.tuning.sensor_fallback_extract_pct or 0.0),
                             )
-                            final_extract_pct = (
-                                desired_extract
-                                if extract_thermal_limit is None
-                                else min(desired_extract, extract_thermal_limit)
-                            )
-                    else:
-                        final_supply_pct = 0.0
-                        final_extract_pct = 0.0
-                elif binding.actuator_kind == "aero":
-                    if (
-                        air_level == AirQualityLevel.NORMAL
-                        and calendar_phase == "INACTIVE"
+                            sensor_fallback_applied = True
+                        elif not active_calendar_phase:
+                            final_supply_pct = 0.0
+                            final_extract_pct = 0.0
+                    elif (
+                        self._policy.tuning.fan_outputs_configured
+                        and air_request_pct is not None
                     ):
-                        proposed_aero_speed = 0
-                    else:
-                        proposed_aero_speed = self._policy.aero_speed(air_level)
+                        bias = float(self._policy.tuning.extract_bias_pct or 0.0)
+                        air_extract_request_pct = min(100.0, air_request_pct + bias)
+                        if air_level > AirQualityLevel.NORMAL:
+                            final_supply_pct = max(
+                                schedule_supply_pct or 0.0,
+                                air_request_pct,
+                            )
+                            final_extract_pct = max(
+                                schedule_extract_pct or 0.0,
+                                air_extract_request_pct,
+                            )
+                        elif active_calendar_phase:
+                            desired_supply = _max_optional(
+                                schedule_supply_pct,
+                                air_request_pct,
+                            )
+                            desired_extract = _max_optional(
+                                schedule_extract_pct,
+                                air_extract_request_pct,
+                            )
+                            if desired_supply is not None:
+                                final_supply_pct = (
+                                    desired_supply
+                                    if temperature_limit_pct is None
+                                    else min(desired_supply, temperature_limit_pct)
+                                )
+                            if desired_extract is not None:
+                                extract_thermal_limit = (
+                                    None
+                                    if temperature_limit_pct is None
+                                    else min(100.0, temperature_limit_pct + bias)
+                                )
+                                final_extract_pct = (
+                                    desired_extract
+                                    if extract_thermal_limit is None
+                                    else min(desired_extract, extract_thermal_limit)
+                                )
+                        else:
+                            final_supply_pct = 0.0
+                            final_extract_pct = 0.0
+                else:
+                    if not sensor_usable:
+                        if (
+                            active_calendar_phase
+                            and self._policy.tuning.aero_sensor_fallback_configured
+                        ):
+                            proposed_aero_speed = self._policy.tuning.aero_sensor_fallback_speed
+                            sensor_fallback_applied = True
+                        elif not active_calendar_phase:
+                            proposed_aero_speed = 0
+                    elif self._policy.tuning.aero_outputs_configured:
+                        if (
+                            air_level == AirQualityLevel.NORMAL
+                            and calendar_phase == "INACTIVE"
+                        ):
+                            proposed_aero_speed = 0
+                        else:
+                            proposed_aero_speed = self._policy.aero_speed(air_level)
 
             automation_state = self._automation_state(
                 binding=binding,
@@ -321,7 +350,9 @@ class PolicyShadowAutomationEvaluator:
                 binding=binding,
                 safety_blocked=safety_blocked,
                 calendar_phase=calendar_phase,
+                active_calendar_phase=active_calendar_phase,
                 sensor_usable=sensor_usable,
+                sensor_fallback_applied=sensor_fallback_applied,
                 air_level=air_level,
                 air_driver=air_driver,
                 thermal_band=thermal_band,
@@ -384,6 +415,7 @@ class PolicyShadowAutomationEvaluator:
                     temperature_limit_pct=temperature_limit_pct,
                     final_supply_pct=final_supply_pct,
                     final_extract_pct=final_extract_pct,
+                    sensor_fallback_applied=sensor_fallback_applied,
                     safety_override=safety_blocked,
                     air_quality_override=air_quality_override,
                     proposed_supply_voltage=None,
@@ -455,7 +487,9 @@ class PolicyShadowAutomationEvaluator:
         binding: ShadowZoneBinding,
         safety_blocked: bool,
         calendar_phase: str,
+        active_calendar_phase: bool,
         sensor_usable: bool,
+        sensor_fallback_applied: bool,
         air_level: AirQualityLevel | None,
         air_driver: str | None,
         thermal_band: ThermalBand,
@@ -468,7 +502,11 @@ class PolicyShadowAutomationEvaluator:
         if calendar_phase == "UNKNOWN":
             return "CALENDAR_CONTEXT_UNKNOWN"
         if not sensor_usable:
-            return "SENSOR_CONTEXT_UNAVAILABLE"
+            if sensor_fallback_applied:
+                return "SENSOR_CONTEXT_UNAVAILABLE:FALLBACK"
+            if active_calendar_phase:
+                return "SENSOR_CONTEXT_UNAVAILABLE:FALLBACK_TUNING_REQUIRED"
+            return "SENSOR_CONTEXT_UNAVAILABLE:INACTIVE"
         if air_level is None:
             return "AIR_QUALITY_INPUTS_UNAVAILABLE"
         if binding.actuator_kind == "fans" and thermal_band == ThermalBand.UNKNOWN:
