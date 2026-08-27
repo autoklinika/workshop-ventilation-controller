@@ -39,7 +39,8 @@ class PowerSchedulerM4Cm5ValidationTest(unittest.TestCase):
         self.assertIn("EXPECTED_BASE=7628c407cfc9c0ea72d262566759ea2d4598fec8", source)
         self.assertIn('EXPECTED_BRANCH_SHA="${M4_EXPECTED_BRANCH_SHA:-}"', source)
         self.assertIn('git worktree add --detach "$WT" "$BRANCH_SHA"', source)
-        self.assertIn('sudo env PYTHONPATH="$WT/src"', source)
+        self.assertIn('sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WT/src"', source)
+        self.assertIn('/usr/bin/python3 -B', source)
         self.assertIn('echo 0 >', source)
         self.assertIn('CORE_PID_AFTER', source)
         self.assertNotIn("systemctl restart", source)
@@ -54,6 +55,14 @@ class PowerSchedulerM4Cm5ValidationTest(unittest.TestCase):
         self.assertIn('RTC wakealarm already armed', source)
         self.assertIn('FINAL_ALARM="$(cat "$WAKEALARM")"', source)
         self.assertIn('validator left RTC wakealarm armed', source)
+
+    def test_harness_prevents_and_cleans_root_owned_python_bytecode(self) -> None:
+        source = HARNESS.read_text(encoding="utf-8")
+        self.assertIn("remove_validation_worktree()", source)
+        self.assertIn('sudo find "$WT" -type d -name __pycache__', source)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", source)
+        self.assertIn("/usr/bin/python3 -B", source)
+        self.assertGreaterEqual(source.count("remove_validation_worktree"), 4)
 
 
 if __name__ == "__main__":
