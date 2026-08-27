@@ -54,6 +54,34 @@ class CalendarResolverTest(unittest.TestCase):
         self.assertEqual(night.effective_mode, CalendarMode.OFF)
         self.assertTrue(str(night.next_wake).startswith("2026-08-28T06:30:00"))
 
+    def test_preventilation_can_begin_on_previous_local_day(self) -> None:
+        config = CalendarConfig(
+            timezone="Europe/Warsaw",
+            profiles=(
+                CalendarProfile("EARLY", CalendarMode.AUTO, preventilation_minutes=120),
+                CalendarProfile("CLOSED", CalendarMode.OFF),
+            ),
+            rules=(
+                CalendarRule("default", CalendarRuleKind.DEFAULT, "CLOSED"),
+                CalendarRule(
+                    "early-tuesday",
+                    CalendarRuleKind.WEEKLY,
+                    "EARLY",
+                    weekdays=(2,),
+                    start_minute=60,
+                    end_minute=120,
+                ),
+            ),
+        )
+        # Monday 2026-08-24 23:30 CEST. Tuesday's 01:00 period has PRE from 23:00 Monday.
+        state = resolve_calendar(
+            config,
+            now_utc=datetime(2026, 8, 24, 21, 30, tzinfo=timezone.utc),
+        )
+        self.assertEqual(state.phase, CalendarPhase.PREVENTILATION)
+        self.assertEqual(state.rule_id, "early-tuesday")
+        self.assertEqual(state.effective_mode, CalendarMode.AUTO)
+
     def test_date_exception_outranks_weekly_and_skips_holiday(self) -> None:
         config = CalendarConfig(
             timezone="Europe/Warsaw",
@@ -173,6 +201,99 @@ class CalendarPersistenceTest(unittest.TestCase):
             self.assertEqual(revision, 2)
             self.assertEqual(restored.to_dict(), config.to_dict())
             store.close()
+
+    def test_replace_rejects_future_date_range_conflict_before_store_write(self) -> None:
+        class RecordingStore:
+            def __init__(self) -> None:
+                self.replace_calls = 0
+
+            def load(self):
+                return base_config(), 1
+
+            def replace(self, config):
+                self.replace_calls += 1
+                return 2
+
+            def close(self):
+                return
+
+        store = RecordingStore()
+        engine = CalendarEngine(store)
+        config = CalendarConfig(
+            timezone="Europe/Warsaw",
+            profiles=base_config().profiles,
+            rules=(
+                CalendarRule("default", CalendarRuleKind.DEFAULT, "CLOSED"),
+                CalendarRule(
+                    "future-a",
+                    CalendarRuleKind.DATE_RANGE,
+                    "WORK",
+                    start_date=datetime(2031, 8, 1).date(),
+                    end_date=datetime(2031, 8, 10).date(),
+                    start_minute=7 * 60,
+                    end_minute=12 * 60,
+                ),
+                CalendarRule(
+                    "future-b",
+                    CalendarRuleKind.DATE_RANGE,
+                    "WORK",
+                    start_date=datetime(2031, 8, 5).date(),
+                    end_date=datetime(2031, 8, 12).date(),
+                    start_minute=11 * 60,
+                    end_minute=15 * 60,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "overlapping calendar effective periods"):
+            engine.replace_configuration(config.to_dict())
+        self.assertEqual(store.replace_calls, 0)
+
+    def test_replace_rejects_overnight_overlap_with_next_weekday(self) -> None:
+        class RecordingStore:
+            def __init__(self) -> None:
+                self.replace_calls = 0
+
+            def load(self):
+                return base_config(), 1
+
+            def replace(self, config):
+                self.replace_calls += 1
+                return 2
+
+            def close(self):
+                return
+
+        store = RecordingStore()
+        engine = CalendarEngine(store)
+        config = CalendarConfig(
+            timezone="Europe/Warsaw",
+            profiles=(
+                CalendarProfile("NIGHT", CalendarMode.AUTO),
+                CalendarProfile("CLOSED", CalendarMode.OFF),
+            ),
+            rules=(
+                CalendarRule("default", CalendarRuleKind.DEFAULT, "CLOSED"),
+                CalendarRule(
+                    "monday-night",
+                    CalendarRuleKind.WEEKLY,
+                    "NIGHT",
+                    weekdays=(1,),
+                    start_minute=22 * 60,
+                    end_minute=6 * 60,
+                ),
+                CalendarRule(
+                    "tuesday-early",
+                    CalendarRuleKind.WEEKLY,
+                    "NIGHT",
+                    weekdays=(2,),
+                    start_minute=5 * 60,
+                    end_minute=7 * 60,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "overlapping calendar effective periods"):
+            engine.replace_configuration(config.to_dict())
+        self.assertEqual(store.replace_calls, 0)
 
     def test_engine_failure_is_fail_safe_unavailable(self) -> None:
         class BrokenStore:
