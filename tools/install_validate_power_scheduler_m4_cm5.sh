@@ -8,17 +8,28 @@ EXPECTED_BASE=7628c407cfc9c0ea72d262566759ea2d4598fec8
 EXPECTED_BRANCH_SHA="${M4_EXPECTED_BRANCH_SHA:-}"
 WAKEALARM=/sys/class/rtc/rtc0/wakealarm
 
+remove_validation_worktree() {
+    # The validator needs sudo only for the RTC sysfs write. Prevent Python from
+    # leaving root-owned bytecode in the detached worktree, and clean any such
+    # bytecode left by an interrupted/older M4 run before asking git to remove it.
+    if [ -d "$WT" ]; then
+        sudo find "$WT" -type d -name __pycache__ -prune -exec rm -rf {} + >/dev/null 2>&1 || true
+    fi
+
+    if git -C "$ROOT" worktree list --porcelain 2>/dev/null | grep -Fxq "worktree $WT"; then
+        git -C "$ROOT" worktree remove --force "$WT"
+    elif [ -d "$WT" ]; then
+        rm -rf "$WT"
+        git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
+    fi
+}
+
 cleanup() {
     local rc=$?
     trap - EXIT INT TERM
     set +e
     sudo sh -c "echo 0 > '$WAKEALARM'" >/dev/null 2>&1 || true
-    if git -C "$ROOT" worktree list --porcelain 2>/dev/null | grep -Fxq "worktree $WT"; then
-        git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true
-    elif [ -d "$WT" ]; then
-        rm -rf "$WT"
-        git -C "$ROOT" worktree prune >/dev/null 2>&1 || true
-    fi
+    remove_validation_worktree >/dev/null 2>&1 || true
     exit "$rc"
 }
 trap cleanup EXIT INT TERM
@@ -47,18 +58,13 @@ BRANCH_SHA="$(git rev-parse "origin/$BRANCH")"
     exit 1
 }
 
-if git worktree list --porcelain | grep -Fxq "worktree $WT"; then
-    git worktree remove --force "$WT"
-elif [ -d "$WT" ]; then
-    rm -rf "$WT"
-    git worktree prune
-fi
+remove_validation_worktree
 git worktree add --detach "$WT" "$BRANCH_SHA"
 
 [ -f "$WT/tools/validate_power_scheduler_m4_cm5.py" ] || { echo "FAIL: M4 validator missing" >&2; exit 1; }
 
 echo "===== RUN REAL RTC ADAPTER + POWER SCHEDULER ====="
-sudo env PYTHONPATH="$WT/src" /usr/bin/python3 "$WT/tools/validate_power_scheduler_m4_cm5.py"
+sudo env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WT/src" /usr/bin/python3 -B "$WT/tools/validate_power_scheduler_m4_cm5.py"
 
 FINAL_ALARM="$(cat "$WAKEALARM")"
 [ -z "$FINAL_ALARM" ] || { echo "FAIL: validator left RTC wakealarm armed: $FINAL_ALARM" >&2; exit 1; }
@@ -69,7 +75,7 @@ CORE_CWD_AFTER="$(readlink -f "/proc/$CORE_PID_AFTER/cwd")"
 [ "$CORE_CWD_AFTER" = "$ROOT" ] || { echo "FAIL: ventilation-core CWD changed during M4 validator" >&2; exit 1; }
 
 trap - EXIT INT TERM
-git worktree remove --force "$WT"
+remove_validation_worktree
 echo "PASS: M4 validator did not restart core or power off CM5"
 echo "branch SHA: $BRANCH_SHA"
 echo "core PID:   $CORE_PID_AFTER"
