@@ -54,7 +54,11 @@ def parse_hhmm(value: str) -> int:
 
 
 def format_hhmm(minutes: int) -> str:
-    if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes < MINUTES_PER_DAY:
+    if (
+        isinstance(minutes, bool)
+        or not isinstance(minutes, int)
+        or not 0 <= minutes < MINUTES_PER_DAY
+    ):
         raise ValueError("minute must be in range 0..1439")
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
@@ -73,10 +77,23 @@ def _parse_date(value: str | date | None, field: str) -> date | None:
 
 
 def _enum(enum_type, value: Any, field: str):
+    if isinstance(value, enum_type):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be text")
     try:
-        return enum_type(str(value))
+        return enum_type(value)
     except ValueError as exc:
         raise ValueError(f"unsupported {field}: {value}") from exc
+
+
+def _integer_sequence(value: Any, field: str) -> tuple[int, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{field} must be a list of integers")
+    result = tuple(value)
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in result):
+        raise ValueError(f"{field} must contain integers without type coercion")
+    return result
 
 
 @dataclass(frozen=True)
@@ -92,10 +109,24 @@ class CalendarProfile:
     label: str = ""
 
     def __post_init__(self) -> None:
-        if not isinstance(self.profile_id, str) or not self.profile_id or self.profile_id.strip() != self.profile_id or len(self.profile_id) > 64:
+        if (
+            not isinstance(self.profile_id, str)
+            or not self.profile_id
+            or self.profile_id.strip() != self.profile_id
+            or len(self.profile_id) > 64
+        ):
             raise ValueError("profile_id must be non-empty text up to 64 characters")
-        for name, value in (("preventilation_minutes", self.preventilation_minutes), ("purge_minutes", self.purge_minutes)):
-            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 24 * 60:
+        if not isinstance(self.mode, CalendarMode):
+            raise ValueError("mode must be a CalendarMode")
+        for name, value in (
+            ("preventilation_minutes", self.preventilation_minutes),
+            ("purge_minutes", self.purge_minutes),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value <= 24 * 60
+            ):
                 raise ValueError(f"{name} must be an integer in range 0..1440")
         for name, value in (
             ("minimum_supply_pct", self.minimum_supply_pct),
@@ -103,9 +134,15 @@ class CalendarProfile:
             ("fixed_supply_pct", self.fixed_supply_pct),
             ("fixed_extract_pct", self.fixed_extract_pct),
         ):
-            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= float(value) <= 100):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not 0 <= float(value) <= 100
+            ):
                 raise ValueError(f"{name} must be null or 0..100")
-        if self.mode == CalendarMode.FIXED and (self.fixed_supply_pct is None or self.fixed_extract_pct is None):
+        if self.mode == CalendarMode.FIXED and (
+            self.fixed_supply_pct is None or self.fixed_extract_pct is None
+        ):
             raise ValueError("FIXED profile requires fixed_supply_pct and fixed_extract_pct")
         if not isinstance(self.label, str) or len(self.label) > 120:
             raise ValueError("profile label must be text up to 120 characters")
@@ -115,15 +152,15 @@ class CalendarProfile:
         if not isinstance(payload, Mapping):
             raise ValueError("profile must be an object")
         return cls(
-            profile_id=str(payload["profile_id"]),
+            profile_id=payload["profile_id"],
             mode=_enum(CalendarMode, payload["mode"], "calendar mode"),
-            preventilation_minutes=int(payload.get("preventilation_minutes", 0)),
-            purge_minutes=int(payload.get("purge_minutes", 0)),
+            preventilation_minutes=payload.get("preventilation_minutes", 0),
+            purge_minutes=payload.get("purge_minutes", 0),
             minimum_supply_pct=payload.get("minimum_supply_pct"),
             minimum_extract_pct=payload.get("minimum_extract_pct"),
             fixed_supply_pct=payload.get("fixed_supply_pct"),
             fixed_extract_pct=payload.get("fixed_extract_pct"),
-            label=str(payload.get("label", "")),
+            label=payload.get("label", ""),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -155,32 +192,66 @@ class CalendarRule:
     label: str = ""
 
     def __post_init__(self) -> None:
-        if not isinstance(self.rule_id, str) or not self.rule_id or self.rule_id.strip() != self.rule_id or len(self.rule_id) > 64:
+        if (
+            not isinstance(self.rule_id, str)
+            or not self.rule_id
+            or self.rule_id.strip() != self.rule_id
+            or len(self.rule_id) > 64
+        ):
             raise ValueError("rule_id must be non-empty text up to 64 characters")
-        if not isinstance(self.profile_id, str) or not self.profile_id or self.profile_id.strip() != self.profile_id:
+        if not isinstance(self.kind, CalendarRuleKind):
+            raise ValueError("kind must be a CalendarRuleKind")
+        if (
+            not isinstance(self.profile_id, str)
+            or not self.profile_id
+            or self.profile_id.strip() != self.profile_id
+        ):
             raise ValueError("profile_id must be non-empty text")
-        if len(set(self.weekdays)) != len(self.weekdays) or any(isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 7 for v in self.weekdays):
+        if len(set(self.weekdays)) != len(self.weekdays) or any(
+            isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 7
+            for v in self.weekdays
+        ):
             raise ValueError("weekdays must use unique ISO values 1..7")
-        if len(set(self.months)) != len(self.months) or any(isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 12 for v in self.months):
+        if len(set(self.months)) != len(self.months) or any(
+            isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 12
+            for v in self.months
+        ):
             raise ValueError("months must use unique values 1..12")
         if (self.start_minute is None) != (self.end_minute is None):
             raise ValueError("start_minute and end_minute must both be set or both be null")
         for name, value in (("start_minute", self.start_minute), ("end_minute", self.end_minute)):
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < MINUTES_PER_DAY):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 0 <= value < MINUTES_PER_DAY
+            ):
                 raise ValueError(f"{name} must be null or in range 0..1439")
         if self.start_minute is not None and self.start_minute == self.end_minute:
             raise ValueError("calendar window start and end must differ")
-        if self.start_date is not None and self.end_date is not None and self.end_date < self.start_date:
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
             raise ValueError("end_date must not precede start_date")
         if self.kind == CalendarRuleKind.WEEKLY and not self.weekdays:
             raise ValueError("WEEKLY rule requires weekdays")
         if self.kind == CalendarRuleKind.SEASON and not self.months:
             raise ValueError("SEASON rule requires months")
-        if self.kind == CalendarRuleKind.DATE_RANGE and (self.start_date is None or self.end_date is None):
+        if self.kind == CalendarRuleKind.DATE_RANGE and (
+            self.start_date is None or self.end_date is None
+        ):
             raise ValueError("DATE_RANGE rule requires start_date and end_date")
-        if self.kind == CalendarRuleKind.DATE_EXCEPTION and (self.start_date is None or self.end_date != self.start_date):
+        if self.kind == CalendarRuleKind.DATE_EXCEPTION and (
+            self.start_date is None or self.end_date != self.start_date
+        ):
             raise ValueError("DATE_EXCEPTION rule requires one exact date")
-        if self.kind == CalendarRuleKind.DEFAULT and (self.weekdays or self.months or self.start_date is not None or self.end_date is not None):
+        if self.kind == CalendarRuleKind.DEFAULT and (
+            self.weekdays
+            or self.months
+            or self.start_date is not None
+            or self.end_date is not None
+        ):
             raise ValueError("DEFAULT rule cannot contain date selectors")
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be boolean")
@@ -217,17 +288,17 @@ class CalendarRule:
         start_local = payload.get("start_local")
         end_local = payload.get("end_local")
         return cls(
-            rule_id=str(payload["rule_id"]),
+            rule_id=payload["rule_id"],
             kind=_enum(CalendarRuleKind, payload["kind"], "calendar rule kind"),
-            profile_id=str(payload["profile_id"]),
-            weekdays=tuple(int(v) for v in payload.get("weekdays", ())),
-            months=tuple(int(v) for v in payload.get("months", ())),
+            profile_id=payload["profile_id"],
+            weekdays=_integer_sequence(payload.get("weekdays", ()), "weekdays"),
+            months=_integer_sequence(payload.get("months", ()), "months"),
             start_date=_parse_date(payload.get("start_date"), "start_date"),
             end_date=_parse_date(payload.get("end_date"), "end_date"),
-            start_minute=None if start_local is None else parse_hhmm(str(start_local)),
-            end_minute=None if end_local is None else parse_hhmm(str(end_local)),
+            start_minute=None if start_local is None else parse_hhmm(start_local),
+            end_minute=None if end_local is None else parse_hhmm(end_local),
             enabled=payload.get("enabled", True),
-            label=str(payload.get("label", "")),
+            label=payload.get("label", ""),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -256,7 +327,11 @@ class CalendarConfig:
     def __post_init__(self) -> None:
         if not isinstance(self.timezone, str) or not self.timezone or len(self.timezone) > 64:
             raise ValueError("timezone must be non-empty text")
-        if self.schema_version != 1:
+        if (
+            isinstance(self.schema_version, bool)
+            or not isinstance(self.schema_version, int)
+            or self.schema_version != 1
+        ):
             raise ValueError("unsupported calendar schema_version")
         profile_ids = [p.profile_id for p in self.profiles]
         if len(set(profile_ids)) != len(profile_ids):
@@ -267,8 +342,14 @@ class CalendarConfig:
         known = set(profile_ids)
         for rule in self.rules:
             if rule.profile_id not in known:
-                raise ValueError(f"calendar rule {rule.rule_id} references unknown profile {rule.profile_id}")
-        if sum(1 for r in self.rules if r.kind == CalendarRuleKind.DEFAULT and r.enabled) > 1:
+                raise ValueError(
+                    f"calendar rule {rule.rule_id} references unknown profile {rule.profile_id}"
+                )
+        if sum(
+            1
+            for rule in self.rules
+            if rule.kind == CalendarRuleKind.DEFAULT and rule.enabled
+        ) > 1:
             raise ValueError("at most one enabled DEFAULT rule is allowed")
 
     @classmethod
@@ -277,15 +358,15 @@ class CalendarConfig:
             raise ValueError("calendar config must be an object")
         profiles = payload.get("profiles", [])
         rules = payload.get("rules", [])
-        if not isinstance(profiles, Sequence) or isinstance(profiles, (str, bytes)):
+        if not isinstance(profiles, Sequence) or isinstance(profiles, (str, bytes, bytearray)):
             raise ValueError("profiles must be a list")
-        if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes)):
+        if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes, bytearray)):
             raise ValueError("rules must be a list")
         return cls(
-            timezone=str(payload.get("timezone", DEFAULT_TIMEZONE)),
+            timezone=payload.get("timezone", DEFAULT_TIMEZONE),
             profiles=tuple(CalendarProfile.from_dict(item) for item in profiles),
             rules=tuple(CalendarRule.from_dict(item) for item in rules),
-            schema_version=int(payload.get("schema_version", 1)),
+            schema_version=payload.get("schema_version", 1),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -343,7 +424,12 @@ class CalendarResolution:
         }
 
 
-def unavailable_resolution(*, now_utc: datetime, timezone_name: str, error: str) -> CalendarResolution:
+def unavailable_resolution(
+    *,
+    now_utc: datetime,
+    timezone_name: str,
+    error: str,
+) -> CalendarResolution:
     return CalendarResolution(
         available=False,
         timezone=timezone_name,
