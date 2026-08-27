@@ -171,33 +171,58 @@ Zakres testów obejmuje m.in.:
 - nowe alerty nie mogą uzyskać `affects_control=true`,
 - historyczne projekcje AlertV2 zachowują zgodność z polityką 52 wpisów.
 
-## 9. M6A — przygotowana walidacja CM5 bez aktuacji
+Końcowy CI dla implementacji M6 na SHA `02ecbefbdf08e0f0f1c60a4e3a300315de588a84` zakończył się `SUCCESS`.
 
-Dodano:
+## 9. M6A — fizyczna walidacja CM5 bez aktuacji
+
+M6A wykonano na rzeczywistym CM5 w trybie laboratoryjnym przy użyciu:
 
 `tools/install_validate_power_scheduler_m6a_cm5.sh`
 
-M6A jest testem wdrożeniowym, który uruchamia branch runtime na rzeczywistym CM5, ale **celowo nie podaje** `--enable-scheduled-shutdown`.
+Testowany SHA M6:
 
-M6A wymaga i sprawdza:
+`02ecbefbdf08e0f0f1c60a4e3a300315de588a84`
 
-- dokładny CI-tested SHA gałęzi,
+M6A celowo nie podawał `--enable-scheduled-shutdown`.
+
+Wynik:
+
+**PASS — `M6A CHILD EXIT CODE: 0`**
+
+Potwierdzono:
+
 - produkcyjny `main` na oczekiwanym SHA,
 - bezpieczny logiczny stan 0 V,
-- tryb laboratoryjny STOP/FAULT dla odłączonego DAC/SEN55/AERO,
+- poprawne uruchomienie branch runtime,
 - działający worker Power Scheduler,
 - `scheduled_shutdown_enabled=false`,
 - RTC nieuzbrojony,
 - brak żądania host-power,
-- ten sam `boot_id`,
-- ten sam PID `wvc-host-power`,
 - niezmieniony `wakealarm`,
-- domenę 12 V nadal ON,
-- politykę AlertV2 `2026-08-27.1` / 52 wpisy,
-- restart branch core i ponowną kontrolę lifecycle,
-- automatyczny rollback do produkcyjnego `main`.
+- niezmieniony `boot_id`,
+- niezmieniony PID `wvc-host-power`,
+- domenę 12 V cały czas ON,
+- politykę AlertV2 M6 załadowaną w runtime,
+- poprawny restart branch core i ponowną kontrolę lifecycle,
+- poprawny rollback do produkcyjnego `main`,
+- brak reboot/poweroff CM5 przez cały test.
 
-M6A nie zawiera bezpośredniej komendy poweroff/reboot i nie włącza automatycznego scheduled shutdown.
+Dowody procesu:
+
+- main before PID: `1218`,
+- branch PID #1: `26586`,
+- branch PID #2: `26692`,
+- main after PID: `27023`,
+- host-power PID: `714`,
+- boot_id: `0d75d870-287f-4fba-8fe7-410092bd7bc9`.
+
+Końcowe komunikaty testu:
+
+`PASS: Power Scheduler M6A runtime validated on CM5 with scheduled shutdown disabled`
+
+`PASS: RTC wakealarm unchanged; host-power never requested; CM5 never rebooted/powered off`
+
+Szczegóły: `docs/reports/POWER_SCHEDULER_M6A_CM5_NON_ACTUATING_VALIDATION_2026-08-27_PL.md`.
 
 ## 10. Relacja do fizycznego M5B
 
@@ -218,8 +243,14 @@ Szczegóły: `docs/reports/POWER_SCHEDULER_M5B_CM5_FULL_POWER_CYCLE_VALIDATION_2
 
 ## 11. Status M6
 
-**Implementacja M6: COMPLETE po zielonym CI końcowego HEAD.**
+**M6 IMPLEMENTATION: COMPLETE**
 
-**M6A: przygotowany do fizycznego testu CM5; nie jest warunkiem poprawności kodu M6, ale jest wymaganym testem przed późniejszym świadomym włączeniem automatycznego scheduled shutdown w konfiguracji produkcyjnej.**
+**M6 CI: PASS**
+
+**M6A PHYSICAL CM5 VALIDATION: PASS**
+
+M6 jest domknięte zarówno po stronie implementacji i testów automatycznych, jak i fizycznej walidacji nieaktuującego runtime na CM5.
+
+Automatyczny scheduled shutdown nadal pozostaje domyślnie wyłączony i nie został włączony produkcyjnie.
 
 Nie wykonano merge do `main`. Produkcyjny `main` pozostaje źródłem prawdy do czasu osobnej, jednoznacznej decyzji o merge.
