@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any, Mapping
 
 from ventilation_core.application.shadow_controller import ShadowAutomationEvaluator
 from ventilation_core.application.zigbee_service import ZigbeeAlertingVentilationService
@@ -23,3 +24,26 @@ class ShadowAlertingVentilationService(ZigbeeAlertingVentilationService):
         authoritative = super()._with_system_alerts(state)
         shadow = self._shadow_evaluator.evaluate(authoritative)
         return replace(authoritative, shadow_automation=shadow)
+
+    def control_engine_configuration(self) -> dict[str, Any]:
+        method = getattr(self._shadow_evaluator, "configuration", None)
+        if method is None:
+            raise RuntimeError("Persistent Control Engine configuration is not configured")
+        return method()
+
+    def replace_control_engine_configuration(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        method = getattr(self._shadow_evaluator, "replace_configuration", None)
+        if method is None:
+            raise RuntimeError("Persistent Control Engine configuration is not configured")
+        return method(payload)
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            close = getattr(self._shadow_evaluator, "close", None)
+            if close is not None:
+                close()
