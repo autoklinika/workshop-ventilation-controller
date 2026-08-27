@@ -9,6 +9,7 @@ from ventilation_core.telemetry.long_range_history import LongRangeTelemetryHist
 
 from .advisory import FileAdvisoryProvider
 from .alert_history import SqliteAlertHistoryReader
+from .alert_history_app import AlertHistoryWebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
 from .control_engine_app import ControlEngineWebApplication
@@ -92,7 +93,9 @@ def main() -> int:
     host_power = HostPowerClient(
         Path(os.getenv("WVC_HOST_POWER_SOCKET", str(DEFAULT_HOST_POWER_SOCKET)))
     )
-    app = ControlEngineWebApplication(
+    # ControlEngineWebApplication deliberately extends the existing
+    # AlertHistoryWebApplication contract instead of replacing that functionality.
+    app: AlertHistoryWebApplication = ControlEngineWebApplication(
         core,
         WebUiConfig.from_environment(),
         weather,
