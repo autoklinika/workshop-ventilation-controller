@@ -5,11 +5,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .model import (
+    MINUTES_PER_DAY,
     CalendarConfig,
     CalendarMode,
     CalendarPhase,
+    CalendarProfile,
     CalendarResolution,
     CalendarRule,
+    CalendarRuleKind,
 )
 
 
@@ -54,7 +57,7 @@ def _validate_same_day_rules(rules: list[CalendarRule], local_date: date) -> Non
         start = rule.start_minute
         end = rule.end_minute
         if end <= start:
-            end += 24 * 60
+            end += MINUTES_PER_DAY
         windows.append((start, end, rule.rule_id))
     windows.sort()
     for index, (start, end, rule_id) in enumerate(windows):
@@ -63,6 +66,116 @@ def _validate_same_day_rules(rules: list[CalendarRule], local_date: date) -> Non
                 break
             if start < other_end and other_start < end:
                 raise ValueError(f"overlapping calendar rules {rule_id} and {other_id} on {local_date}")
+
+
+def _rule_effective_bounds(rule: CalendarRule, profile: CalendarProfile) -> tuple[int, int]:
+    """Return the complete PREVENTILATION..PURGE interval relative to rule date.
+
+    Full-day OFF/STANDBY rules are closed contexts rather than active periods, so
+    profile pre/purge values have no runtime effect and are intentionally ignored.
+    """
+
+    if rule.full_day:
+        if profile.mode in {CalendarMode.OFF, CalendarMode.STANDBY}:
+            return 0, MINUTES_PER_DAY
+        active_start = 0
+        active_end = MINUTES_PER_DAY
+    else:
+        assert rule.start_minute is not None and rule.end_minute is not None
+        active_start = rule.start_minute
+        active_end = rule.end_minute
+        if active_end <= active_start:
+            active_end += MINUTES_PER_DAY
+    return (
+        active_start - profile.preventilation_minutes,
+        active_end + profile.purge_minutes,
+    )
+
+
+def _selectors_can_align(
+    first: CalendarRule,
+    second: CalendarRule,
+    start_date_offset_days: int,
+) -> bool:
+    """Return whether two same-priority rules can start on dates with this offset."""
+
+    if not first.enabled or not second.enabled or first.kind != second.kind:
+        return False
+
+    kind = first.kind
+    delta = timedelta(days=start_date_offset_days)
+    if kind == CalendarRuleKind.DEFAULT:
+        return True
+    if kind == CalendarRuleKind.WEEKLY:
+        second_days = set(second.weekdays)
+        return any(
+            ((weekday - 1 + start_date_offset_days) % 7) + 1 in second_days
+            for weekday in first.weekdays
+        )
+    if kind == CalendarRuleKind.SEASON:
+        # One leap year covers every month boundary, including February 29.
+        representative = date(2028, 1, 1)
+        for day_index in range(366):
+            first_date = representative + timedelta(days=day_index)
+            second_date = first_date + delta
+            if first_date.month in first.months and second_date.month in second.months:
+                return True
+        return False
+    if kind == CalendarRuleKind.DATE_RANGE:
+        assert first.start_date is not None and first.end_date is not None
+        assert second.start_date is not None and second.end_date is not None
+        shifted_second_start = second.start_date - delta
+        shifted_second_end = second.end_date - delta
+        return max(first.start_date, shifted_second_start) <= min(
+            first.end_date,
+            shifted_second_end,
+        )
+    if kind == CalendarRuleKind.DATE_EXCEPTION:
+        assert first.start_date is not None and second.start_date is not None
+        return first.start_date + delta == second.start_date
+    return False
+
+
+def validate_calendar_configuration(config: CalendarConfig) -> None:
+    """Reject latent same-priority conflicts before configuration persistence.
+
+    Runtime precedence is date-kind based. Rules with different priorities may
+    intentionally cover the same dates, but rules at the same priority must not
+    create ambiguous effective periods. Validation includes adjacent start dates,
+    overnight windows and PREVENTILATION/PURGE extensions, so a conflict cannot
+    remain dormant until a future date.
+    """
+
+    enabled = [rule for rule in config.rules if rule.enabled]
+    profiles = {profile.profile_id: profile for profile in config.profiles}
+
+    for first_index, first in enumerate(enabled):
+        first_profile = profiles[first.profile_id]
+        first_start, first_end = _rule_effective_bounds(first, first_profile)
+        for second_index in range(first_index, len(enabled)):
+            second = enabled[second_index]
+            if second.priority != first.priority:
+                continue
+            second_profile = profiles[second.profile_id]
+            second_start, second_end = _rule_effective_bounds(second, second_profile)
+
+            # With max 24 h pre/purge and an active window shorter than/equal to
+            # 24 h, effective intervals can overlap only for start dates at most
+            # two calendar days apart. For self-comparison, delta=0 is the same
+            # occurrence and is intentionally skipped.
+            for day_offset in range(-2, 3):
+                if first_index == second_index and day_offset == 0:
+                    continue
+                if not _selectors_can_align(first, second, day_offset):
+                    continue
+                shifted_second_start = second_start + day_offset * MINUTES_PER_DAY
+                shifted_second_end = second_end + day_offset * MINUTES_PER_DAY
+                if first_start < shifted_second_end and shifted_second_start < first_end:
+                    raise ValueError(
+                        "overlapping calendar effective periods: "
+                        f"{first.rule_id} and {second.rule_id} "
+                        f"(start-date offset {day_offset:+d}d)"
+                    )
 
 
 def _periods_for_date(config: CalendarConfig, local_date: date, tz: ZoneInfo) -> tuple[_Period, ...]:
@@ -118,8 +231,11 @@ def resolve_calendar(
     tz = ZoneInfo(config.timezone)
     local_now = now.astimezone(tz)
 
+    # A configured period may begin PREVENTILATION on the previous local day,
+    # and an overnight period with a long PURGE may remain current for up to two
+    # days after its rule date. Include exactly that bounded start-date envelope.
     candidate_periods: list[_Period] = []
-    for offset in (-1, 0):
+    for offset in (-2, -1, 0, 1):
         candidate_periods.extend(_periods_for_date(config, local_now.date() + timedelta(days=offset), tz))
 
     current: _Period | None = None
