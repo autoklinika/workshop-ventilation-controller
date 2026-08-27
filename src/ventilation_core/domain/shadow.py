@@ -123,6 +123,8 @@ class ShadowAutomationState:
     policy_version: str | None
     zones: tuple[ShadowZoneProposal, ...]
     tuning_complete: bool = False
+    configuration_revision: int | None = None
+    configuration_persistent: bool = False
     last_error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,6 +135,8 @@ class ShadowAutomationState:
             "evaluated_at_utc": self.evaluated_at_utc,
             "policy_version": self.policy_version,
             "tuning_complete": self.tuning_complete,
+            "configuration_revision": self.configuration_revision,
+            "configuration_persistent": self.configuration_persistent,
             "zones": [zone.to_dict() for zone in self.zones],
             "last_error": self.last_error,
         }
