@@ -6,6 +6,7 @@ WT=/home/wentylacja/wvc-calendar-m3-validation
 BRANCH=agent/automation-v1-scheduler-assumptions
 EXPECTED_BASE=7628c407cfc9c0ea72d262566759ea2d4598fec8
 EXPECTED_BRANCH_SHA="${M3_EXPECTED_BRANCH_SHA:-}"
+LAB_MODE="${M3_LAB_MODE:-0}"
 UNIT=ventilation-core.service
 DROPIN_DIR=/etc/systemd/system/${UNIT}.d
 DROPIN_PATH=${DROPIN_DIR}/99-zz-calendar-m3-validation.conf
@@ -15,6 +16,7 @@ WEB_PORT=18092
 WEB_URL=http://127.0.0.1:${WEB_PORT}
 WEB_PID=""
 BRANCH_SHA=""
+ROLLOUT_STARTED=0
 
 unit_pid() {
     systemctl show "$UNIT" -p MainPID --value
@@ -36,22 +38,29 @@ require_safe_state() {
     local label="$2"
     local json
     json="$(ctl "$src" status)"
-    /usr/bin/python3 - "$label" "$json" <<'PY'
+    /usr/bin/python3 - "$label" "$json" "$LAB_MODE" <<'PY'
 import json
 import sys
 
 label = sys.argv[1]
 doc = json.loads(sys.argv[2])
+lab_mode = sys.argv[3] == "1"
 if doc.get("ok") is not True:
     raise SystemExit(f"FAIL: {label}: status request failed: {doc!r}")
 state = doc.get("state") or {}
 sp = state.get("setpoints") or {}
-if state.get("mode") != "STOP":
-    raise SystemExit(f"FAIL: {label}: mode is not STOP: {state.get('mode')!r}")
 if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
-    raise SystemExit(f"FAIL: {label}: EC outputs are not 0 V: {sp!r}")
-if state.get("output_state_known") is not True:
-    raise SystemExit(f"FAIL: {label}: output_state_known is not true")
+    raise SystemExit(f"FAIL: {label}: EC logical setpoints are not 0 V: {sp!r}")
+
+mode = state.get("mode")
+if lab_mode:
+    if mode not in {"STOP", "FAULT"}:
+        raise SystemExit(f"FAIL: {label}: LAB mode accepts only STOP/FAULT, got {mode!r}")
+else:
+    if mode != "STOP":
+        raise SystemExit(f"FAIL: {label}: mode is not STOP: {mode!r}")
+    if state.get("output_state_known") is not True:
+        raise SystemExit(f"FAIL: {label}: output_state_known is not true")
 
 tacho = state.get("tacho")
 if isinstance(tacho, dict):
@@ -69,7 +78,17 @@ if isinstance(aero, dict):
             if value not in (None, 0):
                 raise SystemExit(f"FAIL: {label}: AERO {key} is not 0%: {telemetry!r}")
 
-print(f"PASS: {label}: STOP / 0 V / no observed fan motion")
+automation = state.get("automation") or state.get("shadow_automation")
+if isinstance(automation, dict) and automation.get("actuation_supported") is True:
+    raise SystemExit(f"FAIL: {label}: automation unexpectedly supports actuation")
+
+if lab_mode:
+    print(
+        f"PASS: {label}: LAB safe context; logical EC=0 V, TACHO=0 RPM, "
+        f"no observed AERO motion; hardware readiness/output confirmation may be unavailable"
+    )
+else:
+    print(f"PASS: {label}: STOP / 0 V / known outputs / no observed fan motion")
 PY
 }
 
@@ -150,17 +169,21 @@ emergency_rollback() {
     local rc=$?
     trap - EXIT INT TERM
     set +e
-    echo "===== CALENDAR ENGINE M3 EMERGENCY ROLLBACK =====" >&2
     stop_branch_web
-    restore_main_best_effort
-    if systemctl is-active --quiet "$UNIT"; then
-        local pid
-        pid="$(unit_pid)"
-        echo "rollback core PID: $pid" >&2
-        echo "rollback core CWD: $(unit_cwd "$pid" 2>/dev/null || true)" >&2
-        require_safe_state "$ROOT/src" "rollback production main" >&2 || true
+    if [ "$ROLLOUT_STARTED" = "1" ]; then
+        echo "===== CALENDAR ENGINE M3 EMERGENCY ROLLBACK =====" >&2
+        restore_main_best_effort
+        if systemctl is-active --quiet "$UNIT"; then
+            local pid
+            pid="$(unit_pid)"
+            echo "rollback core PID: $pid" >&2
+            echo "rollback core CWD: $(unit_cwd "$pid" 2>/dev/null || true)" >&2
+            require_safe_state "$ROOT/src" "rollback production main" >&2 || true
+        else
+            echo "CRITICAL: ventilation-core is not active after rollback attempt" >&2
+        fi
     else
-        echo "CRITICAL: ventilation-core is not active after rollback attempt" >&2
+        echo "M3 stopped before rollout; production ventilation-core was not restarted by cleanup" >&2
     fi
     remove_worktree_best_effort
     echo "M3 diagnostic files preserved at: $TEST_ROOT" >&2
@@ -171,6 +194,10 @@ trap emergency_rollback EXIT INT TERM
 echo "===== CALENDAR ENGINE M3 CM5 VALIDATION ====="
 cd "$ROOT"
 
+case "$LAB_MODE" in
+    0|1) ;;
+    *) echo "FAIL: M3_LAB_MODE must be 0 or 1" >&2; exit 1 ;;
+esac
 [ -n "$EXPECTED_BRANCH_SHA" ] || {
     echo "FAIL: M3_EXPECTED_BRANCH_SHA must pin the exact CI-tested branch commit" >&2
     exit 1
@@ -201,6 +228,9 @@ MAIN_PID_BEFORE="$(unit_pid)"
     echo "FAIL: production core is not running from main" >&2
     exit 1
 }
+if [ "$LAB_MODE" = "1" ]; then
+    echo "INFO: M3 LAB mode enabled; disconnected DAC/SEN55/AERO may leave core in FAULT/output_state_unknown"
+fi
 require_safe_state "$ROOT/src" "preflight production main"
 
 echo "===== FETCH PINNED SOURCES ====="
@@ -228,6 +258,7 @@ git worktree add --detach "$WT" "$BRANCH_SHA"
     exit 1
 }
 
+ROLLOUT_STARTED=1
 write_core_dropin
 sudo systemctl daemon-reload
 sudo systemctl restart "$UNIT"
@@ -308,11 +339,13 @@ MAIN_PID_AFTER="$(unit_pid)"
 }
 require_safe_state "$ROOT/src" "final production main"
 
+ROLLOUT_STARTED=0
 remove_worktree_best_effort
 rm -rf "$TEST_ROOT"
 trap - EXIT INT TERM
 
 echo "PASS: Calendar Engine M3 validated on CM5 without ventilation/AERO control commands"
+echo "lab mode:          $LAB_MODE"
 echo "branch SHA:        $BRANCH_SHA"
 echo "main before PID:   $MAIN_PID_BEFORE"
 echo "branch prepare PID:$BRANCH_PID_PREPARE"
