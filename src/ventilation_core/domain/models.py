@@ -50,6 +50,8 @@ class AlarmCode(StrEnum):
     ZIGBEE_DEVICE_OFFLINE = "ZIGBEE_DEVICE_OFFLINE"
     ZIGBEE_DEVICE_DATA_STALE = "ZIGBEE_DEVICE_DATA_STALE"
     ZIGBEE_LOW_BATTERY = "ZIGBEE_LOW_BATTERY"
+    RTC_WAKE_ARM_FAILED = "RTC_WAKE_ARM_FAILED"
+    HOST_POWER_REQUEST_FAILED = "HOST_POWER_REQUEST_FAILED"
 
 
 class AlarmSeverity(StrEnum):
@@ -112,6 +114,7 @@ class CoreState:
     zigbee: ZigbeeMqttState | None = None
     calendar: CalendarResolution | None = None
     shadow_automation: ShadowAutomationState | None = None
+    power_scheduler: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -129,4 +132,5 @@ class CoreState:
             "shadow_automation": (
                 None if self.shadow_automation is None else self.shadow_automation.to_dict()
             ),
+            "power_scheduler": self.power_scheduler,
         }
