@@ -138,6 +138,25 @@ class CalendarEngineM3Cm5ValidationTest(unittest.TestCase):
         self.assertIn('sudo systemctl restart "$UNIT"', source)
         self.assertIn('unit_cwd "$MAIN_PID_AFTER"', source)
 
+    def test_harness_lab_mode_accepts_disconnected_hardware_without_weakening_zero_output_guards(self) -> None:
+        source = HARNESS.read_text(encoding="utf-8")
+        self.assertIn('LAB_MODE="${M3_LAB_MODE:-0}"', source)
+        self.assertIn('M3_LAB_MODE must be 0 or 1', source)
+        self.assertIn('if lab_mode:', source)
+        self.assertIn('if mode not in {"STOP", "FAULT"}', source)
+        self.assertIn('EC logical setpoints are not 0 V', source)
+        self.assertIn('automation unexpectedly supports actuation', source)
+        self.assertIn('hardware readiness/output confirmation may be unavailable', source)
+        self.assertIn('M3 LAB mode enabled; disconnected DAC/SEN55/AERO may leave core in FAULT/output_state_unknown', source)
+
+    def test_harness_preflight_failure_does_not_restart_production_core(self) -> None:
+        source = HARNESS.read_text(encoding="utf-8")
+        self.assertIn("ROLLOUT_STARTED=0", source)
+        self.assertIn('if [ "$ROLLOUT_STARTED" = "1" ]; then', source)
+        self.assertIn('M3 stopped before rollout; production ventilation-core was not restarted by cleanup', source)
+        self.assertIn("ROLLOUT_STARTED=1\nwrite_core_dropin", source)
+        self.assertIn("ROLLOUT_STARTED=0\nremove_worktree_best_effort", source)
+
     def test_harness_performs_prepare_restart_verify_without_control_commands(self) -> None:
         source = HARNESS.read_text(encoding="utf-8")
         self.assertIn("--phase prepare", source)
