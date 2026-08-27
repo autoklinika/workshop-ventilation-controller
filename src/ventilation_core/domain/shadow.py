@@ -43,6 +43,12 @@ class ShadowZoneProposal:
 
     inside_temperature_celsius: float | None = None
     outside_temperature_celsius: float | None = None
+    outside_temperature_usable: bool = False
+    outside_temperature_stale: bool = False
+    outside_temperature_age_seconds: float | None = None
+    outside_temperature_source: str | None = None
+    outside_temperature_reason: str | None = None
+    temperature_delta_celsius: float | None = None
     raw_thermal_band: str | None = None
     thermal_band: str | None = None
 
@@ -85,6 +91,12 @@ class ShadowZoneProposal:
             "dynamics_transition_reason": self.dynamics_transition_reason,
             "inside_temperature_celsius": self.inside_temperature_celsius,
             "outside_temperature_celsius": self.outside_temperature_celsius,
+            "outside_temperature_usable": self.outside_temperature_usable,
+            "outside_temperature_stale": self.outside_temperature_stale,
+            "outside_temperature_age_seconds": self.outside_temperature_age_seconds,
+            "outside_temperature_source": self.outside_temperature_source,
+            "outside_temperature_reason": self.outside_temperature_reason,
+            "temperature_delta_celsius": self.temperature_delta_celsius,
             "raw_thermal_band": self.raw_thermal_band,
             "thermal_band": self.thermal_band,
             "air_request_pct": self.air_request_pct,
