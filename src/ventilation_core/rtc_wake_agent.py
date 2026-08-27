@@ -22,8 +22,8 @@ class RtcWakeAgent:
     """Privileged local-only owner of Raspberry Pi RTC wakealarm.
 
     The protocol is intentionally narrow: read, clear, or arm one absolute UTC
-    epoch with mandatory SysfsRtcWakeAlarm read-back verification.  It contains
-    no host power, shell, subprocess, calendar, or ventilation control path.
+    epoch with mandatory SysfsRtcWakeAlarm read-back verification. It has no
+    host-power, shell-command, calendar, or ventilation control path.
     """
 
     def __init__(self, socket_path: Path, wakealarm_path: Path = DEFAULT_WAKEALARM_PATH) -> None:
