@@ -401,6 +401,9 @@ class CalendarResolution:
     next_transition_reason: str | None = None
     next_active_period: str | None = None
     next_wake: str | None = None
+    schedule_supply_pct: float | None = None
+    schedule_extract_pct: float | None = None
+    schedule_request_source: str | None = None
     last_error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -420,6 +423,9 @@ class CalendarResolution:
             "next_transition_reason": self.next_transition_reason,
             "next_active_period": self.next_active_period,
             "next_wake": self.next_wake,
+            "schedule_supply_pct": self.schedule_supply_pct,
+            "schedule_extract_pct": self.schedule_extract_pct,
+            "schedule_request_source": self.schedule_request_source,
             "last_error": self.last_error,
         }
 
