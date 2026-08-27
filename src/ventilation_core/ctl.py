@@ -18,11 +18,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status")
     subparsers.add_parser("sensors")
     subparsers.add_parser("aero")
-    subparsers.add_parser("schedule")
+    subparsers.add_parser("calendar")
 
-    schedule_replace = subparsers.add_parser("schedule-replace")
-    schedule_replace.add_argument("--zone", required=True)
-    schedule_replace.add_argument("--file", type=Path, required=True)
+    calendar_replace = subparsers.add_parser("calendar-replace")
+    calendar_replace.add_argument("--file", type=Path, required=True)
 
     alerts = subparsers.add_parser("alerts")
     alerts.add_argument("--limit", type=int, default=200)
@@ -51,15 +50,11 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
             "supply_voltage": args.supply,
             "extract_voltage": args.extract,
         }
-    if args.command == "schedule-replace":
+    if args.command == "calendar-replace":
         payload = json.loads(args.file.read_text(encoding="utf-8"))
-        if not isinstance(payload, list):
-            raise ValueError("Schedule file must contain a JSON list of windows")
-        return {
-            "command": "schedule-replace",
-            "zone": args.zone,
-            "windows": payload,
-        }
+        if not isinstance(payload, dict):
+            raise ValueError("Calendar file must contain one JSON object")
+        return {"command": "calendar-replace", "config": payload}
     if args.command == "alerts":
         return {"command": "alerts", "limit": args.limit}
     if args.command == "ack-alert":

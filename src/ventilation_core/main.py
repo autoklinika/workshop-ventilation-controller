@@ -10,22 +10,23 @@ from ventilation_core.alert_policy import DEFAULT_RUNTIME_POLICY_PATH
 from ventilation_core.alert_policy_runtime import RuntimeAlertPolicyManager
 from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.application.alert_v2_policy_service import AlertV2ReadOnlyPolicyService
-from ventilation_core.application.schedule_controller import (
-    CoreScheduleManager,
-    UnavailableScheduleManager,
-)
 from ventilation_core.application.service_plane_alert_registry import (
     ServicePlaneCorrelatingAlertRegistry,
 )
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.application.shadow_service import ShadowAlertingVentilationService
+from ventilation_core.calendar import (
+    CalendarEngine,
+    UnavailableCalendarEngine,
+    default_calendar_config,
+)
 from ventilation_core.domain.policy import FanSetpointPolicy
 from ventilation_core.domain.shadow_policy import ShadowPolicyV1
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
 from ventilation_core.infrastructure.process_actuator import ProcessIsolatedActuator
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
-from ventilation_core.infrastructure.sqlite_schedule_store import SqliteScheduleStore
+from ventilation_core.infrastructure.sqlite_calendar_store import SqliteCalendarStore
 from ventilation_core.infrastructure.system_power_monitor import RaspberryPiSystemPowerMonitor
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
 from ventilation_core.infrastructure.zigbee_capability_monitor import CapabilityManagedZigbeeMqttMonitor
@@ -63,7 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--address", type=lambda value: int(value, 0), default=0x58)
     parser.add_argument("--socket", type=Path, default=Path("/run/workshop-ventilation/ventilation-core.sock"))
     parser.add_argument("--alerts-db", type=Path, default=Path("/var/lib/workshop-ventilation/alerts.sqlite3"))
-    parser.add_argument("--automation-db", type=Path, default=Path("/var/lib/workshop-ventilation/automation.sqlite3"))
+    parser.add_argument(
+        "--automation-db",
+        type=Path,
+        default=Path("/var/lib/workshop-ventilation/automation.sqlite3"),
+        help="Persistent Calendar Engine and low-churn automation configuration database",
+    )
     parser.add_argument(
         "--alert-policy",
         type=Path,
@@ -135,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
 async def run_core(args: argparse.Namespace) -> None:
     alert_registry = None
     service_plane_registry = None
-    schedule_manager = None
+    calendar_engine = None
     actuator = None
     sensor_bus = None
     aero_bus = None
@@ -159,12 +165,17 @@ async def run_core(args: argparse.Namespace) -> None:
             alert_registry = service_plane_registry
 
         try:
-            schedule_manager = CoreScheduleManager(SqliteScheduleStore(args.automation_db))
+            calendar_engine = CalendarEngine(
+                SqliteCalendarStore(
+                    args.automation_db,
+                    initial_config=default_calendar_config(),
+                )
+            )
         except Exception as exc:
             LOGGER.exception(
-                "Persistent schedule store unavailable; continuing with UNKNOWN schedule state"
+                "Persistent Calendar Engine store unavailable; continuing with explicit unavailable calendar state"
             )
-            schedule_manager = UnavailableScheduleManager(str(exc))
+            calendar_engine = UnavailableCalendarEngine(str(exc))
 
         actuator = ProcessIsolatedActuator(
             bus=args.bus,
@@ -261,7 +272,7 @@ async def run_core(args: argparse.Namespace) -> None:
             aero_bus=aero_bus,
             tacho=tacho,
             zigbee=zigbee,
-            schedule_manager=schedule_manager,
+            calendar_engine=calendar_engine,
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
             system_power_monitor=system_power_monitor,
@@ -331,8 +342,8 @@ async def run_core(args: argparse.Namespace) -> None:
                                         actuator.close()
                                 finally:
                                     try:
-                                        if schedule_manager is not None:
-                                            schedule_manager.close()
+                                        if calendar_engine is not None:
+                                            calendar_engine.close()
                                     finally:
                                         if alert_registry is not None:
                                             alert_registry.close()

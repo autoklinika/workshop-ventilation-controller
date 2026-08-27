@@ -41,17 +41,41 @@ class HistoryProvider(Protocol):
 
 
 class WebApplication:
-    """Narrow browser boundary for manual control, alerts, schedule, history and Zigbee.
+    """Narrow browser boundary for manual control, Calendar Engine, history and Zigbee.
 
     The browser never receives a generic ventilation-core command proxy and never
-    opens SQLite or MQTT directly. Schedule evaluation, SHADOW and Zigbee state are
+    opens SQLite or MQTT directly. Calendar resolution, SHADOW and Zigbee state are
     authoritative in ventilation-core. Destructive Zigbee removal uses core-owned
     two-step confirmation.
     """
 
-    SCHEDULE_ZONES = ("zone-1", "zone-2")
-    SCHEDULE_EXPECTATIONS = ("OCCUPIED_EXPECTED", "UNOCCUPIED_EXPECTED")
-    MAX_SCHEDULE_WINDOWS_PER_ZONE = 64
+    MAX_CALENDAR_PROFILES = 64
+    MAX_CALENDAR_RULES = 512
+    CALENDAR_CONFIG_FIELDS = {"schema_version", "timezone", "profiles", "rules"}
+    CALENDAR_PROFILE_FIELDS = {
+        "profile_id",
+        "mode",
+        "preventilation_minutes",
+        "purge_minutes",
+        "minimum_supply_pct",
+        "minimum_extract_pct",
+        "fixed_supply_pct",
+        "fixed_extract_pct",
+        "label",
+    }
+    CALENDAR_RULE_FIELDS = {
+        "rule_id",
+        "kind",
+        "profile_id",
+        "weekdays",
+        "months",
+        "start_date",
+        "end_date",
+        "start_local",
+        "end_local",
+        "enabled",
+        "label",
+    }
 
     def __init__(
         self,
@@ -80,8 +104,8 @@ class WebApplication:
                 return self._zigbee_removal_confirmation()
             if method == "GET" and path == "/api/v1/alerts":
                 return self._alerts()
-            if method == "GET" and path == "/api/v1/schedule":
-                return self._schedule()
+            if method == "GET" and path == "/api/v1/calendar":
+                return self._calendar()
             if method == "GET" and path == "/api/v1/config":
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
@@ -100,8 +124,8 @@ class WebApplication:
                 return self._history_series_query(body)
             if method == "POST" and path == "/api/v1/alerts/ack":
                 return self._ack_alert(body)
-            if method == "POST" and path == "/api/v1/schedule/zone":
-                return self._schedule_replace(body)
+            if method == "POST" and path == "/api/v1/calendar":
+                return self._calendar_replace(body)
             if method == "POST" and path == "/api/v1/zigbee/permit-join":
                 return self._zigbee_permit_join(body)
             if method == "POST" and path == "/api/v1/zigbee/pairing/ack":
@@ -143,7 +167,13 @@ class WebApplication:
             return self._core_rejection(response)
         zigbee = state.get("zigbee")
         if not isinstance(zigbee, dict):
-            return ApiResponse(503, {"ok": False, "error": "Zigbee telemetry is not available from ventilation-core"})
+            return ApiResponse(
+                503,
+                {
+                    "ok": False,
+                    "error": "Zigbee telemetry is not available from ventilation-core",
+                },
+            )
         return ApiResponse(200, {"ok": True, "zigbee": zigbee})
 
     def _zigbee_removal_confirmation(self) -> ApiResponse:
@@ -152,38 +182,45 @@ class WebApplication:
             return self._core_rejection(response)
         confirmation = response.get("confirmation")
         if confirmation is not None and not isinstance(confirmation, dict):
-            return ApiResponse(502, {"ok": False, "error": "Invalid confirmation state from core"})
+            return ApiResponse(
+                502,
+                {"ok": False, "error": "Invalid confirmation state from core"},
+            )
         return ApiResponse(200, {"ok": True, "confirmation": confirmation})
 
     def _alerts(self) -> ApiResponse:
         response = self._core.request({"command": "alerts", "limit": 200})
-        if response.get("ok") is not True or not isinstance(response.get("active"), list) or not isinstance(response.get("history"), list):
+        if (
+            response.get("ok") is not True
+            or not isinstance(response.get("active"), list)
+            or not isinstance(response.get("history"), list)
+        ):
             return self._core_rejection(response)
         return ApiResponse(200, response)
 
-    def _schedule(self) -> ApiResponse:
-        response = self._core.request({"command": "schedule"})
-        if response.get("ok") is not True or not isinstance(response.get("schedule"), dict):
+    def _calendar(self) -> ApiResponse:
+        response = self._core.request({"command": "calendar"})
+        if response.get("ok") is not True or not isinstance(response.get("calendar"), dict):
             return self._core_rejection(response)
         return ApiResponse(200, response)
 
-    def _schedule_replace(self, body: Any) -> ApiResponse:
+    def _calendar_replace(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
-        zone = data.get("zone")
-        if zone not in self.SCHEDULE_ZONES:
-            raise ValueError("zone must be one of: zone-1, zone-2")
-        windows = data.get("windows")
-        if not isinstance(windows, list):
-            raise ValueError("windows must be a JSON list")
-        if len(windows) > self.MAX_SCHEDULE_WINDOWS_PER_ZONE:
-            raise ValueError(f"windows may contain at most {self.MAX_SCHEDULE_WINDOWS_PER_ZONE} entries")
-        sanitized = [self._sanitize_schedule_window(window) for window in windows]
-        return self._command({"command": "schedule-replace", "zone": zone, "windows": sanitized})
+        if set(data) != {"config"}:
+            raise ValueError("calendar update accepts only the config field")
+        config = data.get("config")
+        if not isinstance(config, dict):
+            raise ValueError("config must be a JSON object")
+        sanitized = self._sanitize_calendar_config(config)
+        return self._command({"command": "calendar-replace", "config": sanitized})
 
     def _history_status(self) -> ApiResponse:
         provider = self._history_provider
         if provider is None:
-            return ApiResponse(200, {"ok": True, "history": {"available": False, "configured": False}})
+            return ApiResponse(
+                200,
+                {"ok": True, "history": {"available": False, "configured": False}},
+            )
         status = provider.status()
         payload = status.to_dict() if hasattr(status, "to_dict") else dict(status)
         payload["configured"] = True
@@ -192,25 +229,47 @@ class WebApplication:
     def _history_query(self, body: Any) -> ApiResponse:
         provider = self._history_provider
         if provider is None:
-            return ApiResponse(503, {"ok": False, "error": "local history is not configured"})
+            return ApiResponse(
+                503,
+                {"ok": False, "error": "local history is not configured"},
+            )
         data = self._require_object(body)
         start_at = data.get("start_at")
         end_at = data.get("end_at")
         limit = data.get("limit", 720)
         resolution = data.get("resolution", "raw")
-        samples = provider.query(start_at=start_at, end_at=end_at, limit=limit, resolution=resolution)
-        return ApiResponse(200, {"ok": True, "resolution": resolution, "count": len(samples), "samples": samples})
+        samples = provider.query(
+            start_at=start_at,
+            end_at=end_at,
+            limit=limit,
+            resolution=resolution,
+        )
+        return ApiResponse(
+            200,
+            {
+                "ok": True,
+                "resolution": resolution,
+                "count": len(samples),
+                "samples": samples,
+            },
+        )
 
     def _history_series_catalog(self) -> ApiResponse:
         service = self._history_series
         if service is None:
-            return ApiResponse(503, {"ok": False, "error": "local history is not configured"})
+            return ApiResponse(
+                503,
+                {"ok": False, "error": "local history is not configured"},
+            )
         return ApiResponse(200, {"ok": True, "history": service.catalog()})
 
     def _history_series_query(self, body: Any) -> ApiResponse:
         service = self._history_series
         if service is None:
-            return ApiResponse(503, {"ok": False, "error": "local history is not configured"})
+            return ApiResponse(
+                503,
+                {"ok": False, "error": "local history is not configured"},
+            )
         data = self._require_object(body)
         return ApiResponse(200, {"ok": True, "history": service.query(data)})
 
@@ -233,14 +292,18 @@ class WebApplication:
         ieee_address = data.get("ieee_address")
         if not isinstance(ieee_address, str) or not ieee_address.strip():
             raise ValueError("ieee_address must be a non-empty string")
-        return self._command({"command": "zigbee-ack-pairing", "ieee_address": ieee_address.strip()})
+        return self._command(
+            {"command": "zigbee-ack-pairing", "ieee_address": ieee_address.strip()}
+        )
 
     def _zigbee_remove(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
         device_id = data.get("device_id")
         if not isinstance(device_id, str) or not device_id.strip():
             raise ValueError("device_id must be a non-empty string")
-        return self._command({"command": "zigbee-request-remove-device", "device_id": device_id.strip()})
+        return self._command(
+            {"command": "zigbee-request-remove-device", "device_id": device_id.strip()}
+        )
 
     def _zigbee_remove_confirmation(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
@@ -250,7 +313,13 @@ class WebApplication:
             raise ValueError("confirmation_id must be a non-empty string")
         if not isinstance(confirmed, bool):
             raise ValueError("confirmed must be boolean")
-        return self._command({"command": "zigbee-resolve-remove-device", "confirmation_id": confirmation_id.strip(), "confirmed": confirmed})
+        return self._command(
+            {
+                "command": "zigbee-resolve-remove-device",
+                "confirmation_id": confirmation_id.strip(),
+                "confirmed": confirmed,
+            }
+        )
 
     def _zigbee_rename(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
@@ -260,7 +329,13 @@ class WebApplication:
             raise ValueError("device_id must be a non-empty string")
         if not isinstance(new_name, str) or not new_name.strip():
             raise ValueError("new_name must be a non-empty string")
-        return self._command({"command": "zigbee-rename-device", "device_id": device_id.strip(), "new_name": new_name.strip()})
+        return self._command(
+            {
+                "command": "zigbee-rename-device",
+                "device_id": device_id.strip(),
+                "new_name": new_name.strip(),
+            }
+        )
 
     def _zigbee_role(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
@@ -270,11 +345,27 @@ class WebApplication:
             raise ValueError("device_id must be a non-empty string")
         if role not in (None, "supply", "extract", "other"):
             raise ValueError("role must be supply, extract, other or null")
-        return self._command({"command": "zigbee-assign-role", "device_id": device_id.strip(), "role": role})
+        return self._command(
+            {
+                "command": "zigbee-assign-role",
+                "device_id": device_id.strip(),
+                "role": role,
+            }
+        )
 
     def _weather(self) -> ApiResponse:
         if self._weather_provider is None:
-            return ApiResponse(200, {"ok": True, "weather": {"available": False, "configured": False, "error": "weather provider is not configured"}})
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "weather": {
+                        "available": False,
+                        "configured": False,
+                        "error": "weather provider is not configured",
+                    },
+                },
+            )
         try:
             snapshot = self._weather_provider.get_snapshot()
         except WeatherError as exc:
@@ -296,7 +387,6 @@ class WebApplication:
                     },
                 },
             )
-
         try:
             snapshot = self._advisory_provider.get_snapshot()
         except AdvisoryError as exc:
@@ -308,21 +398,41 @@ class WebApplication:
                 "fresh": False,
                 "error": str(exc),
             }
-
         return ApiResponse(200, {"ok": True, "advisory": snapshot})
 
     def _health(self) -> ApiResponse:
         try:
             response = self._core.request({"command": "status"})
         except CoreClientError as exc:
-            return ApiResponse(200, {"ok": True, "web": "ok", "core_available": False, "core_error": str(exc)})
-        return ApiResponse(200, {"ok": True, "web": "ok", "core_available": response.get("ok") is True})
+            return ApiResponse(
+                200,
+                {
+                    "ok": True,
+                    "web": "ok",
+                    "core_available": False,
+                    "core_error": str(exc),
+                },
+            )
+        return ApiResponse(
+            200,
+            {
+                "ok": True,
+                "web": "ok",
+                "core_available": response.get("ok") is True,
+            },
+        )
 
     def _fans(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
         supply = self._require_voltage(data, "supply_voltage")
         extract = self._require_voltage(data, "extract_voltage")
-        return self._command({"command": "set", "supply_voltage": supply, "extract_voltage": extract})
+        return self._command(
+            {
+                "command": "set",
+                "supply_voltage": supply,
+                "extract_voltage": extract,
+            }
+        )
 
     def _aero_speed(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
@@ -345,30 +455,50 @@ class WebApplication:
         return self._core_rejection(response)
 
     @classmethod
-    def _sanitize_schedule_window(cls, value: Any) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            raise ValueError("each schedule window must be a JSON object")
-        allowed = {"weekday", "start_local", "end_local", "expectation", "enabled", "label"}
-        unknown = set(value) - allowed
+    def _sanitize_calendar_config(cls, value: dict[str, Any]) -> dict[str, Any]:
+        unknown = set(value) - cls.CALENDAR_CONFIG_FIELDS
         if unknown:
-            raise ValueError(f"unsupported schedule window fields: {sorted(unknown)}")
-        weekday = value.get("weekday")
-        if isinstance(weekday, bool) or not isinstance(weekday, int) or not 1 <= weekday <= 7:
-            raise ValueError("weekday must be an integer in ISO range 1..7")
-        start_local = value.get("start_local")
-        end_local = value.get("end_local")
-        if not isinstance(start_local, str) or not isinstance(end_local, str):
-            raise ValueError("start_local and end_local must be HH:MM text")
-        expectation = value.get("expectation", "OCCUPIED_EXPECTED")
-        if expectation not in cls.SCHEDULE_EXPECTATIONS:
-            raise ValueError("unsupported schedule expectation")
-        enabled = value.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise ValueError("enabled must be boolean")
-        label = value.get("label", "")
-        if not isinstance(label, str) or len(label) > 80:
-            raise ValueError("label must be text up to 80 characters")
-        return {"weekday": weekday, "start_local": start_local, "end_local": end_local, "expectation": expectation, "enabled": enabled, "label": label}
+            raise ValueError(f"unsupported calendar config fields: {sorted(unknown)}")
+        profiles = value.get("profiles")
+        rules = value.get("rules")
+        if not isinstance(profiles, list):
+            raise ValueError("calendar profiles must be a JSON list")
+        if not isinstance(rules, list):
+            raise ValueError("calendar rules must be a JSON list")
+        if len(profiles) > cls.MAX_CALENDAR_PROFILES:
+            raise ValueError(
+                f"calendar profiles may contain at most {cls.MAX_CALENDAR_PROFILES} entries"
+            )
+        if len(rules) > cls.MAX_CALENDAR_RULES:
+            raise ValueError(
+                f"calendar rules may contain at most {cls.MAX_CALENDAR_RULES} entries"
+            )
+        clean_profiles: list[dict[str, Any]] = []
+        for index, profile in enumerate(profiles):
+            if not isinstance(profile, dict):
+                raise ValueError(f"calendar profile {index + 1} must be an object")
+            extra = set(profile) - cls.CALENDAR_PROFILE_FIELDS
+            if extra:
+                raise ValueError(
+                    f"unsupported calendar profile fields at {index + 1}: {sorted(extra)}"
+                )
+            clean_profiles.append(dict(profile))
+        clean_rules: list[dict[str, Any]] = []
+        for index, rule in enumerate(rules):
+            if not isinstance(rule, dict):
+                raise ValueError(f"calendar rule {index + 1} must be an object")
+            extra = set(rule) - cls.CALENDAR_RULE_FIELDS
+            if extra:
+                raise ValueError(
+                    f"unsupported calendar rule fields at {index + 1}: {sorted(extra)}"
+                )
+            clean_rules.append(dict(rule))
+        return {
+            "schema_version": value.get("schema_version", 1),
+            "timezone": value.get("timezone", "Europe/Warsaw"),
+            "profiles": clean_profiles,
+            "rules": clean_rules,
+        }
 
     @staticmethod
     def _core_rejection(response: dict[str, Any]) -> ApiResponse:
