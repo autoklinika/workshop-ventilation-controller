@@ -1,8 +1,10 @@
 [Unit]
 Description=Workshop Ventilation Core
 Requires=wvc-host-power.service
-Wants=wvc-rtc-wake.service mosquitto.service zigbee2mqtt.service
-After=local-fs.target wvc-host-power.service wvc-rtc-wake.service mosquitto.service zigbee2mqtt.service
+Wants=mosquitto.service zigbee2mqtt.service
+Wants=wvc-rtc-wake.service
+After=local-fs.target wvc-host-power.service mosquitto.service zigbee2mqtt.service
+After=wvc-rtc-wake.service
 
 [Service]
 Type=simple
