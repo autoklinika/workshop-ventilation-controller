@@ -23,10 +23,10 @@ class ShadowZoneProposal:
     sensor_usable: bool
 
     automation_state: str | None = None
+    schedule_supply_pct: float | None = None
+    schedule_extract_pct: float | None = None
+    schedule_request_source: str | None = None
 
-    # Raw classification is retained next to the stabilized effective level so
-    # operators can see both the instantaneous sensor interpretation and the
-    # stateful decision that would be used by the future Control Engine.
     raw_air_quality_level: str | None = None
     raw_air_quality_driver: str | None = None
     air_quality_level: str | None = None
@@ -67,6 +67,9 @@ class ShadowZoneProposal:
             "sensor_address": self.sensor_address,
             "sensor_usable": self.sensor_usable,
             "automation_state": self.automation_state,
+            "schedule_supply_pct": self.schedule_supply_pct,
+            "schedule_extract_pct": self.schedule_extract_pct,
+            "schedule_request_source": self.schedule_request_source,
             "raw_air_quality_level": self.raw_air_quality_level,
             "raw_air_quality_driver": self.raw_air_quality_driver,
             "air_quality_level": self.air_quality_level,
