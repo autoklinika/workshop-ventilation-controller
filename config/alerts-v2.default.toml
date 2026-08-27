@@ -1,5 +1,5 @@
 schema_version = 1
-policy_version = "2026-08-21.1"
+policy_version = "2026-08-27.1"
 policy_name = "Workshop Ventilation Controller - AlertV2 default policy"
 description = "Domyślna, deklaratywna macierz wag, reakcji i kolorów HMI dla AlertV2."
 runtime_path = "/etc/workshop-ventilation/alerts-v2.toml"
@@ -712,6 +712,36 @@ correlation_group = "automation_health"
 correlation_priority = 75
 title = "Magazyn harmonogramu niedostępny"
 message = "Core nie może odczytać trwałej konfiguracji harmonogramu i stosuje lokalny fallback."
+
+[alerts.RTC_WAKE_ARM_FAILED]
+enabled = true
+owner = "core"
+category = "power_scheduler"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "power_scheduler"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "power_scheduler"
+correlation_priority = 95
+title = "Nie udało się uzbroić RTC wake"
+message = "Power Scheduler nie potwierdził alarmu RTC dla następnego uruchomienia. Planowane wyłączenie CM5 zostało zablokowane i CM5 pozostaje uruchomiony."
+
+[alerts.HOST_POWER_REQUEST_FAILED]
+enabled = true
+owner = "core"
+category = "power_scheduler"
+weight = 3
+severity = "alarm"
+reaction = "continue_degraded"
+scope = "power_scheduler"
+affects_control = false
+hmi_color = "orange"
+correlation_group = "power_scheduler"
+correlation_priority = 90
+title = "Planowane wyłączenie CM5 nie zostało przyjęte"
+message = "Power Scheduler uzbroił RTC, ale lokalna granica host-power nie przyjęła żądania shutdown. RTC jest czyszczony, a CM5 pozostaje uruchomiony."
 
 [alerts.SHADOW_ENGINE_UNAVAILABLE]
 enabled = true
