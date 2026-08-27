@@ -7,7 +7,7 @@ from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from .model import CalendarConfig, CalendarResolution, DEFAULT_TIMEZONE, unavailable_resolution
-from .resolver import resolve_calendar
+from .resolver import resolve_calendar, validate_calendar_configuration
 
 
 LOGGER = logging.getLogger(__name__)
@@ -58,12 +58,7 @@ class CalendarEngine:
     def replace_configuration(self, payload: dict[str, object]) -> dict[str, object]:
         config = CalendarConfig.from_dict(payload)
         ZoneInfo(config.timezone)
-        # Resolve a deterministic reference date before persistence so conflicts
-        # and malformed semantic combinations fail before replacing the active config.
-        resolve_calendar(
-            config,
-            now_utc=datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc),
-        )
+        validate_calendar_configuration(config)
         with self._lock:
             revision = self._store.replace(config)
             return {
