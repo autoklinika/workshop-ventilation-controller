@@ -159,11 +159,12 @@ def validate_calendar_configuration(config: CalendarConfig) -> None:
             second_profile = profiles[second.profile_id]
             second_start, second_end = _rule_effective_bounds(second, second_profile)
 
-            # With max 24 h pre/purge and an active window shorter than/equal to
-            # 24 h, effective intervals can overlap only for start dates at most
-            # two calendar days apart. For self-comparison, delta=0 is the same
-            # occurrence and is intentionally skipped.
-            for day_offset in range(-2, 3):
+            # A timed overnight window may end almost two days after its rule
+            # date and PURGE may extend another full day. PREVENTILATION may
+            # begin one day before the other rule date, so start dates up to
+            # three days apart must be checked. Four days can only touch, not
+            # overlap, at the configured maxima.
+            for day_offset in range(-3, 4):
                 if first_index == second_index and day_offset == 0:
                     continue
                 if not _selectors_can_align(first, second, day_offset):
