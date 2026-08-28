@@ -15,6 +15,7 @@ SUPPLY_NAME=temp_nawiew
 SUPPLY_IEEE=0xa4c13810e66fffff
 EXTRACT_NAME=temp_wywiew
 EXTRACT_IEEE=0xa4c13810bdedffff
+ZIGBEE_STALE_SECONDS=14400
 ROLLOUT_STARTED=0
 BOOT_ID_BEFORE=""
 HOST_POWER_PID_BEFORE=""
@@ -73,9 +74,8 @@ state = doc.get("state") or {}
 sp = state.get("setpoints") or {}
 if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
     raise SystemExit(f"FAIL: {label}: logical EC setpoints are not 0 V: {sp!r}")
-tacho = state.get("tacho") or {}
 for channel in ("supply", "extract"):
-    row = tacho.get(channel)
+    row = (state.get("tacho") or {}).get(channel)
     if isinstance(row, dict) and float(row.get("rpm") or 0.0) != 0.0:
         raise SystemExit(f"FAIL: {label}: {channel} TACHO reports motion: {row!r}")
 print(f"PASS: {label}: logical EC=0 V and no observed local fan motion")
@@ -108,6 +108,15 @@ for address in (1, 2):
     ):
         raise SystemExit(f"FAIL: SEN55 node {address} is not fresh/usable")
 
+aero = state.get("aero_bus") or {}
+if not (
+    aero.get("ready") is True
+    and aero.get("worker_alive") is True
+    and aero.get("online") is True
+    and aero.get("usable") is True
+):
+    raise SystemExit("FAIL: AERO is not ready/online/usable")
+
 zigbee = state.get("zigbee") or {}
 if not (zigbee.get("running") is True and zigbee.get("connected") is True and zigbee.get("bridge_online") is True):
     raise SystemExit("FAIL: Zigbee MQTT/bridge is not healthy")
@@ -120,27 +129,20 @@ for role in ("supply", "extract"):
     if value is None or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
         raise SystemExit(f"FAIL: Zigbee {role} temperature is unavailable")
 
-aero = state.get("aero_bus") or {}
-if not (
-    aero.get("ready") is True
-    and aero.get("worker_alive") is True
-    and aero.get("online") is True
-    and aero.get("usable") is True
-):
-    raise SystemExit("FAIL: AERO is not ready/online/usable")
-
 print("PASS: production peripherals ready: DAC + SEN55[1,2] + AERO + Zigbee supply/extract")
 PY
 }
 
 check_real_inputs_and_shadow() {
     local json="$1"
-    /usr/bin/python3 - "$json" <<'PY'
+    /usr/bin/python3 - "$ZIGBEE_STALE_SECONDS" "$json" <<'PY'
+from datetime import datetime, timezone
 import json
 import math
 import sys
 
-state = (json.loads(sys.argv[1]).get("state") or {})
+stale_seconds = float(sys.argv[1])
+state = (json.loads(sys.argv[2]).get("state") or {})
 if state.get("mode") != "STOP":
     raise SystemExit(f"WAIT: expected STOP mode, got {state.get('mode')!r}")
 if state.get("hardware_ready") is not True or state.get("output_state_known") is not True:
@@ -248,20 +250,63 @@ for address in (1, 2):
 
 zone1 = zones[1]
 supply = devices["supply"]
-supply_temp = float(supply["temperature_celsius"])
-if zone1.get("outside_temperature_usable") is not True:
-    raise SystemExit("WAIT: Zigbee supply temperature not yet usable")
-if zone1.get("outside_temperature_stale") is not False:
-    raise SystemExit("WAIT: Zigbee supply temperature marked stale")
-if zone1.get("outside_temperature_reason") != "OK":
-    raise SystemExit(f"WAIT: Zigbee supply normalization reason={zone1.get('outside_temperature_reason')!r}")
+if zone1.get("outside_temperature_source") != "zigbee:supply":
+    raise SystemExit(f"FAIL: unexpected outside temperature source: {zone1.get('outside_temperature_source')!r}")
 if zone1.get("outside_temperature_celsius") != supply.get("temperature_celsius"):
     raise SystemExit("FAIL: Zigbee supply temperature mismatch between core and shadow")
-inside_temp = float(nodes[1]["reading"]["temperature_celsius"])
-expected_delta = inside_temp - supply_temp
+
+def parse_ts(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+evaluated_at = parse_ts(shadow.get("evaluated_at_utc"))
+if evaluated_at is None:
+    raise SystemExit("FAIL: shadow evaluated_at_utc unavailable")
+source_timestamp = supply.get("last_seen") or supply.get("last_message_at")
+source_dt = parse_ts(source_timestamp)
+actual_age = zone1.get("outside_temperature_age_seconds")
+actual_reason = zone1.get("outside_temperature_reason")
+actual_usable = zone1.get("outside_temperature_usable")
+actual_stale = zone1.get("outside_temperature_stale")
 actual_delta = zone1.get("temperature_delta_celsius")
-if actual_delta is None or abs(float(actual_delta) - expected_delta) > 1e-6:
-    raise SystemExit(f"FAIL: temperature delta mismatch: actual={actual_delta!r}, expected={expected_delta!r}")
+
+if source_dt is None:
+    if actual_reason != "TEMPERATURE_TIMESTAMP_UNAVAILABLE":
+        raise SystemExit(f"FAIL: missing timestamp should be rejected, got reason={actual_reason!r}")
+    if actual_usable is not False or actual_stale is not False or actual_age is not None or actual_delta is not None:
+        raise SystemExit("FAIL: unavailable Zigbee timestamp freshness flags are inconsistent")
+    freshness = "timestamp_unavailable"
+else:
+    expected_age = max(0.0, (evaluated_at - source_dt).total_seconds())
+    if actual_age is None or abs(float(actual_age) - expected_age) > 0.25:
+        raise SystemExit(f"FAIL: Zigbee supply age mismatch: actual={actual_age!r}, expected={expected_age!r}")
+    if expected_age > stale_seconds:
+        if actual_reason != "TEMPERATURE_STALE" or actual_usable is not False or actual_stale is not True:
+            raise SystemExit(
+                f"FAIL: stale Zigbee timestamp interpreted incorrectly: age={expected_age:.1f}, "
+                f"reason={actual_reason!r}, usable={actual_usable!r}, stale={actual_stale!r}"
+            )
+        if actual_delta is not None:
+            raise SystemExit("FAIL: stale outside temperature must not produce delta_t")
+        freshness = "stale"
+    else:
+        if actual_reason != "OK" or actual_usable is not True or actual_stale is not False:
+            raise SystemExit(
+                f"FAIL: fresh Zigbee timestamp interpreted incorrectly: age={expected_age:.1f}, "
+                f"reason={actual_reason!r}, usable={actual_usable!r}, stale={actual_stale!r}"
+            )
+        inside_temp = float(nodes[1]["reading"]["temperature_celsius"])
+        expected_delta = inside_temp - float(supply["temperature_celsius"])
+        if actual_delta is None or abs(float(actual_delta) - expected_delta) > 1e-6:
+            raise SystemExit(f"FAIL: temperature delta mismatch: actual={actual_delta!r}, expected={expected_delta!r}")
+        freshness = "fresh"
 
 if zone1.get("proposed_aero_speed") is not None:
     raise SystemExit("FAIL: fan zone unexpectedly proposes AERO speed")
@@ -272,6 +317,10 @@ print(json.dumps({
     "sen55_1": nodes[1]["reading"],
     "sen55_2": nodes[2]["reading"],
     "zigbee_supply_c": supply.get("temperature_celsius"),
+    "zigbee_supply_timestamp": source_timestamp,
+    "zigbee_supply_freshness": freshness,
+    "zigbee_supply_age_seconds": actual_age,
+    "zigbee_supply_reason": actual_reason,
     "zigbee_extract_c": devices["extract"].get("temperature_celsius"),
     "temperature_delta_c": actual_delta,
     "zone1_air_quality_level": zone1.get("air_quality_level"),
@@ -393,7 +442,7 @@ BRANCH_PID="$(unit_pid "$CORE_UNIT")"
 require_zero_output_guard "$WT/src" "branch startup"
 assert_host_not_touched "branch startup"
 
-echo "===== WAIT FOR REAL SEN55 + AERO + ZIGBEE INPUTS AND VERIFY SHADOW MAPPING ====="
+echo "===== WAIT FOR REAL INPUTS AND VERIFY SHADOW + ZIGBEE FRESHNESS SEMANTICS ====="
 wait_for_real_inputs "$WT/src"
 require_zero_output_guard "$WT/src" "after real-input validation"
 assert_host_not_touched "after real-input validation"
@@ -416,6 +465,7 @@ trap - EXIT INT TERM
 remove_worktree_best_effort
 
 echo "PASS: Control Engine V1 Stage2 real SEN55 + Zigbee inputs mapped 1:1 into SHADOW"
+echo "PASS: Zigbee supply freshness interpretation matches its actual timestamp (fresh/stale/unavailable)"
 echo "PASS: AERO healthy; local EC remained 0 V; no physical Control Engine actuation occurred"
 echo "PASS: RTC unchanged; host-power untouched; CM5 never rebooted/powered off"
 echo "branch SHA:      $BRANCH_SHA"
