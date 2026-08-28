@@ -47,6 +47,24 @@ class ControlEngineStage2Cm5ValidationTest(unittest.TestCase):
         ):
             self.assertIn(expected, self.text)
 
+    def test_harness_seeds_isolated_zigbee_roles_exactly_like_production(self) -> None:
+        for expected in (
+            "SUPPLY_NAME=temp_nawiew",
+            "SUPPLY_IEEE=0xa4c13810e66fffff",
+            "EXTRACT_NAME=temp_wywiew",
+            "EXTRACT_IEEE=0xa4c13810bdedffff",
+            "--zigbee-supply-name $SUPPLY_NAME",
+            "--zigbee-supply-ieee $SUPPLY_IEEE",
+            "--zigbee-extract-name $EXTRACT_NAME",
+            "--zigbee-extract-ieee $EXTRACT_IEEE",
+            "--zigbee-roles-file $TEST_ROOT/zigbee-roles.json",
+        ):
+            self.assertIn(expected, self.text)
+        self.assertNotIn(
+            "--zigbee-roles-file /var/lib/workshop-ventilation/zigbee-roles.json",
+            self.text,
+        )
+
     def test_harness_keeps_local_outputs_zero_and_forbids_host_power_actions(self) -> None:
         self.assertIn('sp.get("supply_voltage") != 0.0', self.text)
         self.assertIn('sp.get("extract_voltage") != 0.0', self.text)
