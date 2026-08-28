@@ -77,6 +77,10 @@ class ShadowZoneProposal:
 
     tacho_failure_confirmation_seconds: float | None = None
     tacho_emergency_policy_configured: bool = False
+    tacho_fault_pattern: str | None = None
+    tacho_fallback_applied: bool = False
+    tacho_fallback_supply_pct: float | None = None
+    tacho_fallback_extract_pct: float | None = None
     tacho_supply_feedback_required: bool = False
     tacho_supply_status: str | None = None
     tacho_supply_feedback_valid: bool = False
@@ -155,6 +159,10 @@ class ShadowZoneProposal:
             "final_extract_pct": self.final_extract_pct,
             "tacho_failure_confirmation_seconds": self.tacho_failure_confirmation_seconds,
             "tacho_emergency_policy_configured": self.tacho_emergency_policy_configured,
+            "tacho_fault_pattern": self.tacho_fault_pattern,
+            "tacho_fallback_applied": self.tacho_fallback_applied,
+            "tacho_fallback_supply_pct": self.tacho_fallback_supply_pct,
+            "tacho_fallback_extract_pct": self.tacho_fallback_extract_pct,
             "tacho_supply_feedback_required": self.tacho_supply_feedback_required,
             "tacho_supply_status": self.tacho_supply_status,
             "tacho_supply_feedback_valid": self.tacho_supply_feedback_valid,
