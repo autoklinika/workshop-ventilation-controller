@@ -141,7 +141,9 @@ class ControlEngineMatrixRunner:
 
         cases: list[dict[str, Any]] = []
         policy_version: str | None = None
-        for selected in product(*(dimension.variants for dimension in dimensions)):
+        for case_index, selected in enumerate(
+            product(*(dimension.variants for dimension in dimensions))
+        ):
             step: dict[str, Any] = deepcopy(dict(base_step))
             selection: dict[str, str] = {}
             case_parts: list[str] = []
@@ -153,7 +155,7 @@ class ControlEngineMatrixRunner:
 
             scenario = {
                 "schema_version": 1,
-                "name": f"{name}:{'|'.join(case_parts)}",
+                "name": f"matrix-case-{case_index}",
                 "start_utc": start_utc,
                 "control_engine": deepcopy(dict(control_engine)),
                 "steps": [step],
