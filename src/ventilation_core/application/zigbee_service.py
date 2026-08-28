@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from ventilation_core.application.alerting_service import AlertingVentilationService
+from ventilation_core.application.zigbee_measurements import (
+    DEFAULT_ZIGBEE_STALE_SECONDS,
+    zigbee_measurement_timestamp,
+)
 from ventilation_core.domain.alerts import AlertSignal
 from ventilation_core.domain.models import AlarmCode, AlarmSeverity, CoreState
 from ventilation_core.domain.zigbee import ZigbeeMqttState
@@ -25,21 +29,6 @@ class ZigbeeMonitor(Protocol):
     def close(self) -> None: ...
 
 
-def _age_seconds(value: str | None) -> float | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return max(
-        0.0,
-        (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds(),
-    )
-
-
 class ZigbeeAlertingVentilationService(AlertingVentilationService):
     """Alerting service extended with Zigbee telemetry and narrow management."""
 
@@ -48,7 +37,7 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
         *args: object,
         zigbee: ZigbeeMonitor | None = None,
         zigbee_low_battery_percent: float = 20.0,
-        zigbee_stale_seconds: float = 14400.0,
+        zigbee_stale_seconds: float = DEFAULT_ZIGBEE_STALE_SECONDS,
         **kwargs: object,
     ) -> None:
         if not 0.0 <= zigbee_low_battery_percent <= 100.0:
@@ -199,16 +188,17 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
                 )
                 continue
 
-            age = _age_seconds(device.last_seen)
-            age_source = "last_seen"
-            if age is None:
-                age = _age_seconds(device.last_message_at)
-                age_source = "last_message_at"
+            resolved_timestamp = zigbee_measurement_timestamp(
+                device,
+                now_utc=datetime.now(timezone.utc),
+            )
+            age = resolved_timestamp.age_seconds
             if (
                 device.messages > 0
                 and age is not None
                 and age > self._zigbee_stale_seconds
             ):
+                age_source = resolved_timestamp.source or "timestamp"
                 signals.append(
                     AlertSignal(
                         key=f"zigbee:device:{device.role}:stale",
