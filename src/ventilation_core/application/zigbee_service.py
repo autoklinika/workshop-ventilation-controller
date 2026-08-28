@@ -157,6 +157,7 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
             )
 
         inventory_ready = zigbee.inventory_updated_at is not None
+        now_utc = datetime.now(timezone.utc)
         for device in zigbee.devices:
             source = f"zigbee:{device.friendly_name}"
             present = True
@@ -190,10 +191,29 @@ class ZigbeeAlertingVentilationService(AlertingVentilationService):
 
             resolved_timestamp = zigbee_measurement_timestamp(
                 device,
-                now_utc=datetime.now(timezone.utc),
+                now_utc=now_utc,
             )
             age = resolved_timestamp.age_seconds
             if (
+                device.messages > 0
+                and resolved_timestamp.timestamp is not None
+                and age is None
+            ):
+                age_source = resolved_timestamp.source or "timestamp"
+                signals.append(
+                    AlertSignal(
+                        key=f"zigbee:device:{device.role}:stale",
+                        code=AlarmCode.ZIGBEE_DEVICE_DATA_STALE,
+                        source=source,
+                        severity=AlarmSeverity.WARNING,
+                        message=f"Zigbee {device.friendly_name}: brak wiarygodnego czasu pomiaru",
+                        detail=(
+                            f"Nieprawidłowy {age_source}; nowszy czas odbioru MQTT nie zastępuje "
+                            "timestampu pomiaru"
+                        ),
+                    )
+                )
+            elif (
                 device.messages > 0
                 and age is not None
                 and age > self._zigbee_stale_seconds
