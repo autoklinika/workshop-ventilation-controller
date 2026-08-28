@@ -12,6 +12,12 @@ from ventilation_core.domain.shadow import (
 )
 from ventilation_core.domain.shadow_policy import ShadowOutputTuning, ShadowPolicyV1
 from ventilation_core.domain.tacho import FanTachoState, TachoMonitorState
+from ventilation_core.domain.tuning_validation import (
+    TUNING_GROUP_REQUIREMENTS,
+    TuningValidationEntry,
+    TuningValidationProfile,
+    ValidationLevel,
+)
 
 
 AUTHORITY_BLOCKER = "ACTUATION_AUTHORITY_NOT_IMPLEMENTED"
@@ -50,6 +56,26 @@ def complete_tuning() -> ShadowOutputTuning:
         tacho_extract_fault_fallback_extract_pct=0.0,
         tacho_both_fault_fallback_supply_pct=0.0,
         tacho_both_fault_fallback_extract_pct=0.0,
+    )
+
+
+def fully_validated_profile() -> TuningValidationProfile:
+    return TuningValidationProfile(
+        profile="readiness-matrix-validated",
+        groups=tuple(
+            (
+                name,
+                TuningValidationEntry(
+                    level=(
+                        ValidationLevel.PHYSICAL_VALIDATED
+                        if required == ValidationLevel.PHYSICAL_VALIDATED
+                        else ValidationLevel.WORKSHOP_VALIDATED
+                    ),
+                    evidence=(f"test:{name}",),
+                ),
+            )
+            for name, required in TUNING_GROUP_REQUIREMENTS.items()
+        ),
     )
 
 
@@ -116,11 +142,17 @@ class ActuationReadinessMatrixTests(unittest.TestCase):
         tuning: ShadowOutputTuning | None = None,
         core: CoreState | None = None,
         shadow: ShadowAutomationState | None = None,
+        validation_profile: TuningValidationProfile | None = None,
     ):
         return assess_actuation_readiness(
             state=base_core() if core is None else core,
             shadow=base_shadow() if shadow is None else shadow,
             policy=ShadowPolicyV1(tuning=complete_tuning() if tuning is None else tuning),
+            validation_profile=(
+                fully_validated_profile()
+                if validation_profile is None
+                else validation_profile
+            ),
         )
 
     def assert_fail_closed(self, assessment, expected_blocker: str) -> None:
