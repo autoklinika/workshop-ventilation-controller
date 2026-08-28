@@ -67,7 +67,10 @@ class ControlEngineScenarioCliTest(unittest.TestCase):
             "Gp8403",
             "gp8403",
             "AeroControlExecutor",
-            "gpio",
+            "gpiod",
+            "Dfr0473PowerDomain",
+            "ProcessIsolatedActuator",
+            "/dev/gpiochip",
             "/dev/tty",
             "shutdown",
             "reboot",
@@ -75,6 +78,9 @@ class ControlEngineScenarioCliTest(unittest.TestCase):
         )
         for token in forbidden:
             self.assertNotIn(token, text)
+        # Synthetic GPIO labels and TACHO snapshots are allowed. The contract is
+        # that Scenario Runner must not import/open a physical actuator boundary.
+        self.assertIn("scenario://gpiochip", text)
         self.assertIn("actuation_supported", text)
         self.assertIn("proposed_supply_voltage", text)
         self.assertIn("proposed_extract_voltage", text)
