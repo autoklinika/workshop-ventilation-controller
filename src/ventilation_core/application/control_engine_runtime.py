@@ -8,7 +8,7 @@ from typing import Any, Callable, Mapping, Protocol
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
 from ventilation_core.domain.models import CoreState
-from ventilation_core.domain.shadow import ShadowAutomationState
+from ventilation_core.domain.shadow import ShadowAutomationState, ShadowZoneProposal
 
 
 class ControlEngineConfigStore(Protocol):
@@ -54,8 +54,10 @@ class PersistentControlEngineEvaluator:
             evaluator = self._evaluator
             revision = self._revision
         result = evaluator.evaluate(state)
+        zones = tuple(_attach_sensor_provenance(zone, state) for zone in result.zones)
         return replace(
             result,
+            zones=zones,
             configuration_revision=revision,
             configuration_persistent=True,
         )
@@ -92,3 +94,37 @@ class PersistentControlEngineEvaluator:
                 return
             self._closed = True
             self._store.close()
+
+
+def _attach_sensor_provenance(
+    zone: ShadowZoneProposal,
+    state: CoreState,
+) -> ShadowZoneProposal:
+    if state.sensor_bus is None or zone.sensor_address is None:
+        return zone
+
+    node = next(
+        (
+            item
+            for item in state.sensor_bus.nodes
+            if item.slave_address == zone.sensor_address
+        ),
+        None,
+    )
+    if node is None:
+        return zone
+
+    reading = node.reading
+    return replace(
+        zone,
+        sensor_online=node.online,
+        sensor_measurement_valid=node.measurement_valid,
+        sensor_measurement_stale=node.measurement_stale,
+        sensor_age_seconds=node.age_seconds,
+        sensor_last_success_at=node.last_success_at,
+        sensor_pm2_5_ug_m3=reading.pm2_5_ug_m3,
+        sensor_pm10_0_ug_m3=reading.pm10_0_ug_m3,
+        sensor_voc_index=reading.voc_index,
+        sensor_nox_index=reading.nox_index,
+        sensor_temperature_celsius=reading.temperature_celsius,
+    )
