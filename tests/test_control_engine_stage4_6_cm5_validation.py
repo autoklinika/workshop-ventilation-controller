@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -17,6 +18,13 @@ class ControlEngineStage46Cm5ValidationTest(unittest.TestCase):
     def test_harness_has_valid_bash_syntax(self) -> None:
         subprocess.run(["bash", "-n", str(HARNESS)], check=True)
 
+    def test_every_embedded_python_validator_compiles(self) -> None:
+        blocks = re.findall(r"<<'PY'\n(.*?)\nPY\n", self.text, flags=re.DOTALL)
+        self.assertEqual(len(blocks), 4)
+        for index, block in enumerate(blocks):
+            with self.subTest(index=index):
+                compile(block, f"{HARNESS.name}:heredoc-{index}", "exec")
+
     def test_harness_pins_production_main_and_exact_ci_tested_branch(self) -> None:
         self.assertIn(
             "EXPECTED_BASE=7628c407cfc9c0ea72d262566759ea2d4598fec8",
@@ -26,7 +34,17 @@ class ControlEngineStage46Cm5ValidationTest(unittest.TestCase):
             'EXPECTED_BRANCH_SHA="${CONTROL_ENGINE_STAGE46_EXPECTED_BRANCH_SHA:-}"',
             self.text,
         )
-        self.assertIn('git fetch origin main "$BRANCH"', self.text)
+        self.assertIn(
+            "git ls-remote --exit-code origin refs/heads/main",
+            self.text,
+        )
+        self.assertIn(
+            'git ls-remote --exit-code origin "refs/heads/$BRANCH"',
+            self.text,
+        )
+        self.assertIn('[ "$MAIN_LS_REMOTE" = "$EXPECTED_BASE" ]', self.text)
+        self.assertIn('[ "$BRANCH_LS_REMOTE" = "$EXPECTED_BRANCH_SHA" ]', self.text)
+        self.assertIn('git fetch --no-tags origin main "$BRANCH"', self.text)
         self.assertIn('[ "$MAIN_REMOTE" = "$EXPECTED_BASE" ]', self.text)
         self.assertIn('[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ]', self.text)
         self.assertIn('git worktree add --detach "$WT" "$BRANCH_SHA"', self.text)
