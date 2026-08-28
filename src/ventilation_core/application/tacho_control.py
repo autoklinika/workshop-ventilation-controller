@@ -42,9 +42,19 @@ class TachoShadowSupervisor:
             confirmation_seconds=policy.tuning.tacho_failure_confirmation_seconds,
         )
 
+        supply_fault = supply.feedback_required and supply.fault_confirmed
+        extract_fault = extract.feedback_required and extract.fault_confirmed
+        failure_mask = _failure_mask(supply_fault=supply_fault, extract_fault=extract_fault)
+        fallback = (
+            None
+            if failure_mask is None
+            else policy.tuning.tacho_fault_fallback(failure_mask)
+        )
+
         zones = []
         tacho_requires_tuning = False
-        tacho_fault = False
+        tacho_fault = failure_mask is not None
+        fallback_applied_any = False
         for zone in shadow.zones:
             if zone.zone != "zone-1":
                 zones.append(zone)
@@ -55,9 +65,11 @@ class TachoShadowSupervisor:
                 tacho_failure_confirmation_seconds=(
                     policy.tuning.tacho_failure_confirmation_seconds
                 ),
-                # Emergency action is intentionally not guessed before hardware
-                # validation of channel-specific failure behavior.
-                tacho_emergency_policy_configured=False,
+                tacho_emergency_policy_configured=fallback is not None,
+                tacho_fault_pattern=failure_mask,
+                tacho_fallback_applied=False,
+                tacho_fallback_supply_pct=None if fallback is None else fallback[0],
+                tacho_fallback_extract_pct=None if fallback is None else fallback[1],
                 tacho_supply_feedback_required=supply.feedback_required,
                 tacho_supply_status=supply.status.value,
                 tacho_supply_feedback_valid=supply.feedback_valid,
@@ -76,27 +88,55 @@ class TachoShadowSupervisor:
                 item.status == TachoFeedbackStatus.CONFIRMATION_TUNING_REQUIRED
                 for item in (supply, extract)
             )
-            tacho_fault = any(
-                item.fault_confirmed
-                or item.status
-                in {
-                    TachoFeedbackStatus.MONITOR_UNAVAILABLE,
-                    TachoFeedbackStatus.CHANNEL_UNAVAILABLE,
-                }
-                for item in (supply, extract)
-                if item.feedback_required
-            )
 
             if tacho_fault:
-                zone = replace(
-                    zone,
-                    automation_state="FAULT",
-                    final_supply_pct=None,
-                    final_extract_pct=None,
-                    proposed_supply_voltage=None,
-                    proposed_extract_voltage=None,
-                    control_reason="TACHO_FEEDBACK_FAULT:EMERGENCY_POLICY_REQUIRED",
+                base_request_available = (
+                    zone.final_supply_pct is not None
+                    and zone.final_extract_pct is not None
                 )
+                if shadow.status == ShadowAutomationStatus.BLOCKED_SAFETY:
+                    # The pre-existing safety block remains authoritative. TACHO
+                    # telemetry is still attached, but fallback must not create a
+                    # new request through a blocked control context.
+                    pass
+                elif fallback is not None and base_request_available:
+                    zone = replace(
+                        zone,
+                        automation_state="FAULT",
+                        final_supply_pct=fallback[0],
+                        final_extract_pct=fallback[1],
+                        tacho_fallback_applied=True,
+                        proposed_supply_voltage=None,
+                        proposed_extract_voltage=None,
+                        control_reason=f"TACHO_{failure_mask}_FEEDBACK_FAULT:FALLBACK",
+                    )
+                    fallback_applied_any = True
+                elif fallback is not None:
+                    zone = replace(
+                        zone,
+                        automation_state="FAULT",
+                        final_supply_pct=None,
+                        final_extract_pct=None,
+                        proposed_supply_voltage=None,
+                        proposed_extract_voltage=None,
+                        control_reason=(
+                            f"TACHO_{failure_mask}_FEEDBACK_FAULT:"
+                            "FALLBACK_NOT_APPLIED_BASE_REQUEST_UNAVAILABLE"
+                        ),
+                    )
+                else:
+                    zone = replace(
+                        zone,
+                        automation_state="FAULT",
+                        final_supply_pct=None,
+                        final_extract_pct=None,
+                        proposed_supply_voltage=None,
+                        proposed_extract_voltage=None,
+                        control_reason=(
+                            f"TACHO_{failure_mask}_FEEDBACK_FAULT:"
+                            "EMERGENCY_POLICY_REQUIRED"
+                        ),
+                    )
             elif tacho_requires_tuning:
                 zone = replace(
                     zone,
@@ -115,7 +155,22 @@ class TachoShadowSupervisor:
         else:
             status = shadow.status
 
+        # fallback_applied_any is deliberately not elevated to actuation authority;
+        # the whole Control Engine remains SHADOW-only.
+        if fallback_applied_any and shadow.actuation_supported is not False:
+            raise RuntimeError("TACHO fallback unexpectedly gained actuation authority")
+
         return replace(shadow, status=status, zones=tuple(zones))
+
+
+def _failure_mask(*, supply_fault: bool, extract_fault: bool) -> str | None:
+    if supply_fault and extract_fault:
+        return "BOTH"
+    if supply_fault:
+        return "SUPPLY"
+    if extract_fault:
+        return "EXTRACT"
+    return None
 
 
 def tacho_summary(
