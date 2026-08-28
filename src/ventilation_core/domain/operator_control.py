@@ -17,6 +17,11 @@ _OPERATOR_KEYS = {
     "manual_extract_pct",
     "manual_aero_speed",
 }
+_MANUAL_KEYS = {
+    "manual_supply_pct",
+    "manual_extract_pct",
+    "manual_aero_speed",
+}
 
 
 def _percentage(value: Any, field: str) -> float:
@@ -38,9 +43,9 @@ def _aero_speed(value: Any, field: str) -> int:
 class OperatorControlIntent:
     """Volatile operator request owned by ventilation-core.
 
-    The intent is deliberately not a physical actuator command.  MANUAL values are
+    The intent is deliberately not a physical actuator command. MANUAL values are
     percentages / logical AERO speed consumed only by the Control Engine SHADOW
-    layer.  A core restart starts from AUTO so a stale manual override cannot revive
+    layer. A core restart starts from AUTO so a stale manual override cannot revive
     without a new explicit operator action.
     """
 
@@ -92,13 +97,15 @@ class OperatorControlIntent:
             raise ValueError("operator mode must be AUTO or MANUAL") from exc
 
         if mode == OperatorMode.AUTO:
+            supplied_manual_fields = sorted(_MANUAL_KEYS & set(payload))
+            if supplied_manual_fields:
+                raise ValueError(
+                    "AUTO operator intent must not contain MANUAL fields: "
+                    + ", ".join(supplied_manual_fields)
+                )
             return cls(mode=mode)
 
-        missing = [
-            field
-            for field in ("manual_supply_pct", "manual_extract_pct", "manual_aero_speed")
-            if field not in payload
-        ]
+        missing = [field for field in sorted(_MANUAL_KEYS) if field not in payload]
         if missing:
             raise ValueError("MANUAL operator intent missing fields: " + ", ".join(missing))
         return cls(
