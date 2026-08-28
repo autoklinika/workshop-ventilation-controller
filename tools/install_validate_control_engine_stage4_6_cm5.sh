@@ -139,8 +139,7 @@ expected_mode = sys.argv[1]
 expected_revision = int(sys.argv[2])
 doc = json.loads(sys.argv[3])
 if doc.get("ok") is not True:
-    raise SystemExit(f"FAIL: operator read failed: {doc!r}
-")
+    raise SystemExit(f"FAIL: operator read failed: {doc!r}")
 operator = doc.get("operator") or {}
 intent = operator.get("intent") or {}
 if intent.get("mode") != expected_mode:
@@ -226,11 +225,15 @@ cd "$ROOT"
 echo "===== CONTROL ENGINE STAGE4-6 CM5 NON-ACTUATING VALIDATION ====="
 
 echo "===== 1. FETCH AND PIN ====="
-git fetch origin main "$BRANCH"
+MAIN_LS_REMOTE="$(git ls-remote --exit-code origin refs/heads/main | awk 'NR == 1 {print $1}')"
+BRANCH_LS_REMOTE="$(git ls-remote --exit-code origin "refs/heads/$BRANCH" | awk 'NR == 1 {print $1}')"
+[ "$MAIN_LS_REMOTE" = "$EXPECTED_BASE" ] || { echo "FAIL: remote main moved: $MAIN_LS_REMOTE" >&2; exit 1; }
+[ "$BRANCH_LS_REMOTE" = "$EXPECTED_BRANCH_SHA" ] || { echo "FAIL: remote branch SHA=$BRANCH_LS_REMOTE expected=$EXPECTED_BRANCH_SHA" >&2; exit 1; }
+git fetch --no-tags origin main "$BRANCH"
 MAIN_REMOTE="$(git rev-parse origin/main)"
 BRANCH_SHA="$(git rev-parse "origin/$BRANCH")"
-[ "$MAIN_REMOTE" = "$EXPECTED_BASE" ] || { echo "FAIL: origin/main moved: $MAIN_REMOTE" >&2; exit 1; }
-[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ] || { echo "FAIL: branch SHA=$BRANCH_SHA expected=$EXPECTED_BRANCH_SHA" >&2; exit 1; }
+[ "$MAIN_REMOTE" = "$EXPECTED_BASE" ] || { echo "FAIL: fetched origin/main moved: $MAIN_REMOTE" >&2; exit 1; }
+[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ] || { echo "FAIL: fetched branch SHA=$BRANCH_SHA expected=$EXPECTED_BRANCH_SHA" >&2; exit 1; }
 [ "$(git rev-parse HEAD)" = "$EXPECTED_BASE" ] || { echo "FAIL: local production checkout is not expected main" >&2; exit 1; }
 [ -z "$(git status --short)" ] || { echo "FAIL: production checkout is dirty" >&2; exit 1; }
 MAIN_PID="$(unit_pid "$CORE_UNIT")"
