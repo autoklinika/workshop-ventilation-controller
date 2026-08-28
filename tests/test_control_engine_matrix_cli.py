@@ -36,7 +36,7 @@ class ControlEngineMatrixCliTest(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertFalse(payload["actuation_supported"])
         self.assertEqual(payload["policy_version"], "scenario-lab-only-v1")
-        self.assertEqual(payload["case_count"], 768)
+        self.assertEqual(payload["case_count"], 960)
         self.assertEqual(
             payload["dimensions"],
             ["calendar", "air_quality", "temperature", "fault"],
@@ -46,7 +46,7 @@ class ControlEngineMatrixCliTest(unittest.TestCase):
             {
                 "BLOCKED_SAFETY": 384,
                 "DEGRADED": 288,
-                "READY": 96,
+                "READY": 288,
             },
         )
         self.assertEqual(payload["safety_blocked_cases"], 384)
@@ -54,26 +54,26 @@ class ControlEngineMatrixCliTest(unittest.TestCase):
         self.assertEqual(
             payload["zone1_automation_state_counts"],
             {
-                "BOOST": 96,
-                "EMERGENCY_VENT": 48,
+                "BOOST": 192,
+                "EMERGENCY_VENT": 96,
                 "FAULT": 576,
-                "NORMAL": 4,
-                "OFF": 8,
-                "PREVENTILATION": 8,
-                "PURGE": 8,
-                "STANDBY": 8,
-                "TEMP_LIMIT": 12,
+                "NORMAL": 8,
+                "OFF": 16,
+                "PREVENTILATION": 16,
+                "PURGE": 16,
+                "STANDBY": 16,
+                "TEMP_LIMIT": 24,
             },
         )
         self.assertEqual(
             payload["zone2_automation_state_counts"],
             {
                 "FAULT": 576,
-                "NORMAL": 64,
-                "OFF": 32,
-                "PREVENTILATION": 32,
-                "PURGE": 32,
-                "STANDBY": 32,
+                "NORMAL": 128,
+                "OFF": 64,
+                "PREVENTILATION": 64,
+                "PURGE": 64,
+                "STANDBY": 64,
             },
         )
 
