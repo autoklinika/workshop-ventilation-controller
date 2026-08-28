@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping, Protocol
 from ventilation_core.application.operator_control import apply_operator_intent
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.application.tacho_control import TachoShadowSupervisor
+from ventilation_core.domain.actuation_readiness import assess_actuation_readiness
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
 from ventilation_core.domain.models import CoreState
 from ventilation_core.domain.operator_control import OperatorControlIntent
@@ -73,11 +74,23 @@ class PersistentControlEngineEvaluator:
         )
         result = tacho_supervisor.apply(result, state, config.policy)
         zones = tuple(_attach_sensor_provenance(zone, state) for zone in result.zones)
-        return replace(
+        result = replace(
             result,
             zones=zones,
             configuration_revision=revision,
             configuration_persistent=True,
+        )
+        readiness = assess_actuation_readiness(
+            state=state,
+            shadow=result,
+            policy=config.policy,
+        )
+        return replace(
+            result,
+            actuation_readiness_preconditions_satisfied=readiness.preconditions_satisfied,
+            actuation_readiness_authorized=readiness.actuation_authorized,
+            actuation_readiness_ready=readiness.ready,
+            actuation_readiness_blockers=readiness.blockers,
         )
 
     def configuration(self) -> dict[str, Any]:
