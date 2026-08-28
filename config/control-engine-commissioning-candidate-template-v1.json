@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "candidate_id": "wvc-control-engine-v1-workshop-candidate-template",
+  "environment": "WORKSHOP",
+  "source_config_revision": null,
+  "groups": {
+    "fan_outputs": {
+      "level": "UNVALIDATED",
+      "values": {
+        "normal_air_request_pct": null,
+        "boost_air_request_pct": null,
+        "high_air_request_pct": null,
+        "max_air_request_pct": null,
+        "thermal_normal_limit_pct": null,
+        "thermal_limiting_limit_pct": null,
+        "thermal_minimum_limit_pct": null,
+        "thermal_protection_limit_pct": null,
+        "extract_bias_pct": null
+      },
+      "evidence": [],
+      "note": "Populate only from representative workshop commissioning evidence."
+    },
+    "aero_outputs": {
+      "level": "UNVALIDATED",
+      "values": {
+        "aero_normal_speed": null,
+        "aero_boost_speed": null,
+        "aero_high_speed": null,
+        "aero_max_speed": null
+      },
+      "evidence": [],
+      "note": "Populate only after final recuperator-zone commissioning."
+    },
+    "dynamics": {
+      "level": "SYNTHETIC_VALIDATED",
+      "values": {
+        "pm2_5_hysteresis_ug_m3": null,
+        "voc_hysteresis_index": null,
+        "nox_hysteresis_index": null,
+        "temperature_hysteresis_celsius": null,
+        "pm2_5_boost_confirmation_seconds": null,
+        "state_minimum_hold_seconds": null,
+        "boost_decay_seconds": null
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_SCENARIO_REPLAY_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_CROSS_DOMAIN_MATRIX_2026-08-28_PL.md"
+      ],
+      "note": "Software dynamics are validated synthetically; real timing values remain unset."
+    },
+    "fan_sensor_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "values": {
+        "sensor_fallback_supply_pct": null,
+        "sensor_fallback_extract_pct": null
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_SCENARIO_REPLAY_2026-08-28_PL.md"
+      ],
+      "note": "Fallback mechanism validated; workshop fallback pair remains unset."
+    },
+    "aero_sensor_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "values": {
+        "aero_sensor_fallback_speed": null
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_SCENARIO_REPLAY_2026-08-28_PL.md"
+      ],
+      "note": "Fallback mechanism validated; workshop AERO fallback speed remains unset."
+    },
+    "tacho_confirmation": {
+      "level": "PHYSICAL_VALIDATED",
+      "values": {
+        "tacho_failure_confirmation_seconds": 4.0
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7B_TACHO_CHARACTERIZATION_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7C_TACHO_LOW_SPEED_CHARACTERIZATION_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7D_TACHO_CONFIRMATION_VALIDATION_2026-08-28_PL.md",
+        "physical-code-sha:f899f0589fb05bbb56c7df298ee6a268d85d7941"
+      ],
+      "note": "Physical CM5 validation complete; retain 4.0 s unless fan/TACHO hardware changes."
+    },
+    "tacho_supply_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "values": {
+        "tacho_supply_fault_fallback_supply_pct": null,
+        "tacho_supply_fault_fallback_extract_pct": null
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE5_6_TACHO_SUPERVISION_FALLBACK_2026-08-28_PL.md"
+      ],
+      "note": "Routing validated; final SUPPLY-fault pair requires independent workshop evidence."
+    },
+    "tacho_extract_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "values": {
+        "tacho_extract_fault_fallback_supply_pct": null,
+        "tacho_extract_fault_fallback_extract_pct": null
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE5_6_TACHO_SUPERVISION_FALLBACK_2026-08-28_PL.md"
+      ],
+      "note": "Routing validated; final EXTRACT-fault pair requires independent workshop evidence."
+    },
+    "tacho_both_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "values": {
+        "tacho_both_fault_fallback_supply_pct": null,
+        "tacho_both_fault_fallback_extract_pct": null
+      },
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE5_6_TACHO_SUPERVISION_FALLBACK_2026-08-28_PL.md"
+      ],
+      "note": "Routing validated; dual-fault emergency pair requires independent workshop evidence."
+    }
+  }
+}
