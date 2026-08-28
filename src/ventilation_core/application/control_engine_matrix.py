@@ -20,6 +20,7 @@ _DIMENSION_KEYS = {"name", "variants"}
 _VARIANT_KEYS = {"id", "step"}
 _MATRIX_STEP_KEYS = {
     "calendar",
+    "operator",
     "sensor_1",
     "sensor_2",
     "zigbee_supply",
