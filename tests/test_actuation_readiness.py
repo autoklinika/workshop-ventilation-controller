@@ -8,6 +8,12 @@ from ventilation_core.domain.models import CoreState, FanSetpoints, VentilationM
 from ventilation_core.domain.shadow import ShadowAutomationState, ShadowAutomationStatus, ShadowZoneProposal
 from ventilation_core.domain.shadow_policy import ShadowOutputTuning, ShadowPolicyV1
 from ventilation_core.domain.tacho import FanTachoState, TachoMonitorState
+from ventilation_core.domain.tuning_validation import (
+    TUNING_GROUP_REQUIREMENTS,
+    TuningValidationEntry,
+    TuningValidationProfile,
+    ValidationLevel,
+)
 
 
 def complete_tuning() -> ShadowOutputTuning:
@@ -42,6 +48,26 @@ def complete_tuning() -> ShadowOutputTuning:
         tacho_extract_fault_fallback_extract_pct=0.0,
         tacho_both_fault_fallback_supply_pct=0.0,
         tacho_both_fault_fallback_extract_pct=0.0,
+    )
+
+
+def fully_validated_profile() -> TuningValidationProfile:
+    return TuningValidationProfile(
+        profile="test-fully-validated",
+        groups=tuple(
+            (
+                name,
+                TuningValidationEntry(
+                    level=(
+                        ValidationLevel.PHYSICAL_VALIDATED
+                        if required == ValidationLevel.PHYSICAL_VALIDATED
+                        else ValidationLevel.WORKSHOP_VALIDATED
+                    ),
+                    evidence=(f"test:{name}",),
+                ),
+            )
+            for name, required in TUNING_GROUP_REQUIREMENTS.items()
+        ),
     )
 
 
@@ -102,14 +128,28 @@ def core() -> CoreState:
 
 
 class ActuationReadinessTests(unittest.TestCase):
-    def test_complete_prerequisites_still_block_without_authority(self) -> None:
+    def test_complete_validated_prerequisites_still_block_without_authority(self) -> None:
         assessment = assess_actuation_readiness(
-            state=core(), shadow=shadow(), policy=ShadowPolicyV1(tuning=complete_tuning())
+            state=core(),
+            shadow=shadow(),
+            policy=ShadowPolicyV1(tuning=complete_tuning()),
+            validation_profile=fully_validated_profile(),
         )
         self.assertTrue(assessment.preconditions_satisfied)
         self.assertFalse(assessment.actuation_authorized)
         self.assertFalse(assessment.ready)
         self.assertEqual(assessment.blockers, ("ACTUATION_AUTHORITY_NOT_IMPLEMENTED",))
+
+    def test_numeric_tuning_without_bound_validation_profile_fails_closed(self) -> None:
+        assessment = assess_actuation_readiness(
+            state=core(),
+            shadow=shadow(),
+            policy=ShadowPolicyV1(tuning=complete_tuning()),
+        )
+        self.assertFalse(assessment.preconditions_satisfied)
+        self.assertIn("TUNING_VALIDATION_PROFILE_NOT_BOUND", assessment.blockers)
+        self.assertIn("ACTUATION_AUTHORITY_NOT_IMPLEMENTED", assessment.blockers)
+        self.assertFalse(assessment.ready)
 
     def test_incomplete_tacho_emergency_policy_is_explicit(self) -> None:
         tuning = replace(
@@ -122,7 +162,10 @@ class ActuationReadinessTests(unittest.TestCase):
             tacho_both_fault_fallback_extract_pct=None,
         )
         assessment = assess_actuation_readiness(
-            state=core(), shadow=shadow(), policy=ShadowPolicyV1(tuning=tuning)
+            state=core(),
+            shadow=shadow(),
+            policy=ShadowPolicyV1(tuning=tuning),
+            validation_profile=fully_validated_profile(),
         )
         self.assertFalse(assessment.preconditions_satisfied)
         self.assertIn("TACHO_SUPPLY_FALLBACK_UNCONFIGURED", assessment.blockers)
@@ -142,6 +185,7 @@ class ActuationReadinessTests(unittest.TestCase):
             state=bad_state,
             shadow=bad_shadow,
             policy=ShadowPolicyV1(tuning=complete_tuning()),
+            validation_profile=fully_validated_profile(),
         )
         for blocker in (
             "HARDWARE_NOT_READY",
@@ -159,6 +203,7 @@ class ActuationReadinessTests(unittest.TestCase):
             state=core(),
             shadow=replace(base, zones=(zone1, base.zones[1])),
             policy=ShadowPolicyV1(tuning=complete_tuning()),
+            validation_profile=fully_validated_profile(),
         )
         self.assertIn("TACHO_FAULT_ACTIVE", assessment.blockers)
         self.assertIn("TACHO_FALLBACK_ACTIVE", assessment.blockers)
