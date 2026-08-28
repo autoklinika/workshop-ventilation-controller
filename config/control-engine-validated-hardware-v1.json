@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "profile": "wvc-cm5-physical-2026-08-28",
+  "validated_tuning": {
+    "tacho_failure_confirmation_seconds": 4.0
+  },
+  "evidence": {
+    "stage7a_sha": "9d2ea731613b6a6af13dbf35096b702d8bd3af6d",
+    "stage7b_sha": "672c846b92fe013f806c87e392b730e10288f658",
+    "stage7c_sha": "6025f29d48f62f28964b022fbf2ac9859c6c81a1",
+    "stage7c_test_voltage": 1.0,
+    "stage7c_max_first_healthy_seconds": {
+      "supply": 1.912283030000026,
+      "extract": 1.6234470850001799
+    },
+    "candidate_margin_ratio_vs_worst_case": 2.091740546462904
+  },
+  "intentionally_unset": [
+    "tacho_supply_fault_fallback_supply_pct",
+    "tacho_supply_fault_fallback_extract_pct",
+    "tacho_extract_fault_fallback_supply_pct",
+    "tacho_extract_fault_fallback_extract_pct",
+    "tacho_both_fault_fallback_supply_pct",
+    "tacho_both_fault_fallback_extract_pct"
+  ],
+  "notes": [
+    "This file is evidence/seed metadata, not a complete Control Engine replacement config.",
+    "Applying the validated tuning must preserve every other current Control Engine field.",
+    "No actuator authority is granted by this profile."
+  ]
+}
