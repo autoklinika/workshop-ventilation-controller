@@ -22,6 +22,17 @@ class ShadowZoneProposal:
     sensor_address: int | None
     sensor_usable: bool
 
+    sensor_online: bool = False
+    sensor_measurement_valid: bool = False
+    sensor_measurement_stale: bool = True
+    sensor_age_seconds: int | None = None
+    sensor_last_success_at: str | None = None
+    sensor_pm2_5_ug_m3: float | None = None
+    sensor_pm10_0_ug_m3: float | None = None
+    sensor_voc_index: float | None = None
+    sensor_nox_index: float | None = None
+    sensor_temperature_celsius: float | None = None
+
     automation_state: str | None = None
     schedule_supply_pct: float | None = None
     schedule_extract_pct: float | None = None
@@ -73,6 +84,16 @@ class ShadowZoneProposal:
             "calendar_profile": self.calendar_profile,
             "sensor_address": self.sensor_address,
             "sensor_usable": self.sensor_usable,
+            "sensor_online": self.sensor_online,
+            "sensor_measurement_valid": self.sensor_measurement_valid,
+            "sensor_measurement_stale": self.sensor_measurement_stale,
+            "sensor_age_seconds": self.sensor_age_seconds,
+            "sensor_last_success_at": self.sensor_last_success_at,
+            "sensor_pm2_5_ug_m3": self.sensor_pm2_5_ug_m3,
+            "sensor_pm10_0_ug_m3": self.sensor_pm10_0_ug_m3,
+            "sensor_voc_index": self.sensor_voc_index,
+            "sensor_nox_index": self.sensor_nox_index,
+            "sensor_temperature_celsius": self.sensor_temperature_celsius,
             "automation_state": self.automation_state,
             "schedule_supply_pct": self.schedule_supply_pct,
             "schedule_extract_pct": self.schedule_extract_pct,
