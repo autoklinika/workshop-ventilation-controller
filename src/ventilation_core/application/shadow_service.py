@@ -51,6 +51,21 @@ class ShadowAlertingVentilationService(ZigbeeAlertingVentilationService):
             raise RuntimeError("Persistent Control Engine configuration is not configured")
         return method(payload)
 
+    def control_engine_operator_state(self) -> dict[str, Any]:
+        method = getattr(self._shadow_evaluator, "operator_state", None)
+        if method is None:
+            raise RuntimeError("Control Engine operator runtime is not configured")
+        return method()
+
+    def replace_control_engine_operator_intent(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        method = getattr(self._shadow_evaluator, "replace_operator_intent", None)
+        if method is None:
+            raise RuntimeError("Control Engine operator runtime is not configured")
+        return method(payload)
+
     def close(self) -> None:
         try:
             super().close()
