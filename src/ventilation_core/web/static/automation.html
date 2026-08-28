@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07101a">
+  <title>V2 · Automatyka · Wentylacja warsztatu</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/dashboard.css">
+  <link rel="stylesheet" href="/sidebar.css">
+  <link rel="stylesheet" href="/calendar.css">
+  <link rel="stylesheet" href="/automation.css">
+  <script src="/automation.js" defer></script>
+  <script src="/calendar.js" defer></script>
+</head>
+<body class="v2-body automation-body">
+  <aside class="v2-sidebar" aria-label="Główna nawigacja">
+    <a class="v2-nav" href="/"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg></span><span>PULPIT</span></a>
+    <a class="v2-nav" href="/control"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 11.2 12 4l8.5 7.2"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5.5h5V20"/></svg></span><span>STREFY</span></a>
+    <a class="v2-nav active" href="/automation" aria-current="page"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12h3l2-5 4 10 2-5h5"/><circle cx="12" cy="12" r="9"/></svg></span><span>AUTOMATYKA</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></svg></span><span>HISTORIA</span></a>
+    <a class="v2-nav" href="/alerts"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 8.5h18C21 16 18 16 18 9Z"/><path d="M9.5 20h5"/></svg></span><span>ALERTY</span></a>
+    <a class="v2-nav" href="/settings"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.12-1.3l2-1.55-2-3.45-2.45 1a7 7 0 0 0-2.25-1.3L13.8 3h-4l-.38 2.4A7 7 0 0 0 7.17 6.7l-2.45-1-2 3.45 2 1.55A7 7 0 0 0 4.6 12c0 .44.04.88.12 1.3l-2 1.55 2 3.45 2.45-1a7 7 0 0 0 2.25 1.3L9.8 21h4l.38-2.4a7 7 0 0 0 2.25-1.3l2.45 1 2-3.45-2-1.55c.08-.42.12-.86.12-1.3Z"/></svg></span><span>USTAWIENIA</span></a>
+    <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span><span>SERWIS</span></a>
+  </aside>
+
+  <main class="v2-main automation-main">
+    <section class="v2-page-heading automation-heading">
+      <div><h1>AUTOMATYKA</h1><p>Calendar Engine + Control Engine · ventilation-core jest źródłem prawdy</p></div>
+      <span id="automationConnection" class="automation-connection pending">ŁĄCZENIE…</span>
+    </section>
+
+    <section class="automation-shadow-banner" role="status" aria-live="polite">
+      <strong>SHADOW — BRAK STEROWANIA FIZYCZNYMI WYJŚCIAMI</strong>
+      <span>Procenty i prędkość AERO poniżej są decyzją logiczną Control Engine. Fizyczne wyjścia pozostają poza authority tego modułu.</span>
+    </section>
+
+    <nav class="automation-tabs" aria-label="Sekcje automatyki">
+      <button type="button" class="automation-tab active" data-automation-tab="state">STAN</button>
+      <button type="button" class="automation-tab" data-automation-tab="schedule">HARMONOGRAM</button>
+      <button type="button" class="automation-tab" data-automation-tab="manual">MANUAL</button>
+      <button type="button" class="automation-tab" data-automation-tab="tuning">TUNING</button>
+    </nav>
+
+    <section class="automation-panel active" data-automation-panel="state">
+      <section class="automation-summary-grid">
+        <article><span>OPERATOR</span><strong id="automationOperatorMode">—</strong><small id="automationOperatorRevision">—</small></article>
+        <article><span>STAN AUTOMATYKI</span><strong id="automationState">—</strong><small id="automationShadowStatus">—</small></article>
+        <article><span>HARMONOGRAM</span><strong id="automationCalendarMode">—</strong><small id="automationCalendarContext">—</small></article>
+        <article><span>GOTOWOŚĆ AKTUACJI</span><strong id="automationReadiness">ZABLOKOWANA</strong><small id="automationAuthority">authority: brak</small></article>
+      </section>
+
+      <section class="automation-columns">
+        <article class="automation-card">
+          <header><span class="automation-kicker">DECYZJA SHADOW</span><h2>Strefa 1 · wentylatory EC</h2></header>
+          <div class="automation-value-pair"><div><span>NAWIEW</span><strong id="shadowSupplyPct">—</strong><small>logiczny request</small></div><div><span>WYCIĄG</span><strong id="shadowExtractPct">—</strong><small>logiczny request</small></div></div>
+          <div class="automation-row"><span>AERO</span><strong id="shadowAeroSpeed">—</strong></div>
+          <div class="automation-row"><span>AQ</span><strong id="automationAqState">—</strong></div>
+          <div class="automation-row"><span>Termika</span><strong id="automationThermalState">—</strong></div>
+          <div class="automation-reason"><span>POWÓD DECYZJI</span><code id="automationDecisionReason">—</code></div>
+        </article>
+
+        <article class="automation-card physical-card">
+          <header><span class="automation-kicker">RZECZYWISTE WYJŚCIA</span><h2>Stan fizyczny core</h2></header>
+          <div class="automation-value-pair"><div><span>NAWIEW</span><strong id="physicalSupplyVoltage">—</strong><small>rzeczywisty setpoint</small></div><div><span>WYCIĄG</span><strong id="physicalExtractVoltage">—</strong><small>rzeczywisty setpoint</small></div></div>
+          <div class="automation-row"><span>Control Engine actuation_supported</span><strong id="automationActuationSupported">false</strong></div>
+          <p class="automation-safe-note">SHADOW request i fizyczny setpoint są celowo prezentowane osobno.</p>
+        </article>
+
+        <article class="automation-card">
+          <header><span class="automation-kicker">WARUNKI</span><h2>Powietrze i temperatura</h2></header>
+          <div class="automation-metrics"><div><span>PM2.5</span><strong id="automationPm25">—</strong></div><div><span>VOC</span><strong id="automationVoc">—</strong></div><div><span>NOx</span><strong id="automationNox">—</strong></div><div><span>Temp. wew.</span><strong id="automationInsideTemp">—</strong></div><div><span>Temp. nawiewu</span><strong id="automationOutsideTemp">—</strong></div><div><span>ΔT</span><strong id="automationDeltaT">—</strong></div></div>
+        </article>
+
+        <article class="automation-card">
+          <header><span class="automation-kicker">TACHO SUPERVISION</span><h2>Feedback wentylatorów</h2></header>
+          <div class="automation-tacho-head"><span>Potwierdzenie awarii</span><strong id="tachoConfirmation">—</strong></div>
+          <div class="automation-tacho-grid"><div><span>NAWIEW</span><strong id="tachoSupplyStatus">—</strong><small id="tachoSupplyRpm">—</small></div><div><span>WYCIĄG</span><strong id="tachoExtractStatus">—</strong><small id="tachoExtractRpm">—</small></div></div>
+          <div class="automation-row"><span>Maska awarii</span><strong id="tachoFaultPattern">—</strong></div>
+          <div class="automation-row"><span>Fallback aktywny</span><strong id="tachoFallbackApplied">NIE</strong></div>
+        </article>
+      </section>
+    </section>
+
+    <section class="automation-panel" data-automation-panel="schedule" hidden>
+      <section class="calendar-overview" aria-label="Stan Calendar Engine">
+        <article><span>STATUS</span><strong id="calendarAvailability">Łączenie…</strong><small id="calendarError">—</small></article>
+        <article><span>REWIZJA / STREFA</span><strong id="calendarRevision">—</strong><small id="calendarTimezoneState">—</small></article>
+        <article><span>FAZA / TRYB</span><strong id="calendarPhase">—</strong><small id="calendarMode">—</small></article>
+        <article><span>PROFIL</span><strong id="calendarProfile">—</strong><small><span id="calendarRuleSource">—</span> · <span id="calendarRuleId">—</span></small></article>
+        <article><span>NASTĘPNE PRZEJŚCIE</span><strong id="calendarNextTransition">—</strong><small>zmiana stanu kalendarza</small></article>
+        <article><span>NASTĘPNE WYBUDZENIE</span><strong id="calendarNextWake">—</strong><small>początek PREVENTILATION</small></article>
+        <article><span>CZAS LOKALNY CORE</span><strong id="calendarLocalTime">—</strong><small>timezone-aware / DST</small></article>
+      </section>
+
+      <section class="calendar-note">
+        <strong>Harmonogram wentylacji jest kontekstem dla Control Engine.</strong>
+        <span>Nie jest harmonogramem zasilania CM5. Scheduled shutdown / RTC wake pozostają poza tym ekranem i bez authority.</span>
+      </section>
+
+      <div data-calendar-editor>
+        <section class="calendar-card">
+          <header>
+            <div><span class="calendar-kicker">KONFIGURACJA</span><h2>Profile pracy</h2></div>
+            <div class="calendar-timezone"><span>STREFA CZASOWA</span><input id="calendarTimezone" type="text" value="Europe/Warsaw" autocomplete="off"></div>
+          </header>
+          <div class="calendar-columns calendar-profile-columns" aria-hidden="true"><span>ID</span><span>TRYB</span><span>PRE [min]</span><span>PURGE [min]</span><span>MIN NAW.</span><span>MIN WYW.</span><span>FIX NAW.</span><span>FIX WYW.</span><span>OPIS</span><span></span></div>
+          <div id="calendarProfilesRows" class="calendar-profile-rows"></div>
+          <div id="calendarProfilesEmpty" class="calendar-empty">Brak profili.</div>
+          <div class="calendar-footer"><button type="button" class="calendar-btn secondary" data-calendar-action="add-profile">+ Dodaj profil</button><span class="calendar-help">AUTO = kontekst bazowy automatyki; FIXED wymaga obu wartości FIX; STANDBY i OFF pozostają jawne.</span></div>
+        </section>
+
+        <section class="calendar-card">
+          <header><div><span class="calendar-kicker">HIERARCHIA REGUŁ</span><h2>Reguły kalendarza</h2></div></header>
+          <div class="calendar-columns calendar-rule-columns" aria-hidden="true"><span>ID</span><span>TYP</span><span>PROFIL</span><span>SELEKTOR</span><span>OD</span><span>DO</span><span>OPIS</span><span>AKT.</span><span></span></div>
+          <div id="calendarRulesRows" class="calendar-rule-rows"></div>
+          <div id="calendarRulesEmpty" class="calendar-empty">Brak reguł.</div>
+          <div class="calendar-help">Selektor: WEEKLY = dni ISO 1..7; SEASON = miesiące 1..12; DATE_RANGE = YYYY-MM-DD..YYYY-MM-DD; DATE_EXCEPTION = YYYY-MM-DD. Priorytet: wyjątek daty &gt; zakres dat &gt; sezon &gt; tydzień &gt; default.</div>
+          <div class="calendar-footer"><button type="button" class="calendar-btn secondary" data-calendar-action="add-rule">+ Dodaj regułę</button><div class="calendar-actions"><span id="calendarMessage" class="calendar-message"></span><button type="button" class="calendar-btn ghost" data-calendar-action="reload">Wczytaj ponownie</button><button type="button" class="calendar-btn primary" data-calendar-action="save">Zapisz harmonogram</button></div></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="automation-panel" data-automation-panel="manual" hidden>
+      <section class="automation-test-banner"><strong>TRYB TESTOWY / SHADOW</strong><span>Zmiana operator intent nie steruje fizycznymi wyjściami. Intent jest volatile i po restarcie core wraca do AUTO.</span></section>
+      <section class="automation-card manual-card">
+        <header><span class="automation-kicker">OPERATOR INTENT</span><h2>AUTO / MANUAL SHADOW</h2></header>
+        <div class="manual-mode-buttons"><button id="operatorAutoBtn" type="button" class="operator-mode-btn active">AUTO</button><button id="operatorManualBtn" type="button" class="operator-mode-btn">MANUAL</button></div>
+        <form id="operatorManualForm" class="manual-form">
+          <label><span>Nawiew</span><div><input id="manualSupplyPct" type="number" min="0" max="100" step="1" value="20"><b>%</b></div></label>
+          <label><span>Wyciąg</span><div><input id="manualExtractPct" type="number" min="0" max="100" step="1" value="20"><b>%</b></div></label>
+          <label><span>AERO</span><select id="manualAeroSpeed"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+          <button id="operatorApplyBtn" class="calendar-btn primary" type="submit">Zastosuj MANUAL SHADOW</button>
+        </form>
+        <div class="manual-current"><span>Aktualny intent</span><strong id="manualCurrentIntent">—</strong><small id="manualIntentMeta">—</small></div>
+        <div id="operatorMessage" class="automation-message"></div>
+      </section>
+    </section>
+
+    <section class="automation-panel" data-automation-panel="tuning" hidden>
+      <section class="automation-summary-grid tuning-summary">
+        <article><span>ZWALIDOWANE GRUPY</span><strong id="tuningProgress">— / —</strong><small>liczba spełniająca wymagany poziom dowodu</small></article>
+        <article><span>PRECONDITIONS</span><strong id="tuningPreconditions">NIE</strong><small>Actuation Readiness Gate</small></article>
+        <article><span>AUTHORITY</span><strong id="tuningAuthority">BRAK</strong><small>nieimplementowane w tym PR</small></article>
+        <article><span>READY</span><strong id="tuningReady">NIE</strong><small>fail-closed</small></article>
+      </section>
+      <section class="automation-columns tuning-columns">
+        <article class="automation-card"><header><span class="automation-kicker">VALIDATION LEDGER</span><h2>Postęp tuningu</h2></header><div id="tuningGroups" class="tuning-groups"><div class="automation-empty">Ładowanie…</div></div></article>
+        <article class="automation-card"><header><span class="automation-kicker">READINESS GATE</span><h2>Aktualne blokady</h2></header><div id="readinessBlockers" class="readiness-blockers"><div class="automation-empty">Ładowanie…</div></div><p class="automation-safe-note">Brak blockerów nie daje authority. Authority jest osobnym, twardym warunkiem.</p></article>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

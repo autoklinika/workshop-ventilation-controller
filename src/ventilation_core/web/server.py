@@ -93,16 +93,18 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _serve_static(self, request_path: str) -> None:
-        if request_path in (
+        if request_path in ("/automation", "/automation/"):
+            relative = "automation.html"
+        elif request_path in (
             "", "/", "/control", "/control/", "/alerts", "/alerts/", "/settings", "/settings/", "/history", "/history/", "/service", "/service/"
         ):
             relative = "index.html"
         else:
             relative = request_path.lstrip("/")
         allowed = {
-            "index.html", "control.html", "settings.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "service-dashboard.css", "host-power.css", "sidebar.css", "v2-weather.css",
-            "cm5-watchdog.css", "calendar.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "service-dashboard.js", "host-power.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "calendar.js", "zigbee-settings.js",
+            "index.html", "control.html", "settings.html", "automation.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "service-dashboard.css", "host-power.css", "sidebar.css", "v2-weather.css",
+            "cm5-watchdog.css", "calendar.css", "automation.css", "zigbee-settings.css", "zigbee-stage13.css",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "service-dashboard.js", "host-power.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "calendar.js", "automation.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)
