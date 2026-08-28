@@ -51,9 +51,15 @@ class ControlEngineStage46Cm5ValidationTest(unittest.TestCase):
             "systemctl reboot",
             "/usr/bin/systemctl poweroff",
             "/usr/bin/systemctl reboot",
-            "--enable-scheduled-shutdown",
         ):
             self.assertNotIn(forbidden, self.text)
+
+    def test_scheduled_shutdown_is_explicitly_rejected_not_enabled(self) -> None:
+        self.assertIn("*--enable-scheduled-shutdown*)", self.text)
+        self.assertIn("scheduled shutdown unexpectedly enabled", self.text)
+        self.assertIn("exit 1", self.text)
+        self.assertNotIn("Environment=ENABLE_SCHEDULED_SHUTDOWN", self.text)
+        self.assertNotIn("Environment=WVC_ENABLE_SCHEDULED_SHUTDOWN", self.text)
 
     def test_manual_intent_is_shadow_only_and_returned_to_auto(self) -> None:
         for expected in (
