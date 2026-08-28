@@ -202,6 +202,10 @@ class ShadowAutomationState:
     operator_manual_aero_speed: int | None = None
     operator_intent_revision: int | None = None
     operator_intent_persistent: bool = False
+    actuation_readiness_preconditions_satisfied: bool = False
+    actuation_readiness_authorized: bool = False
+    actuation_readiness_ready: bool = False
+    actuation_readiness_blockers: tuple[str, ...] = ("READINESS_NOT_EVALUATED",)
     last_error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -220,6 +224,12 @@ class ShadowAutomationState:
             "operator_manual_aero_speed": self.operator_manual_aero_speed,
             "operator_intent_revision": self.operator_intent_revision,
             "operator_intent_persistent": self.operator_intent_persistent,
+            "actuation_readiness": {
+                "preconditions_satisfied": self.actuation_readiness_preconditions_satisfied,
+                "actuation_authorized": self.actuation_readiness_authorized,
+                "ready": self.actuation_readiness_ready,
+                "blockers": list(self.actuation_readiness_blockers),
+            },
             "zones": [zone.to_dict() for zone in self.zones],
             "last_error": self.last_error,
         }
