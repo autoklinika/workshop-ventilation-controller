@@ -20,12 +20,16 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("aero")
     subparsers.add_parser("calendar")
     subparsers.add_parser("control-engine")
+    subparsers.add_parser("control-engine-operator")
 
     calendar_replace = subparsers.add_parser("calendar-replace")
     calendar_replace.add_argument("--file", type=Path, required=True)
 
     control_engine_replace = subparsers.add_parser("control-engine-replace")
     control_engine_replace.add_argument("--file", type=Path, required=True)
+
+    operator_replace = subparsers.add_parser("control-engine-operator-replace")
+    operator_replace.add_argument("--file", type=Path, required=True)
 
     alerts = subparsers.add_parser("alerts")
     alerts.add_argument("--limit", type=int, default=200)
@@ -70,6 +74,11 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
         return {
             "command": "control-engine-replace",
             "config": _read_one_json_object(args.file, label="Control Engine"),
+        }
+    if args.command == "control-engine-operator-replace":
+        return {
+            "command": "control-engine-operator-replace",
+            "operator": _read_one_json_object(args.file, label="Control Engine operator"),
         }
     if args.command == "alerts":
         return {"command": "alerts", "limit": args.limit}
