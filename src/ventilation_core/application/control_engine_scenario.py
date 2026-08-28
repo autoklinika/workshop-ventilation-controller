@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 
 from ventilation_core.application.operator_control import apply_operator_intent
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
+from ventilation_core.application.tacho_control import TachoShadowSupervisor
 from ventilation_core.calendar.model import CalendarMode, CalendarPhase, CalendarResolution
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
 from ventilation_core.domain.models import (
@@ -19,6 +20,7 @@ from ventilation_core.domain.models import (
 )
 from ventilation_core.domain.operator_control import OperatorControlIntent
 from ventilation_core.domain.sensors import AirQualityReading, SensorBusState, SensorNodeState
+from ventilation_core.domain.tacho import FanTachoState, TachoMonitorState
 from ventilation_core.domain.zigbee import ZigbeeMqttState, ZigbeeTemperatureSensorState
 
 
@@ -27,6 +29,8 @@ _STEP_KEYS = {
     "at_seconds",
     "calendar",
     "operator",
+    "actual_setpoints",
+    "tacho",
     "sensor_1",
     "sensor_2",
     "zigbee_supply",
@@ -52,6 +56,17 @@ _SENSOR_KEYS = {
     "temperature_celsius",
 }
 _ZIGBEE_KEYS = {"temperature_celsius", "age_seconds", "available", "timestamp_available"}
+_ACTUAL_SETPOINT_KEYS = {"supply_voltage", "extract_voltage"}
+_TACHO_KEYS = {
+    "ready",
+    "worker_alive",
+    "supply_present",
+    "supply_valid",
+    "supply_rpm",
+    "extract_present",
+    "extract_valid",
+    "extract_rpm",
+}
 
 
 def _mapping(value: Any, field: str) -> Mapping[str, Any]:
@@ -114,6 +129,15 @@ def _percentage(value: Any, field: str) -> float:
     return result
 
 
+def _fan_voltage(value: Any, field: str) -> float:
+    result = _number(value, field)
+    if result == 0.0:
+        return result
+    if not 1.0 <= result <= 10.0:
+        raise ValueError(f"{field} must be 0 or within the validated 1..10 V command range")
+    return result
+
+
 @dataclass(frozen=True)
 class ScenarioRunResult:
     name: str
@@ -146,7 +170,9 @@ class ControlEngineScenarioRunner:
     The runner creates synthetic CoreState snapshots only. It has no actuator,
     service, socket, GPIO, DAC, AERO executor, host-power or systemd boundary.
     Operator intent is process-local scenario state: AUTO initially and changed only
-    by explicit step payloads, mirroring the volatile runtime contract.
+    by explicit step payloads, mirroring the volatile runtime contract. Optional
+    actual_setpoints and TACHO inputs model already-commanded physical EC state for
+    feedback supervision without executing any command.
     """
 
     def run(self, payload: Mapping[str, Any]) -> ScenarioRunResult:
@@ -171,6 +197,7 @@ class ControlEngineScenarioRunner:
 
         clock = _ScenarioClock(start)
         evaluator = PolicyShadowAutomationEvaluator(control_engine.policy, clock=clock)
+        tacho_supervisor = TachoShadowSupervisor(clock=clock)
         operator_intent = OperatorControlIntent()
         operator_revision = 0
         results: list[dict[str, Any]] = []
@@ -203,6 +230,7 @@ class ControlEngineScenarioRunner:
                 operator_intent,
                 revision=operator_revision,
             )
+            shadow = tacho_supervisor.apply(shadow, state, control_engine.policy)
             shadow_payload = shadow.to_dict()
             if shadow_payload.get("actuation_supported") is not False:
                 raise RuntimeError("scenario evaluator unexpectedly supports actuation")
@@ -218,6 +246,10 @@ class ControlEngineScenarioRunner:
                     "at_seconds": offset,
                     "evaluated_at_utc": clock.now.isoformat(),
                     "operator_intent_revision": operator_revision,
+                    "actual_setpoints": {
+                        "supply_voltage": state.setpoints.supply_voltage,
+                        "extract_voltage": state.setpoints.extract_voltage,
+                    },
                     "shadow": shadow_payload,
                 }
             )
@@ -249,6 +281,8 @@ class ControlEngineScenarioRunner:
             nodes=(sensor_1, sensor_2),
         )
         zigbee = self._zigbee(step, now=now, index=index)
+        setpoints = self._actual_setpoints(step.get("actual_setpoints"), index=index)
+        tacho = self._tacho(step.get("tacho"), index=index)
 
         hardware_ready = step.get("hardware_ready", True)
         output_state_known = step.get("output_state_known", True)
@@ -274,14 +308,75 @@ class ControlEngineScenarioRunner:
             )
 
         return CoreState(
-            mode=VentilationMode.STOP,
-            setpoints=FanSetpoints.stopped(),
+            mode=(
+                VentilationMode.MANUAL
+                if setpoints.supply_voltage > 0.0 or setpoints.extract_voltage > 0.0
+                else VentilationMode.STOP
+            ),
+            setpoints=setpoints,
             hardware_ready=hardware_ready,
             output_state_known=output_state_known,
             active_alarms=alarms,
             sensor_bus=sensor_bus,
+            tacho=tacho,
             zigbee=zigbee,
             calendar=calendar,
+        )
+
+    def _actual_setpoints(self, raw: Any, *, index: int) -> FanSetpoints:
+        if raw is None:
+            return FanSetpoints.stopped()
+        field = f"scenario.steps[{index}].actual_setpoints"
+        payload = _mapping(raw, field)
+        _strict_keys(payload, _ACTUAL_SETPOINT_KEYS, field)
+        return FanSetpoints(
+            supply_voltage=_fan_voltage(
+                payload.get("supply_voltage", 0.0), f"{field}.supply_voltage"
+            ),
+            extract_voltage=_fan_voltage(
+                payload.get("extract_voltage", 0.0), f"{field}.extract_voltage"
+            ),
+        )
+
+    def _tacho(self, raw: Any, *, index: int) -> TachoMonitorState | None:
+        if raw is None:
+            return None
+        field = f"scenario.steps[{index}].tacho"
+        payload = _mapping(raw, field)
+        _strict_keys(payload, _TACHO_KEYS, field)
+        ready = _boolean(payload.get("ready", True), f"{field}.ready")
+        worker_alive = _boolean(payload.get("worker_alive", True), f"{field}.worker_alive")
+        supply = self._tacho_channel(payload, field=field, channel="supply")
+        extract = self._tacho_channel(payload, field=field, channel="extract")
+        return TachoMonitorState(
+            chip_path="scenario://gpiochip",
+            ready=ready,
+            worker_alive=worker_alive,
+            last_error=None if ready and worker_alive else "scenario tacho monitor unavailable",
+            supply=supply,
+            extract=extract,
+        )
+
+    def _tacho_channel(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        field: str,
+        channel: str,
+    ) -> FanTachoState | None:
+        present = _boolean(payload.get(f"{channel}_present", True), f"{field}.{channel}_present")
+        if not present:
+            return None
+        valid = _boolean(payload.get(f"{channel}_valid", False), f"{field}.{channel}_valid")
+        rpm = _number(payload.get(f"{channel}_rpm", 0.0), f"{field}.{channel}_rpm", minimum=0.0)
+        return FanTachoState(
+            line_name="GPIO17" if channel == "supply" else "GPIO27",
+            line_offset=17 if channel == "supply" else 27,
+            frequency_hz=rpm / 20.0,
+            rpm=rpm,
+            sample_count=6 if valid else 0,
+            age_seconds=0.01 if valid else 1.0,
+            valid=valid,
         )
 
     def _calendar(self, raw: Any, *, now: datetime, index: int) -> CalendarResolution:
