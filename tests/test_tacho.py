@@ -44,7 +44,7 @@ class TachoEstimatorTests(unittest.TestCase):
         self.assertEqual(reading.frequency_hz, 0.0)
         self.assertEqual(reading.rpm, 0.0)
 
-    def test_period_average_suppresses_single_edge_jitter(self) -> None:
+    def test_median_period_suppresses_single_edge_jitter(self) -> None:
         estimator = TachoEstimator(averaging_periods=4, timeout_seconds=0.25)
         estimator.add_edge(0.0)
         estimator.add_edge(0.010)
@@ -55,6 +55,44 @@ class TachoEstimatorTests(unittest.TestCase):
         self.assertTrue(reading.valid)
         self.assertAlmostEqual(reading.frequency_hz, 100.0, places=6)
         self.assertAlmostEqual(reading.rpm, 2000.0, places=5)
+
+    def test_single_short_period_does_not_create_rpm_spike(self) -> None:
+        estimator = TachoEstimator(averaging_periods=6, timeout_seconds=0.25)
+        now = 0.0
+        estimator.add_edge(now)
+
+        # Nominal 2 V operation is about 33.37 Hz => ~0.030 s period / ~667 RPM.
+        # One injected 0.010 s period models an electrical/edge-timestamp outlier.
+        for period in (0.030, 0.030, 0.030, 0.010, 0.030, 0.030):
+            now += period
+            reading = estimator.add_edge(now)
+
+        self.assertTrue(reading.valid)
+        self.assertEqual(reading.sample_count, 6)
+        self.assertAlmostEqual(reading.frequency_hz, 1.0 / 0.030, places=6)
+        self.assertAlmostEqual(reading.rpm, (1.0 / 0.030) * RPM_PER_HZ, places=5)
+
+    def test_single_long_period_does_not_create_rpm_drop(self) -> None:
+        estimator = TachoEstimator(averaging_periods=6, timeout_seconds=0.25)
+        now = 0.0
+        estimator.add_edge(now)
+        for period in (0.030, 0.030, 0.030, 0.090, 0.030, 0.030):
+            now += period
+            reading = estimator.add_edge(now)
+
+        self.assertTrue(reading.valid)
+        self.assertEqual(reading.sample_count, 6)
+        self.assertAlmostEqual(reading.frequency_hz, 1.0 / 0.030, places=6)
+
+    def test_single_period_still_reports_immediately_for_feedback_presence(self) -> None:
+        estimator = TachoEstimator(averaging_periods=6, timeout_seconds=0.25)
+        estimator.add_edge(1.0)
+        reading = estimator.add_edge(1.05)
+
+        self.assertTrue(reading.valid)
+        self.assertEqual(reading.sample_count, 1)
+        self.assertAlmostEqual(reading.frequency_hz, 20.0, places=6)
+        self.assertAlmostEqual(reading.rpm, 400.0, places=5)
 
     def test_restart_after_timeout_does_not_average_the_stopped_gap(self) -> None:
         estimator = TachoEstimator(averaging_periods=6, timeout_seconds=0.25)
