@@ -133,6 +133,21 @@ def _operator(web_url: str) -> dict[str, Any]:
     return operator
 
 
+def _require_auto_operator(operator: dict[str, Any], *, label: str) -> None:
+    intent = operator.get("intent")
+    if not isinstance(intent, dict) or intent.get("mode") != "AUTO":
+        raise ValidationError(f"{label}: operator is not AUTO: {operator!r}")
+    for field in (
+        "manual_supply_pct",
+        "manual_extract_pct",
+        "manual_aero_speed",
+    ):
+        if intent.get(field) is not None:
+            raise ValidationError(
+                f"{label}: AUTO diagnostic state contains stale {field}: {operator!r}"
+            )
+
+
 def _calendar(web_url: str) -> dict[str, Any]:
     calendar = _request_json(web_url, "/api/v1/calendar").get("calendar")
     if not isinstance(calendar, dict):
@@ -192,8 +207,7 @@ def prepare(web_url: str, state_file: Path) -> None:
 
     initial_operator = _operator(web_url)
     initial_revision = initial_operator.get("revision")
-    if (initial_operator.get("intent") or {}).get("mode") != "AUTO":
-        raise ValidationError(f"initial real-core operator is not AUTO: {initial_operator!r}")
+    _require_auto_operator(initial_operator, label="initial real-core operator")
     if initial_operator.get("persistent") is not False:
         raise ValidationError(f"operator intent unexpectedly reports persistence: {initial_operator!r}")
     print("PASS: WebGUI normalized the real core operator response and initial intent is volatile AUTO")
@@ -251,8 +265,7 @@ def prepare(web_url: str, state_file: Path) -> None:
         payload={"mode": "AUTO"},
     )
     auto_operator = _operator(web_url)
-    if (auto_operator.get("intent") != {"mode": "AUTO"}:
-        raise ValidationError(f"real core did not return to canonical AUTO: {auto_operator!r}")
+    _require_auto_operator(auto_operator, label="AUTO restore")
     if (
         isinstance(initial_revision, int)
         and isinstance(auto_operator.get("revision"), int)
@@ -297,8 +310,7 @@ def verify(web_url: str, state_file: Path) -> None:
     _require_non_actuating_state(state, expected_operator_mode="AUTO")
 
     operator = _operator(web_url)
-    if operator.get("intent") != {"mode": "AUTO"}:
-        raise ValidationError(f"operator intent did not fail-open to AUTO after restart: {operator!r}")
+    _require_auto_operator(operator, label="post-restart operator")
     if operator.get("persistent") is not False:
         raise ValidationError(f"operator unexpectedly became persistent: {operator!r}")
     if operator.get("revision") != 0:
