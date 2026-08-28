@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "profile": "wvc-control-engine-v1-validation-2026-08-28",
+  "groups": {
+    "fan_outputs": {
+      "level": "UNVALIDATED",
+      "evidence": [],
+      "note": "Requires real workshop commissioning: airflow effect, room balance, heat-loss impact and actual process response."
+    },
+    "aero_outputs": {
+      "level": "UNVALIDATED",
+      "evidence": [],
+      "note": "Requires real recuperator-zone commissioning; LAB environmental values are not representative."
+    },
+    "dynamics": {
+      "level": "SYNTHETIC_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_SCENARIO_REPLAY_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_CROSS_DOMAIN_MATRIX_2026-08-28_PL.md"
+      ],
+      "note": "State-machine semantics are tested synthetically, but timing/hysteresis values still require workshop tuning."
+    },
+    "fan_sensor_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_SCENARIO_REPLAY_2026-08-28_PL.md"
+      ],
+      "note": "Fallback mechanism is tested; production percentages remain intentionally unset pending workshop validation."
+    },
+    "aero_sensor_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE3_SCENARIO_REPLAY_2026-08-28_PL.md"
+      ],
+      "note": "Fallback mechanism is tested; production AERO speed remains intentionally unset pending workshop validation."
+    },
+    "tacho_confirmation": {
+      "level": "PHYSICAL_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7B_TACHO_CHARACTERIZATION_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7C_TACHO_LOW_SPEED_CHARACTERIZATION_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7D_TACHO_CONFIRMATION_VALIDATION_2026-08-28_PL.md",
+        "physical-code-sha:f899f0589fb05bbb56c7df298ee6a268d85d7941"
+      ],
+      "note": "4.0 s confirmation was validated on the real CM5 and both local EC fan TACHO channels at 1.0 V."
+    },
+    "tacho_supply_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE5_6_TACHO_SUPERVISION_FALLBACK_2026-08-28_PL.md"
+      ],
+      "note": "SUPPLY fault routing is tested in SHADOW, but fallback percentages require real workshop airflow/pressure validation."
+    },
+    "tacho_extract_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE5_6_TACHO_SUPERVISION_FALLBACK_2026-08-28_PL.md"
+      ],
+      "note": "EXTRACT fault routing is tested in SHADOW, but fallback percentages require real workshop airflow/pressure validation."
+    },
+    "tacho_both_fallback": {
+      "level": "SYNTHETIC_VALIDATED",
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE5_6_TACHO_SUPERVISION_FALLBACK_2026-08-28_PL.md"
+      ],
+      "note": "BOTH fault routing is tested in SHADOW, but the emergency action requires real workshop safety validation."
+    }
+  }
+}
