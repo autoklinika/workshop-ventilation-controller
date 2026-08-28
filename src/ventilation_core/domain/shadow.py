@@ -75,6 +75,21 @@ class ShadowZoneProposal:
     final_supply_pct: float | None = None
     final_extract_pct: float | None = None
 
+    tacho_failure_confirmation_seconds: float | None = None
+    tacho_emergency_policy_configured: bool = False
+    tacho_supply_feedback_required: bool = False
+    tacho_supply_status: str | None = None
+    tacho_supply_feedback_valid: bool = False
+    tacho_supply_rpm: float | None = None
+    tacho_supply_pending_since_utc: str | None = None
+    tacho_supply_fault_confirmed: bool = False
+    tacho_extract_feedback_required: bool = False
+    tacho_extract_status: str | None = None
+    tacho_extract_feedback_valid: bool = False
+    tacho_extract_rpm: float | None = None
+    tacho_extract_pending_since_utc: str | None = None
+    tacho_extract_fault_confirmed: bool = False
+
     sensor_fallback_applied: bool = False
     safety_override: bool = False
     air_quality_override: bool = False
@@ -138,6 +153,20 @@ class ShadowZoneProposal:
             "temperature_limit_pct": self.temperature_limit_pct,
             "final_supply_pct": self.final_supply_pct,
             "final_extract_pct": self.final_extract_pct,
+            "tacho_failure_confirmation_seconds": self.tacho_failure_confirmation_seconds,
+            "tacho_emergency_policy_configured": self.tacho_emergency_policy_configured,
+            "tacho_supply_feedback_required": self.tacho_supply_feedback_required,
+            "tacho_supply_status": self.tacho_supply_status,
+            "tacho_supply_feedback_valid": self.tacho_supply_feedback_valid,
+            "tacho_supply_rpm": self.tacho_supply_rpm,
+            "tacho_supply_pending_since_utc": self.tacho_supply_pending_since_utc,
+            "tacho_supply_fault_confirmed": self.tacho_supply_fault_confirmed,
+            "tacho_extract_feedback_required": self.tacho_extract_feedback_required,
+            "tacho_extract_status": self.tacho_extract_status,
+            "tacho_extract_feedback_valid": self.tacho_extract_feedback_valid,
+            "tacho_extract_rpm": self.tacho_extract_rpm,
+            "tacho_extract_pending_since_utc": self.tacho_extract_pending_since_utc,
+            "tacho_extract_fault_confirmed": self.tacho_extract_fault_confirmed,
             "sensor_fallback_applied": self.sensor_fallback_applied,
             "safety_override": self.safety_override,
             "air_quality_override": self.air_quality_override,
