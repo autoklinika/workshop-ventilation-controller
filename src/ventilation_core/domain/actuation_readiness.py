@@ -6,16 +6,18 @@ from typing import Any
 from ventilation_core.domain.models import CoreState
 from ventilation_core.domain.shadow import ShadowAutomationState, ShadowAutomationStatus
 from ventilation_core.domain.shadow_policy import ShadowPolicyV1
+from ventilation_core.domain.tuning_validation import TuningValidationProfile
 
 
 @dataclass(frozen=True)
 class ActuationReadinessAssessment:
     """Diagnostic-only assessment of prerequisites for future actuation authority.
 
-    `preconditions_satisfied` deliberately excludes the authority bit.  This lets the
-    project prove that configuration and runtime prerequisites are complete while the
-    Control Engine still has no actuator port.  `ready` can become true only if both
-    the preconditions and explicit actuation authority are present.
+    `preconditions_satisfied` deliberately excludes the authority bit. This lets the
+    project prove that configuration, validation evidence and runtime prerequisites
+    are complete while the Control Engine still has no actuator port. `ready` can
+    become true only if both the preconditions and explicit actuation authority are
+    present.
     """
 
     preconditions_satisfied: bool
@@ -37,8 +39,15 @@ def assess_actuation_readiness(
     state: CoreState,
     shadow: ShadowAutomationState,
     policy: ShadowPolicyV1,
+    validation_profile: TuningValidationProfile | None = None,
 ) -> ActuationReadinessAssessment:
-    """Return explicit blockers without granting any actuator capability."""
+    """Return explicit blockers without granting any actuator capability.
+
+    Numeric tuning alone is intentionally insufficient. Future actuation readiness
+    also requires a bound validation profile proving that every tuning group reached
+    the evidence level appropriate to its risk. A missing profile therefore fails
+    closed even when all numeric fields happen to be populated.
+    """
 
     blockers: list[str] = []
     tuning = policy.tuning
@@ -67,6 +76,11 @@ def assess_actuation_readiness(
     if not tuning.tacho_both_fault_fallback_configured:
         blockers.append("TACHO_BOTH_FALLBACK_UNCONFIGURED")
 
+    if validation_profile is None:
+        blockers.append("TUNING_VALIDATION_PROFILE_NOT_BOUND")
+    else:
+        blockers.extend(validation_profile.readiness_blockers())
+
     if state.hardware_ready is not True:
         blockers.append("HARDWARE_NOT_READY")
     if state.output_state_known is not True:
@@ -88,8 +102,8 @@ def assess_actuation_readiness(
         if zone1.tacho_fallback_applied:
             blockers.append("TACHO_FALLBACK_ACTIVE")
 
-    # Authority is intentionally checked last.  It is not part of the prerequisite
-    # completeness calculation, but it is always required for final readiness.
+    # Authority is intentionally checked last. It is not part of prerequisite
+    # completeness, but it is always required for final readiness.
     preconditions_satisfied = not blockers
     actuation_authorized = shadow.actuation_supported is True
     if not actuation_authorized:
