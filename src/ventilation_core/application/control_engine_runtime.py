@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from threading import RLock
 from typing import Any, Callable, Mapping, Protocol
 
 from ventilation_core.application.operator_control import apply_operator_intent
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
+from ventilation_core.application.tacho_control import TachoShadowSupervisor
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
 from ventilation_core.domain.models import CoreState
 from ventilation_core.domain.operator_control import OperatorControlIntent
@@ -22,10 +23,11 @@ class ControlEngineConfigStore(Protocol):
 class PersistentControlEngineEvaluator:
     """Hot-reloadable persistent SHADOW evaluator with volatile operator intent.
 
-    Configuration is persisted in SQLite.  Operator AUTO/MANUAL intent is
+    Configuration is persisted in SQLite. Operator AUTO/MANUAL intent is
     deliberately process-local and starts from AUTO after every core restart so a
-    stale manual override cannot revive silently.  Neither path has actuator
-    authority.
+    stale manual override cannot revive silently. TACHO supervision observes only
+    authoritative physical EC setpoints, never SHADOW proposals. None of these
+    layers has actuator authority.
     """
 
     def __init__(
@@ -35,12 +37,13 @@ class PersistentControlEngineEvaluator:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
-        self._clock = clock
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._lock = RLock()
         config, revision = store.load()
         self._config = config
         self._revision = revision
         self._evaluator = self._build(config)
+        self._tacho_supervisor = TachoShadowSupervisor(clock=self._clock)
         self._operator_intent = OperatorControlIntent()
         self._operator_revision = 0
         self._closed = False
@@ -56,6 +59,7 @@ class PersistentControlEngineEvaluator:
     def evaluate(self, state: CoreState) -> ShadowAutomationState:
         with self._lock:
             evaluator = self._evaluator
+            tacho_supervisor = self._tacho_supervisor
             config = self._config
             revision = self._revision
             operator_intent = self._operator_intent
@@ -67,6 +71,7 @@ class PersistentControlEngineEvaluator:
             operator_intent,
             revision=operator_revision,
         )
+        result = tacho_supervisor.apply(result, state, config.policy)
         zones = tuple(_attach_sensor_provenance(zone, state) for zone in result.zones)
         return replace(
             result,
@@ -91,9 +96,11 @@ class PersistentControlEngineEvaluator:
                 raise RuntimeError("Control Engine configuration runtime is closed")
             revision = self._store.replace(config)
             evaluator = self._build(config)
+            tacho_supervisor = TachoShadowSupervisor(clock=self._clock)
             self._config = config
             self._revision = revision
             self._evaluator = evaluator
+            self._tacho_supervisor = tacho_supervisor
             return {
                 "revision": revision,
                 "config": config.to_dict(),
