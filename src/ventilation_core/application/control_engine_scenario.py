@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 from typing import Any, Mapping, Sequence
 
+from ventilation_core.application.operator_control import apply_operator_intent
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.calendar.model import CalendarMode, CalendarPhase, CalendarResolution
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
@@ -16,6 +17,7 @@ from ventilation_core.domain.models import (
     FanSetpoints,
     VentilationMode,
 )
+from ventilation_core.domain.operator_control import OperatorControlIntent
 from ventilation_core.domain.sensors import AirQualityReading, SensorBusState, SensorNodeState
 from ventilation_core.domain.zigbee import ZigbeeMqttState, ZigbeeTemperatureSensorState
 
@@ -24,6 +26,7 @@ _SCENARIO_KEYS = {"schema_version", "name", "start_utc", "control_engine", "step
 _STEP_KEYS = {
     "at_seconds",
     "calendar",
+    "operator",
     "sensor_1",
     "sensor_2",
     "zigbee_supply",
@@ -142,6 +145,8 @@ class ControlEngineScenarioRunner:
 
     The runner creates synthetic CoreState snapshots only. It has no actuator,
     service, socket, GPIO, DAC, AERO executor, host-power or systemd boundary.
+    Operator intent is process-local scenario state: AUTO initially and changed only
+    by explicit step payloads, mirroring the volatile runtime contract.
     """
 
     def run(self, payload: Mapping[str, Any]) -> ScenarioRunResult:
@@ -166,6 +171,8 @@ class ControlEngineScenarioRunner:
 
         clock = _ScenarioClock(start)
         evaluator = PolicyShadowAutomationEvaluator(control_engine.policy, clock=clock)
+        operator_intent = OperatorControlIntent()
+        operator_revision = 0
         results: list[dict[str, Any]] = []
         previous_offset = -1.0
 
@@ -182,8 +189,20 @@ class ControlEngineScenarioRunner:
             previous_offset = offset
             clock.now = start + timedelta(seconds=offset)
 
+            if "operator" in step:
+                operator_intent = OperatorControlIntent.from_dict(
+                    _mapping(step["operator"], f"scenario.steps[{index}].operator")
+                )
+                operator_revision += 1
+
             state = self._build_state(step, now=clock.now, index=index)
             shadow = evaluator.evaluate(state)
+            shadow = apply_operator_intent(
+                shadow,
+                control_engine.policy,
+                operator_intent,
+                revision=operator_revision,
+            )
             shadow_payload = shadow.to_dict()
             if shadow_payload.get("actuation_supported") is not False:
                 raise RuntimeError("scenario evaluator unexpectedly supports actuation")
@@ -198,6 +217,7 @@ class ControlEngineScenarioRunner:
                     "index": index,
                     "at_seconds": offset,
                     "evaluated_at_utc": clock.now.isoformat(),
+                    "operator_intent_revision": operator_revision,
                     "shadow": shadow_payload,
                 }
             )
