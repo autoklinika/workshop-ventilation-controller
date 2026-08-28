@@ -87,6 +87,15 @@ def make_state(*, last_seen, last_message_at):
     )
 
 
+def service_for(state):
+    return ZigbeeAlertingVentilationService(
+        actuator=FakeActuator(),
+        policy=FanSetpointPolicy(1.0, 10.0),
+        zigbee=FakeZigbee(state),
+        alert_registry=AlertRegistry(MemoryAlertStore()),
+    )
+
+
 class ZigbeeReliabilityStage10Tests(unittest.TestCase):
     def test_current_json_availability_payload_is_supported(self):
         self.assertTrue(parse_availability_payload(b'{"state":"online"}'))
@@ -103,12 +112,7 @@ class ZigbeeReliabilityStage10Tests(unittest.TestCase):
     def test_retained_delivery_does_not_make_old_measurement_fresh(self):
         now = datetime.now(timezone.utc).isoformat()
         state = make_state(last_seen="2020-01-01T00:00:00+00:00", last_message_at=now)
-        service = ZigbeeAlertingVentilationService(
-            actuator=FakeActuator(),
-            policy=FanSetpointPolicy(1.0, 10.0),
-            zigbee=FakeZigbee(state),
-            alert_registry=AlertRegistry(MemoryAlertStore()),
-        )
+        service = service_for(state)
         result = service.health_check()
         self.assertIn(
             AlarmCode.ZIGBEE_DEVICE_DATA_STALE,
@@ -119,17 +123,38 @@ class ZigbeeReliabilityStage10Tests(unittest.TestCase):
     def test_fresh_device_last_seen_wins_over_old_core_receive_time(self):
         now = datetime.now(timezone.utc).isoformat()
         state = make_state(last_seen=now, last_message_at="2020-01-01T00:00:00+00:00")
-        service = ZigbeeAlertingVentilationService(
-            actuator=FakeActuator(),
-            policy=FanSetpointPolicy(1.0, 10.0),
-            zigbee=FakeZigbee(state),
-            alert_registry=AlertRegistry(MemoryAlertStore()),
-        )
+        service = service_for(state)
         result = service.health_check()
         self.assertNotIn(
             AlarmCode.ZIGBEE_DEVICE_DATA_STALE,
             {alert.code for alert in result.active_alarms},
         )
+        service.close()
+
+    def test_missing_last_seen_can_use_recent_receive_time(self):
+        now = datetime.now(timezone.utc).isoformat()
+        state = make_state(last_seen=None, last_message_at=now)
+        service = service_for(state)
+        result = service.health_check()
+        self.assertNotIn(
+            AlarmCode.ZIGBEE_DEVICE_DATA_STALE,
+            {alert.code for alert in result.active_alarms},
+        )
+        service.close()
+
+    def test_invalid_present_last_seen_warns_instead_of_using_recent_receive_time(self):
+        now = datetime.now(timezone.utc).isoformat()
+        state = make_state(last_seen="not-a-timestamp", last_message_at=now)
+        service = service_for(state)
+        result = service.health_check()
+        stale = [
+            alert
+            for alert in result.active_alarms
+            if alert.code == AlarmCode.ZIGBEE_DEVICE_DATA_STALE
+        ]
+        self.assertEqual(len(stale), 1)
+        self.assertIn("brak wiarygodnego czasu pomiaru", stale[0].message)
+        self.assertIn("last_seen", stale[0].last_error)
         service.close()
 
 
