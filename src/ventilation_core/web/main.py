@@ -12,6 +12,7 @@ from .alert_history import SqliteAlertHistoryReader
 from .alert_history_app import AlertHistoryWebApplication
 from .client import CoreUnixClient
 from .config import WebUiConfig
+from .control_engine_app import ControlEngineWebApplication
 from .host_power import DEFAULT_HOST_POWER_SOCKET, HostPowerClient
 from .server import WebUiHttpServer
 from .service_status import ServiceStatusProvider
@@ -92,7 +93,9 @@ def main() -> int:
     host_power = HostPowerClient(
         Path(os.getenv("WVC_HOST_POWER_SOCKET", str(DEFAULT_HOST_POWER_SOCKET)))
     )
-    app = AlertHistoryWebApplication(
+    # ControlEngineWebApplication deliberately extends the existing
+    # AlertHistoryWebApplication contract instead of replacing that functionality.
+    app: AlertHistoryWebApplication = ControlEngineWebApplication(
         core,
         WebUiConfig.from_environment(),
         weather,
@@ -105,7 +108,7 @@ def main() -> int:
     server = WebUiHttpServer((args.host, args.port), app, static_root)
 
     logging.getLogger(__name__).info(
-        "web UI listening on http://%s:%d using core socket %s; history=%s; alert_history=%s; weather_snapshot=%s; ai_advisory_cache=%s; service_dashboard=read-only; host_power_socket=%s",
+        "web UI listening on http://%s:%d using core socket %s; history=%s; alert_history=%s; weather_snapshot=%s; ai_advisory_cache=%s; service_dashboard=read-only; host_power_socket=%s; control_engine=shadow-config-only",
         args.host,
         args.port,
         args.socket,

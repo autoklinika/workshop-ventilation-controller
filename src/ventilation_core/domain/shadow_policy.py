@@ -55,6 +55,28 @@ class ShadowOutputTuning:
     state_minimum_hold_seconds: float | None = None
     boost_decay_seconds: float | None = None
 
+    # Explicit sensor-loss fallback. These values intentionally do not take part
+    # in `complete` yet: Stage 1/2 tuning can be validated independently, while
+    # sensor-loss fallback remains a separately auditable safety parameter.
+    sensor_fallback_supply_pct: float | None = None
+    sensor_fallback_extract_pct: float | None = None
+    aero_sensor_fallback_speed: int | None = None
+
+    # TACHO supervision is independently tunable. None means the system can expose
+    # that feedback is required but must not invent a spin-up / loss confirmation
+    # interval.
+    tacho_failure_confirmation_seconds: float | None = None
+
+    # Channel-specific TACHO fallback is explicit for every failure mask. No
+    # combination rule is inferred: supply-only, extract-only and both-channel
+    # failure each require their own validated pair of logical fan percentages.
+    tacho_supply_fault_fallback_supply_pct: float | None = None
+    tacho_supply_fault_fallback_extract_pct: float | None = None
+    tacho_extract_fault_fallback_supply_pct: float | None = None
+    tacho_extract_fault_fallback_extract_pct: float | None = None
+    tacho_both_fault_fallback_supply_pct: float | None = None
+    tacho_both_fault_fallback_extract_pct: float | None = None
+
     def __post_init__(self) -> None:
         percentage_fields = (
             "normal_air_request_pct",
@@ -66,6 +88,14 @@ class ShadowOutputTuning:
             "thermal_minimum_limit_pct",
             "thermal_protection_limit_pct",
             "extract_bias_pct",
+            "sensor_fallback_supply_pct",
+            "sensor_fallback_extract_pct",
+            "tacho_supply_fault_fallback_supply_pct",
+            "tacho_supply_fault_fallback_extract_pct",
+            "tacho_extract_fault_fallback_supply_pct",
+            "tacho_extract_fault_fallback_extract_pct",
+            "tacho_both_fault_fallback_supply_pct",
+            "tacho_both_fault_fallback_extract_pct",
         )
         for name in percentage_fields:
             value = getattr(self, name)
@@ -77,6 +107,7 @@ class ShadowOutputTuning:
             "aero_boost_speed",
             "aero_high_speed",
             "aero_max_speed",
+            "aero_sensor_fallback_speed",
         ):
             value = getattr(self, name)
             if value is not None and (
@@ -92,6 +123,7 @@ class ShadowOutputTuning:
             "pm2_5_boost_confirmation_seconds",
             "state_minimum_hold_seconds",
             "boost_decay_seconds",
+            "tacho_failure_confirmation_seconds",
         ):
             value = getattr(self, name)
             if value is not None and float(value) < 0.0:
@@ -131,6 +163,39 @@ class ShadowOutputTuning:
             normal, boost, high, maximum = (int(value) for value in aero_values)
             if not normal <= boost <= high <= maximum:
                 raise ValueError("AERO speeds must be monotonic NORMAL <= BOOST <= HIGH <= MAX")
+
+        fan_fallback = (
+            self.sensor_fallback_supply_pct,
+            self.sensor_fallback_extract_pct,
+        )
+        if any(value is not None for value in fan_fallback) and not all(
+            value is not None for value in fan_fallback
+        ):
+            raise ValueError(
+                "Fan sensor fallback requires both supply and extract percentages"
+            )
+
+        tacho_pairs = {
+            "supply": (
+                self.tacho_supply_fault_fallback_supply_pct,
+                self.tacho_supply_fault_fallback_extract_pct,
+            ),
+            "extract": (
+                self.tacho_extract_fault_fallback_supply_pct,
+                self.tacho_extract_fault_fallback_extract_pct,
+            ),
+            "both": (
+                self.tacho_both_fault_fallback_supply_pct,
+                self.tacho_both_fault_fallback_extract_pct,
+            ),
+        }
+        for failure_mask, pair in tacho_pairs.items():
+            if any(value is not None for value in pair) and not all(
+                value is not None for value in pair
+            ):
+                raise ValueError(
+                    f"TACHO {failure_mask} fault fallback requires both supply and extract percentages"
+                )
 
     @property
     def fan_outputs_configured(self) -> bool:
@@ -176,6 +241,62 @@ class ShadowOutputTuning:
         return all(value is not None for value in values)
 
     @property
+    def fan_sensor_fallback_configured(self) -> bool:
+        return (
+            self.sensor_fallback_supply_pct is not None
+            and self.sensor_fallback_extract_pct is not None
+        )
+
+    @property
+    def aero_sensor_fallback_configured(self) -> bool:
+        return self.aero_sensor_fallback_speed is not None
+
+    @property
+    def tacho_confirmation_configured(self) -> bool:
+        return self.tacho_failure_confirmation_seconds is not None
+
+    @property
+    def tacho_supply_fault_fallback_configured(self) -> bool:
+        return (
+            self.tacho_supply_fault_fallback_supply_pct is not None
+            and self.tacho_supply_fault_fallback_extract_pct is not None
+        )
+
+    @property
+    def tacho_extract_fault_fallback_configured(self) -> bool:
+        return (
+            self.tacho_extract_fault_fallback_supply_pct is not None
+            and self.tacho_extract_fault_fallback_extract_pct is not None
+        )
+
+    @property
+    def tacho_both_fault_fallback_configured(self) -> bool:
+        return (
+            self.tacho_both_fault_fallback_supply_pct is not None
+            and self.tacho_both_fault_fallback_extract_pct is not None
+        )
+
+    def tacho_fault_fallback(self, failure_mask: str) -> tuple[float, float] | None:
+        mapping = {
+            "SUPPLY": (
+                self.tacho_supply_fault_fallback_supply_pct,
+                self.tacho_supply_fault_fallback_extract_pct,
+            ),
+            "EXTRACT": (
+                self.tacho_extract_fault_fallback_supply_pct,
+                self.tacho_extract_fault_fallback_extract_pct,
+            ),
+            "BOTH": (
+                self.tacho_both_fault_fallback_supply_pct,
+                self.tacho_both_fault_fallback_extract_pct,
+            ),
+        }
+        pair = mapping.get(failure_mask)
+        if pair is None or pair[0] is None or pair[1] is None:
+            return None
+        return float(pair[0]), float(pair[1])
+
+    @property
     def complete(self) -> bool:
         return (
             self.fan_outputs_configured
@@ -217,7 +338,6 @@ class ShadowPolicyV1:
     def classify_pm2_5(self, value: float | None) -> AirQualityLevel | None:
         if value is None:
             return None
-        # Source wording uses strict ">" for PM2.5 process stages.
         if value > self.pm2_5_max_ug_m3:
             return AirQualityLevel.MAX
         if value > self.pm2_5_high_ug_m3:
@@ -229,7 +349,6 @@ class ShadowPolicyV1:
     def classify_voc(self, value: float | None) -> AirQualityLevel | None:
         if value is None:
             return None
-        # The source defines contiguous ranges 150-200, 200-300, >300.
         if value > self.voc_max_index:
             return AirQualityLevel.MAX
         if value >= self.voc_high_index:
@@ -241,7 +360,6 @@ class ShadowPolicyV1:
     def classify_nox(self, value: float | None) -> AirQualityLevel | None:
         if value is None:
             return None
-        # Source wording uses strict ">" for NOx process stages.
         if value > self.nox_max_index:
             return AirQualityLevel.MAX
         if value > self.nox_high_index:
@@ -266,7 +384,6 @@ class ShadowPolicyV1:
         if not available:
             return None, None
         maximum = max(available.values())
-        # Stable driver order makes telemetry deterministic when levels tie.
         for name in ("PM2_5", "VOC", "NOX"):
             if available.get(name) == maximum:
                 return maximum, name

@@ -10,20 +10,19 @@ from ventilation_core.alert_policy import DEFAULT_RUNTIME_POLICY_PATH
 from ventilation_core.alert_policy_runtime import RuntimeAlertPolicyManager
 from ventilation_core.application.alert_registry import AlertRegistry
 from ventilation_core.application.alert_v2_policy_service import AlertV2ReadOnlyPolicyService
+from ventilation_core.application.control_engine_bootstrap import build_control_engine_evaluator
 from ventilation_core.application.power_scheduler import PowerScheduler
 from ventilation_core.application.power_scheduler_runtime import PowerSchedulerRuntime
 from ventilation_core.application.power_scheduler_service import PowerSchedulingVentilationService
 from ventilation_core.application.service_plane_alert_registry import (
     ServicePlaneCorrelatingAlertRegistry,
 )
-from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.calendar import (
     CalendarEngine,
     UnavailableCalendarEngine,
     default_calendar_config,
 )
 from ventilation_core.domain.policy import FanSetpointPolicy
-from ventilation_core.domain.shadow_policy import ShadowPolicyV1
 from ventilation_core.infrastructure.aero_bus_worker import AeroBusConfig, ProcessAeroBus
 from ventilation_core.infrastructure.host_power_client import (
     DEFAULT_HOST_POWER_SOCKET,
@@ -42,7 +41,7 @@ from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMon
 from ventilation_core.infrastructure.zigbee_capability_monitor import CapabilityManagedZigbeeMqttMonitor
 from ventilation_core.infrastructure.zigbee_mqtt_monitor import ZigbeeDeviceConfig, ZigbeeMqttConfig
 from ventilation_core.infrastructure.zigbee_role_store import ZigbeeRoleStore
-from ventilation_core.runtime.server import CoreServer
+from ventilation_core.runtime.control_engine_server import ControlEngineCoreServer
 from ventilation_core.service_plane_monitor import (
     DEFAULT_SERVICE_AGENT_SOCKET,
     ServicePlaneMonitor,
@@ -171,6 +170,7 @@ async def run_core(args: argparse.Namespace) -> None:
     zigbee = None
     system_power_monitor = None
     power_scheduler_runtime = None
+    shadow_evaluator = None
     service = None
     try:
         alert_registry = AlertRegistry(SqliteAlertStore(args.alerts_db))
@@ -304,6 +304,7 @@ async def run_core(args: argparse.Namespace) -> None:
             host_power,
             poll_interval_seconds=args.power_scheduler_poll_interval,
         )
+        shadow_evaluator = build_control_engine_evaluator(args.automation_db)
 
         legacy_service = PowerSchedulingVentilationService(
             actuator=actuator,
@@ -320,7 +321,7 @@ async def run_core(args: argparse.Namespace) -> None:
             alert_registry=alert_registry,
             required_tacho_channels=required_tacho_channels,
             system_power_monitor=system_power_monitor,
-            shadow_evaluator=PolicyShadowAutomationEvaluator(ShadowPolicyV1()),
+            shadow_evaluator=shadow_evaluator,
             power_scheduler_runtime=power_scheduler_runtime,
         )
         alert_policy_manager = RuntimeAlertPolicyManager(args.alert_policy)
@@ -360,7 +361,7 @@ async def run_core(args: argparse.Namespace) -> None:
             args.rtc_agent_socket,
             args.host_power_socket,
         )
-        server = CoreServer(
+        server = ControlEngineCoreServer(
             service=service,
             socket_path=args.socket,
             health_interval_seconds=args.health_interval,
@@ -369,6 +370,12 @@ async def run_core(args: argparse.Namespace) -> None:
         if service is not None:
             service.close()
         else:
+            close_shadow = getattr(shadow_evaluator, "close", None)
+            if close_shadow is not None:
+                try:
+                    close_shadow()
+                except Exception:
+                    LOGGER.exception("Failed to close Control Engine evaluator after startup failure")
             try:
                 if power_scheduler_runtime is not None:
                     power_scheduler_runtime.close()

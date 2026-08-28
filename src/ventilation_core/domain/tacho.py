@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from math import isfinite
+from statistics import median
 from typing import Any
 
 
@@ -93,9 +94,11 @@ class TachoEstimator:
     """Estimate fan speed from timestamps of equal-polarity TACHO edges.
 
     The hardware validation established 3 pulses per revolution, therefore
-    RPM = frequency_hz * 20.  The estimator averages recent periods instead
-    of counting edges in a long fixed window, which keeps low-speed response
-    reasonably fast while suppressing single-period jitter.
+    RPM = frequency_hz * 20.  The estimator keeps recent periods and uses their
+    median for the reported speed.  Median aggregation preserves fast low-speed
+    response while preventing one abnormally short/long period from producing a
+    large transient RPM spike.  Presence/loss semantics remain based on edge age,
+    independently from the reported RPM aggregation.
     """
 
     def __init__(
@@ -145,8 +148,8 @@ class TachoEstimator:
         if age > self._timeout_seconds or not self._periods:
             return TachoReading.stopped(age_seconds=age)
 
-        average_period = sum(self._periods) / len(self._periods)
-        frequency_hz = 1.0 / average_period
+        representative_period = float(median(self._periods))
+        frequency_hz = 1.0 / representative_period
         return TachoReading(
             frequency_hz=frequency_hz,
             rpm=frequency_hz * RPM_PER_HZ,

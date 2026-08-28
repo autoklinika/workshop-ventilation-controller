@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "profile": "wvc-control-engine-v1-workshop-commissioning",
+  "environment_required": "WORKSHOP",
+  "rules": [
+    "LAB environmental readings must not promote a group to WORKSHOP_VALIDATED.",
+    "Synthetic replay validates software semantics only, never production setpoints.",
+    "Every promoted group requires a versioned report or telemetry evidence reference.",
+    "No commissioning tool may grant actuation authority or write actuator outputs automatically.",
+    "Tuning changes remain SHADOW-only until a separate future actuation stage is explicitly authorized."
+  ],
+  "groups": {
+    "fan_outputs": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Determine NORMAL/BOOST/HIGH/MAX logical fan requests, thermal limits and extract bias for the installed fan/duct/room system.",
+      "required_observations": [
+        "Installed supply/extract fans and ducts in final workshop configuration.",
+        "Stable RPM response for representative command levels.",
+        "Room airflow/balance assessment; avoid uncontrolled excessive negative or positive pressure.",
+        "Indoor temperature response with representative outside/supply-air temperatures.",
+        "Observed pollutant-clearance response from normal workshop processes, not artificial LAB interpretation."
+      ],
+      "completion_criteria": [
+        "All fan request percentages and thermal limit percentages are explicitly selected.",
+        "extract_bias_pct is justified by room balance observations.",
+        "Values are replayed through the scenario/matrix suite before promotion."
+      ]
+    },
+    "aero_outputs": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Map NORMAL/BOOST/HIGH/MAX to AERO discrete speeds for the real recuperator zone.",
+      "required_observations": [
+        "AERO installed in final room/duct configuration.",
+        "Each discrete speed verified as reachable and stable.",
+        "Real zone response to normal process load recorded."
+      ],
+      "completion_criteria": [
+        "aero_normal_speed/aero_boost_speed/aero_high_speed/aero_max_speed explicitly selected.",
+        "Monotonic speed policy justified by workshop observations."
+      ]
+    },
+    "dynamics": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Tune hysteresis, confirmation, minimum hold and decay using real workshop time-series rather than LAB concentrations.",
+      "required_observations": [
+        "Representative PM2.5/VOC/NOx trajectories from actual workshop operation.",
+        "Observed rise/decay times during start and end of representative processes.",
+        "Evidence that hysteresis prevents chatter without masking meaningful deterioration."
+      ],
+      "completion_criteria": [
+        "All hysteresis/timing fields explicitly selected.",
+        "Recorded replay demonstrates deterministic escalation, hold and recovery without chatter."
+      ]
+    },
+    "fan_sensor_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Select a safe degraded fan request when the zone SEN55 becomes unavailable.",
+      "required_observations": [
+        "Real-room baseline ventilation effect at candidate degraded requests.",
+        "Temperature impact and room balance at the candidate request.",
+        "Fault/recovery replay proving immediate deterministic transition."
+      ],
+      "completion_criteria": [
+        "sensor_fallback_supply_pct and sensor_fallback_extract_pct explicitly selected as one pair.",
+        "Fallback is conservative enough for loss of measurement but does not claim BHP safety."
+      ]
+    },
+    "aero_sensor_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Select a deterministic AERO speed when the zone SEN55 becomes unavailable.",
+      "required_observations": [
+        "Real recuperator-zone operation at candidate fallback speed.",
+        "Fault/recovery replay."
+      ],
+      "completion_criteria": [
+        "aero_sensor_fallback_speed explicitly selected and justified."
+      ]
+    },
+    "tacho_confirmation": {
+      "target_level": "PHYSICAL_VALIDATED",
+      "objective": "Confirm the delay used before missing fan feedback becomes a confirmed TACHO fault.",
+      "required_observations": [
+        "Physical 1.0 V and 2.0 V start characterization on both installed local fan channels."
+      ],
+      "completion_criteria": [
+        "4.0 s remains the validated value unless fan hardware or TACHO conditioning changes."
+      ],
+      "status": "COMPLETE_2026-08-28"
+    },
+    "tacho_supply_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Define the degraded pair of supply/extract requests for confirmed SUPPLY feedback failure.",
+      "required_observations": [
+        "Final-room test with supply unavailable or deliberately held at zero while extract response is observed.",
+        "Room pressure/balance observation and pollutant-removal implications.",
+        "Temperature impact and safe operator recovery procedure."
+      ],
+      "completion_criteria": [
+        "Exactly one explicit fallback supply/extract pair selected.",
+        "No value copied from another fault mask without separate evidence."
+      ]
+    },
+    "tacho_extract_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Define the degraded pair of supply/extract requests for confirmed EXTRACT feedback failure.",
+      "required_observations": [
+        "Final-room test with extract unavailable or deliberately held at zero while supply response is observed.",
+        "Check risk of positive room pressure and contaminant migration.",
+        "Temperature impact and safe operator recovery procedure."
+      ],
+      "completion_criteria": [
+        "Exactly one explicit fallback supply/extract pair selected.",
+        "No value copied from another fault mask without separate evidence."
+      ]
+    },
+    "tacho_both_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "objective": "Define the emergency logical response when both local fan feedback channels are confirmed failed.",
+      "required_observations": [
+        "Failure-mode review distinguishing true dual fan loss from signal-path faults.",
+        "Operator alarm/recovery procedure.",
+        "Real-room assessment of the selected command strategy."
+      ],
+      "completion_criteria": [
+        "Exactly one explicit fallback supply/extract pair selected.",
+        "The choice is documented as an emergency degraded policy, not proof of safe air quality."
+      ]
+    }
+  }
+}
