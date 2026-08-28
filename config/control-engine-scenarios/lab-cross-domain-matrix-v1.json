@@ -91,166 +91,30 @@
     {
       "name": "calendar",
       "variants": [
-        {
-          "id": "inactive_off",
-          "step": {
-            "calendar": {
-              "phase": "INACTIVE",
-              "mode": "OFF",
-              "profile": "MATRIX_INACTIVE_OFF",
-              "schedule_supply_pct": 0.0,
-              "schedule_extract_pct": 0.0,
-              "schedule_request_source": "MATRIX_OFF"
-            }
-          }
-        },
-        {
-          "id": "inactive_standby",
-          "step": {
-            "calendar": {
-              "phase": "INACTIVE",
-              "mode": "STANDBY",
-              "profile": "MATRIX_INACTIVE_STANDBY",
-              "schedule_supply_pct": 0.0,
-              "schedule_extract_pct": 0.0,
-              "schedule_request_source": "MATRIX_STANDBY"
-            }
-          }
-        },
-        {
-          "id": "preventilation_auto",
-          "step": {
-            "calendar": {
-              "phase": "PREVENTILATION",
-              "mode": "AUTO",
-              "profile": "MATRIX_PRE",
-              "schedule_supply_pct": 25.0,
-              "schedule_extract_pct": 30.0,
-              "schedule_request_source": "MATRIX_AUTO"
-            }
-          }
-        },
-        {
-          "id": "active_auto",
-          "step": {
-            "calendar": {
-              "phase": "ACTIVE",
-              "mode": "AUTO",
-              "profile": "MATRIX_ACTIVE",
-              "schedule_supply_pct": 30.0,
-              "schedule_extract_pct": 35.0,
-              "schedule_request_source": "MATRIX_AUTO"
-            }
-          }
-        },
-        {
-          "id": "purge_auto",
-          "step": {
-            "calendar": {
-              "phase": "PURGE",
-              "mode": "AUTO",
-              "profile": "MATRIX_PURGE",
-              "schedule_supply_pct": 20.0,
-              "schedule_extract_pct": 25.0,
-              "schedule_request_source": "MATRIX_AUTO"
-            }
-          }
-        },
-        {
-          "id": "active_fixed",
-          "step": {
-            "calendar": {
-              "phase": "ACTIVE",
-              "mode": "FIXED",
-              "profile": "MATRIX_FIXED",
-              "schedule_supply_pct": 55.0,
-              "schedule_extract_pct": 60.0,
-              "schedule_request_source": "MATRIX_FIXED"
-            }
-          }
-        }
+        {"id": "inactive_off", "step": {"calendar": {"phase": "INACTIVE", "mode": "OFF", "profile": "MATRIX_INACTIVE_OFF", "schedule_supply_pct": 0.0, "schedule_extract_pct": 0.0, "schedule_request_source": "MATRIX_OFF"}}},
+        {"id": "inactive_standby", "step": {"calendar": {"phase": "INACTIVE", "mode": "STANDBY", "profile": "MATRIX_INACTIVE_STANDBY", "schedule_supply_pct": 0.0, "schedule_extract_pct": 0.0, "schedule_request_source": "MATRIX_STANDBY"}}},
+        {"id": "preventilation_auto", "step": {"calendar": {"phase": "PREVENTILATION", "mode": "AUTO", "profile": "MATRIX_PRE", "schedule_supply_pct": 25.0, "schedule_extract_pct": 30.0, "schedule_request_source": "MATRIX_AUTO"}}},
+        {"id": "active_auto", "step": {"calendar": {"phase": "ACTIVE", "mode": "AUTO", "profile": "MATRIX_ACTIVE", "schedule_supply_pct": 30.0, "schedule_extract_pct": 35.0, "schedule_request_source": "MATRIX_AUTO"}}},
+        {"id": "purge_auto", "step": {"calendar": {"phase": "PURGE", "mode": "AUTO", "profile": "MATRIX_PURGE", "schedule_supply_pct": 20.0, "schedule_extract_pct": 25.0, "schedule_request_source": "MATRIX_AUTO"}}},
+        {"id": "active_fixed", "step": {"calendar": {"phase": "ACTIVE", "mode": "FIXED", "profile": "MATRIX_FIXED", "schedule_supply_pct": 55.0, "schedule_extract_pct": 60.0, "schedule_request_source": "MATRIX_FIXED"}}}
       ]
     },
     {
       "name": "air_quality",
       "variants": [
-        {
-          "id": "normal",
-          "step": {
-            "sensor_1": {
-              "pm2_5_ug_m3": 5.0,
-              "voc_index": 100.0,
-              "nox_index": 1.0
-            }
-          }
-        },
-        {
-          "id": "boost_voc",
-          "step": {
-            "sensor_1": {
-              "pm2_5_ug_m3": 5.0,
-              "voc_index": 160.0,
-              "nox_index": 1.0
-            }
-          }
-        },
-        {
-          "id": "high_voc",
-          "step": {
-            "sensor_1": {
-              "pm2_5_ug_m3": 5.0,
-              "voc_index": 210.0,
-              "nox_index": 1.0
-            }
-          }
-        },
-        {
-          "id": "max_voc",
-          "step": {
-            "sensor_1": {
-              "pm2_5_ug_m3": 5.0,
-              "voc_index": 350.0,
-              "nox_index": 1.0
-            }
-          }
-        }
+        {"id": "normal", "step": {"sensor_1": {"pm2_5_ug_m3": 5.0, "voc_index": 100.0, "nox_index": 1.0}}},
+        {"id": "boost_voc", "step": {"sensor_1": {"pm2_5_ug_m3": 5.0, "voc_index": 160.0, "nox_index": 1.0}}},
+        {"id": "high_voc", "step": {"sensor_1": {"pm2_5_ug_m3": 5.0, "voc_index": 210.0, "nox_index": 1.0}}},
+        {"id": "max_voc", "step": {"sensor_1": {"pm2_5_ug_m3": 5.0, "voc_index": 350.0, "nox_index": 1.0}}}
       ]
     },
     {
       "name": "temperature",
       "variants": [
-        {
-          "id": "normal",
-          "step": {
-            "sensor_1": {
-              "temperature_celsius": 22.0
-            }
-          }
-        },
-        {
-          "id": "limiting",
-          "step": {
-            "sensor_1": {
-              "temperature_celsius": 19.0
-            }
-          }
-        },
-        {
-          "id": "minimum",
-          "step": {
-            "sensor_1": {
-              "temperature_celsius": 17.0
-            }
-          }
-        },
-        {
-          "id": "protection",
-          "step": {
-            "sensor_1": {
-              "temperature_celsius": 14.0
-            }
-          }
-        }
+        {"id": "normal", "step": {"sensor_1": {"temperature_celsius": 22.0}}},
+        {"id": "limiting", "step": {"sensor_1": {"temperature_celsius": 19.0}}},
+        {"id": "minimum", "step": {"sensor_1": {"temperature_celsius": 17.0}}},
+        {"id": "protection", "step": {"sensor_1": {"temperature_celsius": 14.0}}}
       ]
     },
     {
@@ -260,6 +124,8 @@
         {"id": "sensor1_loss", "step": {"sensor_1": {"usable": false}}},
         {"id": "sensor2_loss", "step": {"sensor_2": {"usable": false}}},
         {"id": "both_sensor_loss", "step": {"sensor_1": {"usable": false}, "sensor_2": {"usable": false}}},
+        {"id": "zigbee_supply_stale", "step": {"zigbee_supply": {"age_seconds": 20000.0}}},
+        {"id": "zigbee_supply_offline", "step": {"zigbee_supply": {"available": false}}},
         {"id": "critical_alarm", "step": {"critical_alarm": true}},
         {"id": "output_unknown", "step": {"output_state_known": false}},
         {"id": "hardware_not_ready", "step": {"hardware_ready": false}},
