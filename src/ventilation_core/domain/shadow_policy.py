@@ -62,6 +62,12 @@ class ShadowOutputTuning:
     sensor_fallback_extract_pct: float | None = None
     aero_sensor_fallback_speed: int | None = None
 
+    # TACHO supervision is independently tunable. None means the system can expose
+    # that feedback is required but must not invent a spin-up / loss confirmation
+    # interval. Emergency action after confirmed loss is intentionally a later,
+    # separately validated policy and is not encoded here yet.
+    tacho_failure_confirmation_seconds: float | None = None
+
     def __post_init__(self) -> None:
         percentage_fields = (
             "normal_air_request_pct",
@@ -102,6 +108,7 @@ class ShadowOutputTuning:
             "pm2_5_boost_confirmation_seconds",
             "state_minimum_hold_seconds",
             "boost_decay_seconds",
+            "tacho_failure_confirmation_seconds",
         ):
             value = getattr(self, name)
             if value is not None and float(value) < 0.0:
@@ -206,6 +213,10 @@ class ShadowOutputTuning:
     @property
     def aero_sensor_fallback_configured(self) -> bool:
         return self.aero_sensor_fallback_speed is not None
+
+    @property
+    def tacho_confirmation_configured(self) -> bool:
+        return self.tacho_failure_confirmation_seconds is not None
 
     @property
     def complete(self) -> bool:
