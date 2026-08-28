@@ -38,6 +38,12 @@ def tuned_config() -> ControlEngineConfig:
         sensor_fallback_extract_pct=60.0,
         aero_sensor_fallback_speed=2,
         tacho_failure_confirmation_seconds=5.0,
+        tacho_supply_fault_fallback_supply_pct=11.0,
+        tacho_supply_fault_fallback_extract_pct=61.0,
+        tacho_extract_fault_fallback_supply_pct=62.0,
+        tacho_extract_fault_fallback_extract_pct=12.0,
+        tacho_both_fault_fallback_supply_pct=33.0,
+        tacho_both_fault_fallback_extract_pct=44.0,
     )
     return ControlEngineConfig(
         policy=ShadowPolicyV1(
@@ -70,6 +76,9 @@ class ControlEngineConfigContractTest(unittest.TestCase):
         self.assertFalse(restored.policy.tuning.dynamics_configured)
         self.assertFalse(restored.policy.tuning.fan_sensor_fallback_configured)
         self.assertIsNone(restored.policy.tuning.tacho_failure_confirmation_seconds)
+        self.assertFalse(restored.policy.tuning.tacho_supply_fault_fallback_configured)
+        self.assertFalse(restored.policy.tuning.tacho_extract_fault_fallback_configured)
+        self.assertFalse(restored.policy.tuning.tacho_both_fault_fallback_configured)
         self.assertNotIn("actuation_enabled", payload)
 
     def test_tuned_config_roundtrip_is_exact(self) -> None:
@@ -77,6 +86,9 @@ class ControlEngineConfigContractTest(unittest.TestCase):
         restored = ControlEngineConfig.from_dict(config.to_dict())
         self.assertEqual(restored, config)
         self.assertEqual(restored.policy.tuning.tacho_failure_confirmation_seconds, 5.0)
+        self.assertEqual(restored.policy.tuning.tacho_fault_fallback("SUPPLY"), (11.0, 61.0))
+        self.assertEqual(restored.policy.tuning.tacho_fault_fallback("EXTRACT"), (62.0, 12.0))
+        self.assertEqual(restored.policy.tuning.tacho_fault_fallback("BOTH"), (33.0, 44.0))
 
     def test_unknown_top_level_field_is_rejected(self) -> None:
         payload = ControlEngineConfig().to_dict()
@@ -107,6 +119,11 @@ class ControlEngineConfigContractTest(unittest.TestCase):
             ControlEngineConfig.from_dict(payload)
 
         payload = ControlEngineConfig().to_dict()
+        payload["policy"]["tuning"]["tacho_supply_fault_fallback_supply_pct"] = "11"
+        with self.assertRaisesRegex(ValueError, "without type coercion"):
+            ControlEngineConfig.from_dict(payload)
+
+        payload = ControlEngineConfig().to_dict()
         payload["policy"]["tuning"]["aero_normal_speed"] = 1.0
         with self.assertRaisesRegex(ValueError, "integer"):
             ControlEngineConfig.from_dict(payload)
@@ -121,6 +138,12 @@ class ControlEngineConfigContractTest(unittest.TestCase):
         payload = ControlEngineConfig().to_dict()
         payload["policy"]["tuning"]["tacho_failure_confirmation_seconds"] = -0.1
         with self.assertRaisesRegex(ValueError, "tacho_failure_confirmation_seconds must be non-negative"):
+            ControlEngineConfig.from_dict(payload)
+
+    def test_partial_tacho_fallback_pair_is_rejected_before_persistence(self) -> None:
+        payload = ControlEngineConfig().to_dict()
+        payload["policy"]["tuning"]["tacho_supply_fault_fallback_supply_pct"] = 11.0
+        with self.assertRaisesRegex(ValueError, "TACHO supply fault fallback requires both"):
             ControlEngineConfig.from_dict(payload)
 
     def test_threshold_ordering_is_rejected_before_persistence(self) -> None:
@@ -154,6 +177,9 @@ class SqliteControlEngineStoreTest(unittest.TestCase):
             self.assertEqual(revision, 2)
             self.assertEqual(loaded, tuned_config())
             self.assertEqual(loaded.policy.tuning.tacho_failure_confirmation_seconds, 5.0)
+            self.assertEqual(loaded.policy.tuning.tacho_fault_fallback("SUPPLY"), (11.0, 61.0))
+            self.assertEqual(loaded.policy.tuning.tacho_fault_fallback("EXTRACT"), (62.0, 12.0))
+            self.assertEqual(loaded.policy.tuning.tacho_fault_fallback("BOTH"), (33.0, 44.0))
             reopened.close()
 
     def test_control_engine_and_calendar_share_automation_db_without_collision(self) -> None:
