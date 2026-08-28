@@ -64,9 +64,18 @@ class ShadowOutputTuning:
 
     # TACHO supervision is independently tunable. None means the system can expose
     # that feedback is required but must not invent a spin-up / loss confirmation
-    # interval. Emergency action after confirmed loss is intentionally a later,
-    # separately validated policy and is not encoded here yet.
+    # interval.
     tacho_failure_confirmation_seconds: float | None = None
+
+    # Channel-specific TACHO fallback is explicit for every failure mask. No
+    # combination rule is inferred: supply-only, extract-only and both-channel
+    # failure each require their own validated pair of logical fan percentages.
+    tacho_supply_fault_fallback_supply_pct: float | None = None
+    tacho_supply_fault_fallback_extract_pct: float | None = None
+    tacho_extract_fault_fallback_supply_pct: float | None = None
+    tacho_extract_fault_fallback_extract_pct: float | None = None
+    tacho_both_fault_fallback_supply_pct: float | None = None
+    tacho_both_fault_fallback_extract_pct: float | None = None
 
     def __post_init__(self) -> None:
         percentage_fields = (
@@ -81,6 +90,12 @@ class ShadowOutputTuning:
             "extract_bias_pct",
             "sensor_fallback_supply_pct",
             "sensor_fallback_extract_pct",
+            "tacho_supply_fault_fallback_supply_pct",
+            "tacho_supply_fault_fallback_extract_pct",
+            "tacho_extract_fault_fallback_supply_pct",
+            "tacho_extract_fault_fallback_extract_pct",
+            "tacho_both_fault_fallback_supply_pct",
+            "tacho_both_fault_fallback_extract_pct",
         )
         for name in percentage_fields:
             value = getattr(self, name)
@@ -160,6 +175,28 @@ class ShadowOutputTuning:
                 "Fan sensor fallback requires both supply and extract percentages"
             )
 
+        tacho_pairs = {
+            "supply": (
+                self.tacho_supply_fault_fallback_supply_pct,
+                self.tacho_supply_fault_fallback_extract_pct,
+            ),
+            "extract": (
+                self.tacho_extract_fault_fallback_supply_pct,
+                self.tacho_extract_fault_fallback_extract_pct,
+            ),
+            "both": (
+                self.tacho_both_fault_fallback_supply_pct,
+                self.tacho_both_fault_fallback_extract_pct,
+            ),
+        }
+        for failure_mask, pair in tacho_pairs.items():
+            if any(value is not None for value in pair) and not all(
+                value is not None for value in pair
+            ):
+                raise ValueError(
+                    f"TACHO {failure_mask} fault fallback requires both supply and extract percentages"
+                )
+
     @property
     def fan_outputs_configured(self) -> bool:
         values = (
@@ -217,6 +254,47 @@ class ShadowOutputTuning:
     @property
     def tacho_confirmation_configured(self) -> bool:
         return self.tacho_failure_confirmation_seconds is not None
+
+    @property
+    def tacho_supply_fault_fallback_configured(self) -> bool:
+        return (
+            self.tacho_supply_fault_fallback_supply_pct is not None
+            and self.tacho_supply_fault_fallback_extract_pct is not None
+        )
+
+    @property
+    def tacho_extract_fault_fallback_configured(self) -> bool:
+        return (
+            self.tacho_extract_fault_fallback_supply_pct is not None
+            and self.tacho_extract_fault_fallback_extract_pct is not None
+        )
+
+    @property
+    def tacho_both_fault_fallback_configured(self) -> bool:
+        return (
+            self.tacho_both_fault_fallback_supply_pct is not None
+            and self.tacho_both_fault_fallback_extract_pct is not None
+        )
+
+    def tacho_fault_fallback(self, failure_mask: str) -> tuple[float, float] | None:
+        mapping = {
+            "SUPPLY": (
+                self.tacho_supply_fault_fallback_supply_pct,
+                self.tacho_supply_fault_fallback_extract_pct,
+            ),
+            "EXTRACT": (
+                self.tacho_extract_fault_fallback_supply_pct,
+                self.tacho_extract_fault_fallback_extract_pct,
+            ),
+            "BOTH": (
+                self.tacho_both_fault_fallback_supply_pct,
+                self.tacho_both_fault_fallback_extract_pct,
+            ),
+        }
+        pair = mapping.get(failure_mask)
+        if pair is None or pair[0] is None or pair[1] is None:
+            return None
+        return float(pair[0]), float(pair[1])
 
     @property
     def complete(self) -> bool:
