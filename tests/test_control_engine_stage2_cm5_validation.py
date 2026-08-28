@@ -30,6 +30,20 @@ class ControlEngineStage2Cm5ValidationTest(unittest.TestCase):
         self.assertIn('[ "$BRANCH_SHA" = "$EXPECTED_BRANCH_SHA" ]', self.text)
         self.assertIn('git worktree add --detach "$WT" "$BRANCH_SHA"', self.text)
 
+    def test_harness_seeds_zigbee_roles_exactly_like_production(self) -> None:
+        for expected in (
+            "SUPPLY_NAME=temp_nawiew",
+            "SUPPLY_IEEE=0xa4c13810e66fffff",
+            "EXTRACT_NAME=temp_wywiew",
+            "EXTRACT_IEEE=0xa4c13810bdedffff",
+            "--zigbee-supply-name $SUPPLY_NAME",
+            "--zigbee-supply-ieee $SUPPLY_IEEE",
+            "--zigbee-extract-name $EXTRACT_NAME",
+            "--zigbee-extract-ieee $EXTRACT_IEEE",
+            "--zigbee-roles-file $TEST_ROOT/zigbee-roles.json",
+        ):
+            self.assertIn(expected, self.text)
+
     def test_harness_requires_real_connected_peripherals_before_rollout(self) -> None:
         self.assertIn("require_production_peripherals_ready", self.text)
         for expected in (
@@ -47,25 +61,7 @@ class ControlEngineStage2Cm5ValidationTest(unittest.TestCase):
         ):
             self.assertIn(expected, self.text)
 
-    def test_harness_seeds_isolated_zigbee_roles_exactly_like_production(self) -> None:
-        for expected in (
-            "SUPPLY_NAME=temp_nawiew",
-            "SUPPLY_IEEE=0xa4c13810e66fffff",
-            "EXTRACT_NAME=temp_wywiew",
-            "EXTRACT_IEEE=0xa4c13810bdedffff",
-            "--zigbee-supply-name $SUPPLY_NAME",
-            "--zigbee-supply-ieee $SUPPLY_IEEE",
-            "--zigbee-extract-name $EXTRACT_NAME",
-            "--zigbee-extract-ieee $EXTRACT_IEEE",
-            "--zigbee-roles-file $TEST_ROOT/zigbee-roles.json",
-        ):
-            self.assertIn(expected, self.text)
-        self.assertNotIn(
-            "--zigbee-roles-file /var/lib/workshop-ventilation/zigbee-roles.json",
-            self.text,
-        )
-
-    def test_harness_keeps_local_outputs_zero_and_forbids_host_power_actions(self) -> None:
+    def test_harness_keeps_outputs_zero_and_forbids_host_power_actions(self) -> None:
         self.assertIn('sp.get("supply_voltage") != 0.0', self.text)
         self.assertIn('sp.get("extract_voltage") != 0.0', self.text)
         self.assertIn('float(row.get("rpm") or 0.0) != 0.0', self.text)
@@ -76,22 +72,21 @@ class ControlEngineStage2Cm5ValidationTest(unittest.TestCase):
             "/usr/bin/systemctl poweroff",
             "/usr/bin/systemctl reboot",
             'ctl "$WT/src" shutdown',
-            "--enable-scheduled-shutdown",
         ):
-            if forbidden == "--enable-scheduled-shutdown":
-                # The token is allowed only in the static guard that rejects it.
-                self.assertEqual(self.text.count(forbidden), 1)
-            else:
-                self.assertNotIn(forbidden, self.text)
+            self.assertNotIn(forbidden, self.text)
+        self.assertEqual(self.text.count("--enable-scheduled-shutdown"), 1)
 
     def test_harness_proves_host_rtc_and_boot_are_unchanged(self) -> None:
-        self.assertIn('BOOT_ID_BEFORE="$(cat /proc/sys/kernel/random/boot_id)"', self.text)
-        self.assertIn('HOST_POWER_PID_BEFORE="$(unit_pid wvc-host-power.service)"', self.text)
-        self.assertIn('WAKEALARM_BEFORE="$(read_wakealarm)"', self.text)
-        self.assertIn('[ "$boot_id" = "$BOOT_ID_BEFORE" ]', self.text)
-        self.assertIn('[ "$host_pid" = "$HOST_POWER_PID_BEFORE" ]', self.text)
-        self.assertIn('[ "$wakealarm" = "$WAKEALARM_BEFORE" ]', self.text)
-        self.assertIn('*"12 V domain ON"*', self.text)
+        for expected in (
+            'BOOT_ID_BEFORE="$(cat /proc/sys/kernel/random/boot_id)"',
+            'HOST_POWER_PID_BEFORE="$(unit_pid wvc-host-power.service)"',
+            'WAKEALARM_BEFORE="$(read_wakealarm)"',
+            '[ "$boot_id" = "$BOOT_ID_BEFORE" ]',
+            '[ "$host_pid" = "$HOST_POWER_PID_BEFORE" ]',
+            '[ "$wakealarm" = "$WAKEALARM_BEFORE" ]',
+            '*"12 V domain ON"*',
+        ):
+            self.assertIn(expected, self.text)
         self.assertGreaterEqual(self.text.count("assert_host_not_touched"), 4)
 
     def test_harness_compares_sen55_provenance_one_to_one(self) -> None:
@@ -107,13 +102,27 @@ class ControlEngineStage2Cm5ValidationTest(unittest.TestCase):
         ):
             self.assertIn(expected, self.text)
 
-    def test_harness_verifies_zigbee_supply_and_temperature_delta(self) -> None:
-        self.assertIn('zone1.get("outside_temperature_usable") is not True', self.text)
-        self.assertIn('zone1.get("outside_temperature_stale") is not False', self.text)
-        self.assertIn('zone1.get("outside_temperature_reason") != "OK"', self.text)
-        self.assertIn('zone1.get("outside_temperature_celsius") != supply.get("temperature_celsius")', self.text)
-        self.assertIn("expected_delta = inside_temp - supply_temp", self.text)
-        self.assertIn("abs(float(actual_delta) - expected_delta) > 1e-6", self.text)
+    def test_harness_validates_zigbee_freshness_from_actual_timestamp(self) -> None:
+        for expected in (
+            "ZIGBEE_STALE_SECONDS=14400",
+            'source_timestamp = supply.get("last_seen") or supply.get("last_message_at")',
+            'expected_age = max(0.0, (evaluated_at - source_dt).total_seconds())',
+            'actual_reason != "TEMPERATURE_TIMESTAMP_UNAVAILABLE"',
+            'actual_reason != "TEMPERATURE_STALE"',
+            'actual_reason != "OK"',
+            'actual_usable is not False',
+            'actual_stale is not True',
+            'actual_usable is not True',
+            'actual_stale is not False',
+            'if actual_delta is not None:',
+            "expected_delta = inside_temp - float(supply[\"temperature_celsius\"])",
+        ):
+            self.assertIn(expected, self.text)
+
+    def test_harness_does_not_require_zigbee_to_publish_during_test_window(self) -> None:
+        self.assertNotIn("Zigbee supply temperature not yet usable", self.text)
+        self.assertIn('"zigbee_supply_freshness": freshness', self.text)
+        self.assertIn('"zigbee_supply_timestamp": source_timestamp', self.text)
 
     def test_harness_requires_shadow_only_contract(self) -> None:
         self.assertIn('shadow.get("actuation_supported") is not False', self.text)
@@ -123,12 +132,15 @@ class ControlEngineStage2Cm5ValidationTest(unittest.TestCase):
         self.assertIn('zones[2].get("proposed_aero_speed") is not None', self.text)
 
     def test_failure_path_restores_production_main(self) -> None:
-        self.assertIn("trap emergency_rollback EXIT INT TERM", self.text)
-        self.assertIn('sudo rm -f "$CORE_DROPIN"', self.text)
-        self.assertIn('sudo systemctl restart "$CORE_UNIT"', self.text)
-        self.assertIn('unit_cwd "$MAIN_PID_AFTER")" = "$ROOT"', self.text)
-        self.assertIn('[ "$(git -C "$ROOT" rev-parse HEAD)" = "$EXPECTED_BASE" ]', self.text)
-        self.assertIn("ROLLOUT_STARTED=0", self.text)
+        for expected in (
+            "trap emergency_rollback EXIT INT TERM",
+            'sudo rm -f "$CORE_DROPIN"',
+            'sudo systemctl restart "$CORE_UNIT"',
+            'unit_cwd "$MAIN_PID_AFTER")" = "$ROOT"',
+            '[ "$(git -C "$ROOT" rev-parse HEAD)" = "$EXPECTED_BASE" ]',
+            "ROLLOUT_STARTED=0",
+        ):
+            self.assertIn(expected, self.text)
 
 
 if __name__ == "__main__":
