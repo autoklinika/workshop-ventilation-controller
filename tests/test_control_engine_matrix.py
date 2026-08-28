@@ -202,7 +202,14 @@ class ControlEngineMatrixTest(unittest.TestCase):
             else:
                 self.assertTrue(fan["outside_temperature_usable"], case["case_id"])
                 self.assertEqual(fan["outside_temperature_reason"], "OK", case["case_id"])
-                self.assertIsNotNone(fan["temperature_delta_celsius"], case["case_id"])
+                if fault_id in FAN_SENSOR_LOSS:
+                    self.assertIsNone(
+                        fan["temperature_delta_celsius"], case["case_id"]
+                    )
+                else:
+                    self.assertIsNotNone(
+                        fan["temperature_delta_celsius"], case["case_id"]
+                    )
 
     def test_zigbee_context_faults_do_not_change_v1_control_request(self) -> None:
         cases = {
