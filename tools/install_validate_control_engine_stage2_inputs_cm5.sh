@@ -41,18 +41,9 @@ assert_host_not_touched() {
     boot_id="$(cat /proc/sys/kernel/random/boot_id)"
     host_pid="$(unit_pid wvc-host-power.service)"
     wakealarm="$(read_wakealarm)"
-    [ "$boot_id" = "$BOOT_ID_BEFORE" ] || {
-        echo "FAIL: $label: boot_id changed unexpectedly" >&2
-        exit 1
-    }
-    [ "$host_pid" = "$HOST_POWER_PID_BEFORE" ] || {
-        echo "FAIL: $label: wvc-host-power PID changed unexpectedly" >&2
-        exit 1
-    }
-    [ "$wakealarm" = "$WAKEALARM_BEFORE" ] || {
-        echo "FAIL: $label: RTC wakealarm changed unexpectedly" >&2
-        exit 1
-    }
+    [ "$boot_id" = "$BOOT_ID_BEFORE" ] || { echo "FAIL: $label: boot_id changed" >&2; exit 1; }
+    [ "$host_pid" = "$HOST_POWER_PID_BEFORE" ] || { echo "FAIL: $label: host-power PID changed" >&2; exit 1; }
+    [ "$wakealarm" = "$WAKEALARM_BEFORE" ] || { echo "FAIL: $label: RTC wakealarm changed" >&2; exit 1; }
     status_text="$(systemctl show wvc-host-power.service -p StatusText --value)"
     case "$status_text" in
         *"12 V domain ON"*) ;;
@@ -61,7 +52,7 @@ assert_host_not_touched() {
     echo "PASS: $label: same boot, same host-power PID, unchanged RTC, 12 V domain ON"
 }
 
-require_zero_local_outputs() {
+require_zero_output_guard() {
     local src="$1"
     local label="$2"
     local json
@@ -78,21 +69,63 @@ state = doc.get("state") or {}
 sp = state.get("setpoints") or {}
 if sp.get("supply_voltage") != 0.0 or sp.get("extract_voltage") != 0.0:
     raise SystemExit(f"FAIL: {label}: logical EC setpoints are not 0 V: {sp!r}")
-if state.get("mode") != "STOP":
-    raise SystemExit(f"FAIL: {label}: expected STOP mode, got {state.get('mode')!r}")
-if state.get("hardware_ready") is not True:
-    raise SystemExit(f"FAIL: {label}: hardware_ready is not true")
-if state.get("output_state_known") is not True:
-    raise SystemExit(f"FAIL: {label}: output_state_known is not true")
-for alarm in state.get("active_alarms") or []:
-    if alarm.get("severity") == "critical":
-        raise SystemExit(f"FAIL: {label}: critical alarm active: {alarm!r}")
 tacho = state.get("tacho") or {}
 for channel in ("supply", "extract"):
     row = tacho.get(channel)
     if isinstance(row, dict) and float(row.get("rpm") or 0.0) != 0.0:
         raise SystemExit(f"FAIL: {label}: {channel} TACHO reports motion: {row!r}")
-print(f"PASS: {label}: hardware ready, STOP, logical EC=0 V, no critical alarms, no fan motion")
+print(f"PASS: {label}: logical EC=0 V and no observed local fan motion")
+PY
+}
+
+require_production_peripherals_ready() {
+    local json
+    json="$(ctl "$ROOT/src" status)"
+    /usr/bin/python3 - "$json" <<'PY'
+import json
+import math
+import sys
+
+state = (json.loads(sys.argv[1]).get("state") or {})
+if state.get("hardware_ready") is not True or state.get("output_state_known") is not True:
+    raise SystemExit("FAIL: connect local DAC/hardware and ensure hardware_ready/output_state_known")
+
+sensor_bus = state.get("sensor_bus") or {}
+if sensor_bus.get("ready") is not True or sensor_bus.get("worker_alive") is not True:
+    raise SystemExit("FAIL: SEN55 bus is not ready")
+nodes = {row.get("slave_address"): row for row in sensor_bus.get("nodes") or [] if isinstance(row, dict)}
+for address in (1, 2):
+    node = nodes.get(address)
+    if not node or not (
+        node.get("online") is True
+        and node.get("usable") is True
+        and node.get("measurement_valid") is True
+        and node.get("measurement_stale") is False
+    ):
+        raise SystemExit(f"FAIL: SEN55 node {address} is not fresh/usable")
+
+zigbee = state.get("zigbee") or {}
+if not (zigbee.get("running") is True and zigbee.get("connected") is True and zigbee.get("bridge_online") is True):
+    raise SystemExit("FAIL: Zigbee MQTT/bridge is not healthy")
+devices = {row.get("role"): row for row in zigbee.get("devices") or [] if isinstance(row, dict)}
+for role in ("supply", "extract"):
+    row = devices.get(role)
+    if not row or row.get("available") is False:
+        raise SystemExit(f"FAIL: Zigbee {role} role is missing/offline")
+    value = row.get("temperature_celsius")
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise SystemExit(f"FAIL: Zigbee {role} temperature is unavailable")
+
+aero = state.get("aero_bus") or {}
+if not (
+    aero.get("ready") is True
+    and aero.get("worker_alive") is True
+    and aero.get("online") is True
+    and aero.get("usable") is True
+):
+    raise SystemExit("FAIL: AERO is not ready/online/usable")
+
+print("PASS: production peripherals ready: DAC + SEN55[1,2] + AERO + Zigbee supply/extract")
 PY
 }
 
@@ -104,15 +137,18 @@ import math
 import sys
 
 state = (json.loads(sys.argv[1]).get("state") or {})
+if state.get("mode") != "STOP":
+    raise SystemExit(f"WAIT: expected STOP mode, got {state.get('mode')!r}")
+if state.get("hardware_ready") is not True or state.get("output_state_known") is not True:
+    raise SystemExit("WAIT: hardware not ready/output state unknown")
+for alarm in state.get("active_alarms") or []:
+    if alarm.get("severity") == "critical":
+        raise SystemExit(f"WAIT: critical alarm active: {alarm.get('code')!r}")
 
 sensor_bus = state.get("sensor_bus") or {}
 if sensor_bus.get("ready") is not True or sensor_bus.get("worker_alive") is not True:
     raise SystemExit("WAIT: SEN55 bus not ready")
-nodes = {
-    row.get("slave_address"): row
-    for row in (sensor_bus.get("nodes") or [])
-    if isinstance(row, dict)
-}
+nodes = {row.get("slave_address"): row for row in sensor_bus.get("nodes") or [] if isinstance(row, dict)}
 for address in (1, 2):
     node = nodes.get(address)
     if not node:
@@ -143,11 +179,7 @@ if not (
     raise SystemExit("WAIT: AERO is not ready/online/usable")
 
 zigbee = state.get("zigbee") or {}
-if not (
-    zigbee.get("running") is True
-    and zigbee.get("connected") is True
-    and zigbee.get("bridge_online") is True
-):
+if not (zigbee.get("running") is True and zigbee.get("connected") is True and zigbee.get("bridge_online") is True):
     raise SystemExit("WAIT: Zigbee MQTT/bridge not healthy")
 devices = {
     row.get("role"): row
@@ -171,11 +203,7 @@ if shadow.get("configuration_persistent") is not True:
     raise SystemExit("WAIT: persistent Control Engine configuration not active")
 if shadow.get("status") not in {"TUNING_REQUIRED", "READY"}:
     raise SystemExit(f"WAIT: shadow status is {shadow.get('status')!r}")
-zones = {
-    row.get("sensor_address"): row
-    for row in (shadow.get("zones") or [])
-    if isinstance(row, dict)
-}
+zones = {row.get("sensor_address"): row for row in shadow.get("zones") or [] if isinstance(row, dict)}
 
 pairs = {
     "sensor_pm2_5_ug_m3": "pm2_5_ug_m3",
@@ -195,7 +223,7 @@ for address in (1, 2):
         and zone.get("sensor_measurement_valid") is True
         and zone.get("sensor_measurement_stale") is False
     ):
-        raise SystemExit(f"FAIL: shadow provenance flags mismatch for SEN55 {address}: {zone!r}")
+        raise SystemExit(f"FAIL: shadow provenance flags mismatch for SEN55 {address}")
     if zone.get("sensor_age_seconds") != node.get("age_seconds"):
         raise SystemExit(f"FAIL: SEN55 {address} age mismatch")
     if zone.get("sensor_last_success_at") != node.get("last_success_at"):
@@ -204,8 +232,7 @@ for address in (1, 2):
     for shadow_field, sensor_field in pairs.items():
         if zone.get(shadow_field) != reading.get(sensor_field):
             raise SystemExit(
-                f"FAIL: SEN55 {address} {shadow_field}={zone.get(shadow_field)!r} "
-                f"!= sensor {reading.get(sensor_field)!r}"
+                f"FAIL: SEN55 {address} {shadow_field}={zone.get(shadow_field)!r} != {reading.get(sensor_field)!r}"
             )
     if zone.get("inside_temperature_celsius") != reading.get("temperature_celsius"):
         raise SystemExit(f"FAIL: SEN55 {address} consumed temperature mismatch")
@@ -219,7 +246,7 @@ zone1 = zones[1]
 supply = devices["supply"]
 supply_temp = float(supply["temperature_celsius"])
 if zone1.get("outside_temperature_usable") is not True:
-    raise SystemExit(f"WAIT: Zigbee supply temperature not yet usable: {zone1!r}")
+    raise SystemExit("WAIT: Zigbee supply temperature not yet usable")
 if zone1.get("outside_temperature_stale") is not False:
     raise SystemExit("WAIT: Zigbee supply temperature marked stale")
 if zone1.get("outside_temperature_reason") != "OK":
@@ -230,9 +257,7 @@ inside_temp = float(nodes[1]["reading"]["temperature_celsius"])
 expected_delta = inside_temp - supply_temp
 actual_delta = zone1.get("temperature_delta_celsius")
 if actual_delta is None or abs(float(actual_delta) - expected_delta) > 1e-6:
-    raise SystemExit(
-        f"FAIL: temperature delta mismatch: actual={actual_delta!r}, expected={expected_delta!r}"
-    )
+    raise SystemExit(f"FAIL: temperature delta mismatch: actual={actual_delta!r}, expected={expected_delta!r}")
 
 if zone1.get("proposed_aero_speed") is not None:
     raise SystemExit("FAIL: fan zone unexpectedly proposes AERO speed")
@@ -268,7 +293,6 @@ wait_for_real_inputs() {
     done
     echo "FAIL: real-input readiness/SHADOW mapping did not validate" >&2
     cat "$result_file" >&2 || true
-    cat "$status_json" >&2 || true
     return 1
 }
 
@@ -308,10 +332,7 @@ echo "===== CONTROL ENGINE V1 STAGE2 REAL INPUTS / SHADOW VALIDATION ====="
 echo "REQUIRED: DAC + both SEN55 + AERO + Zigbee coordinator + supply/extract temperature sensors connected"
 cd "$ROOT"
 
-[ -n "$EXPECTED_BRANCH_SHA" ] || {
-    echo "FAIL: CONTROL_ENGINE_STAGE2_EXPECTED_BRANCH_SHA must pin exact CI-tested branch commit" >&2
-    exit 1
-}
+[ -n "$EXPECTED_BRANCH_SHA" ] || { echo "FAIL: CONTROL_ENGINE_STAGE2_EXPECTED_BRANCH_SHA is required" >&2; exit 1; }
 [ "$(git branch --show-current)" = "main" ] || { echo "FAIL: production checkout is not main" >&2; exit 1; }
 [ -z "$(git status --short)" ] || { echo "FAIL: production main is dirty" >&2; exit 1; }
 [ "$(git rev-parse HEAD)" = "$EXPECTED_BASE" ] || { echo "FAIL: local main differs from expected production base" >&2; exit 1; }
@@ -324,6 +345,8 @@ MAIN_PID_BEFORE="$(unit_pid "$CORE_UNIT")"
 BOOT_ID_BEFORE="$(cat /proc/sys/kernel/random/boot_id)"
 HOST_POWER_PID_BEFORE="$(unit_pid wvc-host-power.service)"
 WAKEALARM_BEFORE="$(read_wakealarm)"
+require_zero_output_guard "$ROOT/src" "production preflight"
+require_production_peripherals_ready
 assert_host_not_touched "preflight"
 
 echo "===== FETCH PINNED CONTROL ENGINE SOURCES ====="
@@ -363,12 +386,12 @@ sleep 6
 systemctl is-active --quiet "$CORE_UNIT" || { echo "FAIL: branch core did not become active" >&2; exit 1; }
 BRANCH_PID="$(unit_pid "$CORE_UNIT")"
 [ "$(unit_cwd "$BRANCH_PID")" = "$WT" ] || { echo "FAIL: branch core not running from pinned worktree" >&2; exit 1; }
-require_zero_local_outputs "$WT/src" "branch runtime"
-assert_host_not_touched "branch runtime"
+require_zero_output_guard "$WT/src" "branch startup"
+assert_host_not_touched "branch startup"
 
 echo "===== WAIT FOR REAL SEN55 + AERO + ZIGBEE INPUTS AND VERIFY SHADOW MAPPING ====="
 wait_for_real_inputs "$WT/src"
-require_zero_local_outputs "$WT/src" "after real-input validation"
+require_zero_output_guard "$WT/src" "after real-input validation"
 assert_host_not_touched "after real-input validation"
 
 echo "===== RESTORE PRODUCTION MAIN ====="
@@ -381,6 +404,7 @@ MAIN_PID_AFTER="$(unit_pid "$CORE_UNIT")"
 [ "$(unit_cwd "$MAIN_PID_AFTER")" = "$ROOT" ] || { echo "FAIL: production core not running from main after restore" >&2; exit 1; }
 [ "$(git -C "$ROOT" rev-parse HEAD)" = "$EXPECTED_BASE" ] || { echo "FAIL: production main HEAD changed" >&2; exit 1; }
 [ -z "$(git -C "$ROOT" status --short)" ] || { echo "FAIL: production main became dirty" >&2; exit 1; }
+require_zero_output_guard "$ROOT/src" "restored production main"
 assert_host_not_touched "final production main"
 
 ROLLOUT_STARTED=0
