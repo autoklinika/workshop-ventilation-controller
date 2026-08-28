@@ -38,6 +38,13 @@ class ShadowZoneProposal:
     schedule_extract_pct: float | None = None
     schedule_request_source: str | None = None
 
+    operator_mode: str = "AUTO"
+    operator_manual_supply_pct: float | None = None
+    operator_manual_extract_pct: float | None = None
+    operator_manual_aero_speed: int | None = None
+    operator_override: bool = False
+    operator_override_reason: str | None = None
+
     raw_air_quality_level: str | None = None
     raw_air_quality_driver: str | None = None
     air_quality_level: str | None = None
@@ -98,6 +105,12 @@ class ShadowZoneProposal:
             "schedule_supply_pct": self.schedule_supply_pct,
             "schedule_extract_pct": self.schedule_extract_pct,
             "schedule_request_source": self.schedule_request_source,
+            "operator_mode": self.operator_mode,
+            "operator_manual_supply_pct": self.operator_manual_supply_pct,
+            "operator_manual_extract_pct": self.operator_manual_extract_pct,
+            "operator_manual_aero_speed": self.operator_manual_aero_speed,
+            "operator_override": self.operator_override,
+            "operator_override_reason": self.operator_override_reason,
             "raw_air_quality_level": self.raw_air_quality_level,
             "raw_air_quality_driver": self.raw_air_quality_driver,
             "air_quality_level": self.air_quality_level,
@@ -146,6 +159,12 @@ class ShadowAutomationState:
     tuning_complete: bool = False
     configuration_revision: int | None = None
     configuration_persistent: bool = False
+    operator_mode: str = "AUTO"
+    operator_manual_supply_pct: float | None = None
+    operator_manual_extract_pct: float | None = None
+    operator_manual_aero_speed: int | None = None
+    operator_intent_revision: int | None = None
+    operator_intent_persistent: bool = False
     last_error: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -158,6 +177,12 @@ class ShadowAutomationState:
             "tuning_complete": self.tuning_complete,
             "configuration_revision": self.configuration_revision,
             "configuration_persistent": self.configuration_persistent,
+            "operator_mode": self.operator_mode,
+            "operator_manual_supply_pct": self.operator_manual_supply_pct,
+            "operator_manual_extract_pct": self.operator_manual_extract_pct,
+            "operator_manual_aero_speed": self.operator_manual_aero_speed,
+            "operator_intent_revision": self.operator_intent_revision,
+            "operator_intent_persistent": self.operator_intent_persistent,
             "zones": [zone.to_dict() for zone in self.zones],
             "last_error": self.last_error,
         }
