@@ -21,7 +21,18 @@ class ShadowAlertingVentilationService(ZigbeeAlertingVentilationService):
         super().__init__(*args, **kwargs)
 
     def _with_system_alerts(self, state: CoreState) -> CoreState:
-        authoritative = super()._with_system_alerts(state)
+        # AlertingVentilationService invokes this hook before the Zigbee decorator
+        # attaches its telemetry.  Do not evaluate SHADOW here: doing so would
+        # make shadow_automation observe a different (or missing) Zigbee snapshot
+        # from the one eventually serialized in CoreState.
+        return super()._with_system_alerts(state)
+
+    def _with_zigbee(self, state: CoreState) -> CoreState:
+        # Build one authoritative state first, then evaluate SHADOW from exactly
+        # that same Zigbee snapshot.  The returned CoreState and shadow telemetry
+        # therefore cannot disagree merely because an MQTT update arrived between
+        # two independent Zigbee reads.
+        authoritative = super()._with_zigbee(state)
         shadow = self._shadow_evaluator.evaluate(authoritative)
         return replace(authoritative, shadow_automation=shadow)
 
