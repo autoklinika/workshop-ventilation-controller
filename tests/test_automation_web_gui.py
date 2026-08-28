@@ -113,6 +113,8 @@ class AutomationWebApiTest(unittest.TestCase):
         self.assertEqual(ledger["completed"], 1)
         self.assertEqual(ledger["total"], 9)
         self.assertFalse(ledger["default_runtime_binding"])
+        self.assertFalse(ledger["ready_for_actuation_preconditions"])
+        self.assertEqual(len(ledger["readiness_blockers"]), 8)
         satisfied = [group["id"] for group in ledger["groups"] if group["satisfied"]]
         self.assertEqual(satisfied, ["tacho_confirmation"])
         self.assertEqual(core.requests, [])
@@ -155,7 +157,7 @@ class AutomationStaticContractTest(unittest.TestCase):
             self.assertIn(f'data-automation-tab="{tab}"', self.html)
             self.assertIn(f'data-automation-panel="{tab}"', self.html)
         self.assertIn("TRYB TESTOWY / SHADOW", self.html)
-        self.assertIn("Nie steruje", self.html)
+        self.assertIn("nie steruje fizycznymi wyjściami", self.html)
 
     def test_schedule_reuses_existing_calendar_contract(self):
         required_ids = (
@@ -216,20 +218,20 @@ class AutomationStaticContractTest(unittest.TestCase):
         for token in forbidden:
             self.assertNotIn(token, self.js)
 
-    def test_tuning_source_profile_is_still_one_of_nine_and_unbound(self):
+    def test_tuning_source_profile_is_still_one_of_nine_with_only_tacho_physical(self):
         ledger = json.loads(
             (ROOT / "config" / "control-engine-tuning-validation-v1.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertFalse(ledger["default_runtime_binding"])
+        self.assertEqual(ledger["schema_version"], 1)
         groups = ledger["groups"]
         self.assertEqual(len(groups), 9)
-        self.assertEqual(groups["tacho_confirmation"]["current_level"], "PHYSICAL_VALIDATED")
+        self.assertEqual(groups["tacho_confirmation"]["level"], "PHYSICAL_VALIDATED")
         for group_id, group in groups.items():
             if group_id == "tacho_confirmation":
                 continue
-            self.assertNotEqual(group["current_level"], "WORKSHOP_VALIDATED")
+            self.assertNotEqual(group["level"], "WORKSHOP_VALIDATED")
 
 
 if __name__ == "__main__":
