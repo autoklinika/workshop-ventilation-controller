@@ -51,6 +51,10 @@ SAFETY_FAULTS = {
 }
 FAN_SENSOR_LOSS = {"sensor1_loss", "both_sensor_loss", "sensor1_loss_critical"}
 AERO_SENSOR_LOSS = {"sensor2_loss", "both_sensor_loss"}
+ZIGBEE_CONTEXT_FAULTS = {
+    "zigbee_supply_stale": ("TEMPERATURE_STALE", True),
+    "zigbee_supply_offline": ("ZIGBEE_DEVICE_OFFLINE", False),
+}
 
 
 def load_matrix() -> dict:
@@ -76,11 +80,11 @@ class ControlEngineMatrixTest(unittest.TestCase):
             self.result["dimensions"],
             ["calendar", "air_quality", "temperature", "fault"],
         )
-        self.assertEqual(self.result["case_count"], 6 * 4 * 4 * 8)
-        self.assertEqual(len(self.result["cases"]), 768)
+        self.assertEqual(self.result["case_count"], 6 * 4 * 4 * 10)
+        self.assertEqual(len(self.result["cases"]), 960)
         self.assertEqual(
             len({case["case_id"] for case in self.result["cases"]}),
-            768,
+            960,
         )
 
     def test_every_case_remains_strictly_non_actuating(self) -> None:
@@ -90,7 +94,7 @@ class ControlEngineMatrixTest(unittest.TestCase):
                 self.assertIsNone(row["proposed_supply_voltage"], case["case_id"])
                 self.assertIsNone(row["proposed_extract_voltage"], case["case_id"])
 
-    def test_all_768_cases_follow_cross_domain_priority_rules(self) -> None:
+    def test_all_960_cases_follow_cross_domain_priority_rules(self) -> None:
         for case in self.result["cases"]:
             selected = case["selection"]
             calendar_id = selected["calendar"]
@@ -102,7 +106,9 @@ class ControlEngineMatrixTest(unittest.TestCase):
             aero = zone(case, 2)
 
             if fault_id in SAFETY_FAULTS:
-                self.assertEqual(case["shadow"]["status"], "BLOCKED_SAFETY", case["case_id"])
+                self.assertEqual(
+                    case["shadow"]["status"], "BLOCKED_SAFETY", case["case_id"]
+                )
                 for row in (fan, aero):
                     self.assertTrue(row["safety_override"], case["case_id"])
                     self.assertEqual(row["automation_state"], "FAULT", case["case_id"])
@@ -132,8 +138,12 @@ class ControlEngineMatrixTest(unittest.TestCase):
                     self.assertEqual(fan["final_extract_pct"], 0.0, case["case_id"])
             else:
                 self.assertTrue(fan["sensor_usable"], case["case_id"])
-                self.assertEqual(fan["air_quality_level"], AIR_LEVEL[aq_id], case["case_id"])
-                self.assertEqual(fan["thermal_band"], THERMAL_BAND[temp_id], case["case_id"])
+                self.assertEqual(
+                    fan["air_quality_level"], AIR_LEVEL[aq_id], case["case_id"]
+                )
+                self.assertEqual(
+                    fan["thermal_band"], THERMAL_BAND[temp_id], case["case_id"]
+                )
                 request = AIR_REQUEST[aq_id]
                 if aq_id == "normal":
                     if not active:
@@ -158,8 +168,12 @@ class ControlEngineMatrixTest(unittest.TestCase):
                         temp_id != "normal",
                         case["case_id"],
                     )
-                self.assertEqual(fan["final_supply_pct"], expected_supply, case["case_id"])
-                self.assertEqual(fan["final_extract_pct"], expected_extract, case["case_id"])
+                self.assertEqual(
+                    fan["final_supply_pct"], expected_supply, case["case_id"]
+                )
+                self.assertEqual(
+                    fan["final_extract_pct"], expected_extract, case["case_id"]
+                )
 
             if fault_id in AERO_SENSOR_LOSS:
                 self.assertFalse(aero["sensor_usable"], case["case_id"])
@@ -174,6 +188,49 @@ class ControlEngineMatrixTest(unittest.TestCase):
                 self.assertTrue(aero["sensor_usable"], case["case_id"])
                 self.assertEqual(aero["air_quality_level"], "NORMAL", case["case_id"])
                 self.assertEqual(aero["proposed_aero_speed"], 0, case["case_id"])
+
+            if fault_id in ZIGBEE_CONTEXT_FAULTS:
+                reason, stale = ZIGBEE_CONTEXT_FAULTS[fault_id]
+                self.assertFalse(fan["outside_temperature_usable"], case["case_id"])
+                self.assertEqual(
+                    fan["outside_temperature_reason"], reason, case["case_id"]
+                )
+                self.assertEqual(
+                    fan["outside_temperature_stale"], stale, case["case_id"]
+                )
+                self.assertIsNone(fan["temperature_delta_celsius"], case["case_id"])
+            else:
+                self.assertTrue(fan["outside_temperature_usable"], case["case_id"])
+                self.assertEqual(fan["outside_temperature_reason"], "OK", case["case_id"])
+                self.assertIsNotNone(fan["temperature_delta_celsius"], case["case_id"])
+
+    def test_zigbee_context_faults_do_not_change_v1_control_request(self) -> None:
+        cases = {
+            tuple(case["selection"][name] for name in self.result["dimensions"]): case
+            for case in self.result["cases"]
+        }
+        for calendar_id in CALENDAR:
+            for aq_id in AIR_REQUEST:
+                for temp_id in THERMAL_LIMIT:
+                    baseline = zone(cases[(calendar_id, aq_id, temp_id, "none")], 1)
+                    for fault_id in ZIGBEE_CONTEXT_FAULTS:
+                        candidate = zone(cases[(calendar_id, aq_id, temp_id, fault_id)], 1)
+                        candidate_case = cases[(calendar_id, aq_id, temp_id, fault_id)]
+                        self.assertEqual(
+                            candidate["final_supply_pct"],
+                            baseline["final_supply_pct"],
+                            candidate_case["case_id"],
+                        )
+                        self.assertEqual(
+                            candidate["final_extract_pct"],
+                            baseline["final_extract_pct"],
+                            candidate_case["case_id"],
+                        )
+                        self.assertEqual(
+                            candidate["automation_state"],
+                            baseline["automation_state"],
+                            candidate_case["case_id"],
+                        )
 
     def test_selected_edge_cases_make_priority_semantics_explicit(self) -> None:
         by_selection = {
@@ -204,12 +261,25 @@ class ControlEngineMatrixTest(unittest.TestCase):
         self.assertEqual(fixed_sensor_loss["final_extract_pct"], 60.0)
 
         safety_over_fallback = zone(
-            by_selection[("active_auto", "max_voc", "protection", "sensor1_loss_critical")], 1
+            by_selection[
+                ("active_auto", "max_voc", "protection", "sensor1_loss_critical")
+            ],
+            1,
         )
         self.assertTrue(safety_over_fallback["safety_override"])
         self.assertFalse(safety_over_fallback["sensor_fallback_applied"])
         self.assertIsNone(safety_over_fallback["final_supply_pct"])
         self.assertIsNone(safety_over_fallback["final_extract_pct"])
+
+        stale_outside = zone(
+            by_selection[("active_auto", "normal", "normal", "zigbee_supply_stale")],
+            1,
+        )
+        self.assertEqual(stale_outside["outside_temperature_reason"], "TEMPERATURE_STALE")
+        self.assertFalse(stale_outside["outside_temperature_usable"])
+        self.assertIsNone(stale_outside["temperature_delta_celsius"])
+        self.assertEqual(stale_outside["final_supply_pct"], 30.0)
+        self.assertEqual(stale_outside["final_extract_pct"], 35.0)
 
     def test_matrix_contract_rejects_unsafe_or_ambiguous_definitions(self) -> None:
         unknown_step = deepcopy(self.payload)
@@ -233,7 +303,7 @@ class ControlEngineMatrixTest(unittest.TestCase):
             ControlEngineMatrixRunner().run(duplicate_variant)
 
         with self.assertRaises(ValueError):
-            ControlEngineMatrixRunner(max_cases=767).run(self.payload)
+            ControlEngineMatrixRunner(max_cases=959).run(self.payload)
 
 
 if __name__ == "__main__":
