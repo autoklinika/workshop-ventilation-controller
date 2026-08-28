@@ -202,12 +202,14 @@ class TachoScenarioTest(unittest.TestCase):
         stopped = zone(0)
         self.assertEqual(stopped["tacho_supply_status"], "NOT_REQUIRED")
         self.assertEqual(stopped["tacho_extract_status"], "NOT_REQUIRED")
+        self.assertIsNone(stopped["tacho_fault_pattern"])
         self.assertIsNotNone(stopped["final_supply_pct"])
         self.assertIsNotNone(stopped["final_extract_pct"])
 
         spinup = zone(1)
         self.assertEqual(spinup["tacho_supply_status"], "CONFIRMING")
         self.assertEqual(spinup["tacho_extract_status"], "CONFIRMING")
+        self.assertIsNone(spinup["tacho_fault_pattern"])
         self.assertFalse(spinup["tacho_supply_fault_confirmed"])
         self.assertFalse(spinup["tacho_extract_fault_confirmed"])
 
@@ -218,17 +220,21 @@ class TachoScenarioTest(unittest.TestCase):
         fault = zone(3)
         self.assertEqual(fault["tacho_supply_status"], "FEEDBACK_MISSING_CONFIRMED")
         self.assertEqual(fault["tacho_extract_status"], "FEEDBACK_MISSING_CONFIRMED")
+        self.assertEqual(fault["tacho_fault_pattern"], "BOTH")
+        self.assertFalse(fault["tacho_emergency_policy_configured"])
+        self.assertFalse(fault["tacho_fallback_applied"])
         self.assertEqual(fault["automation_state"], "FAULT")
         self.assertIsNone(fault["final_supply_pct"])
         self.assertIsNone(fault["final_extract_pct"])
         self.assertEqual(
             fault["control_reason"],
-            "TACHO_FEEDBACK_FAULT:EMERGENCY_POLICY_REQUIRED",
+            "TACHO_BOTH_FEEDBACK_FAULT:EMERGENCY_POLICY_REQUIRED",
         )
 
         partial = zone(4)
         self.assertEqual(partial["tacho_supply_status"], "HEALTHY")
         self.assertEqual(partial["tacho_extract_status"], "FEEDBACK_MISSING_CONFIRMED")
+        self.assertEqual(partial["tacho_fault_pattern"], "EXTRACT")
         self.assertEqual(partial["automation_state"], "FAULT")
         self.assertIsNone(partial["final_supply_pct"])
         self.assertIsNone(partial["final_extract_pct"])
@@ -236,6 +242,7 @@ class TachoScenarioTest(unittest.TestCase):
         recovered = zone(5)
         self.assertEqual(recovered["tacho_supply_status"], "HEALTHY")
         self.assertEqual(recovered["tacho_extract_status"], "HEALTHY")
+        self.assertIsNone(recovered["tacho_fault_pattern"])
         self.assertFalse(recovered["tacho_supply_fault_confirmed"])
         self.assertFalse(recovered["tacho_extract_fault_confirmed"])
         self.assertIsNotNone(recovered["final_supply_pct"])
@@ -244,6 +251,7 @@ class TachoScenarioTest(unittest.TestCase):
         stopped_again = zone(6)
         self.assertEqual(stopped_again["tacho_supply_status"], "NOT_REQUIRED")
         self.assertEqual(stopped_again["tacho_extract_status"], "NOT_REQUIRED")
+        self.assertIsNone(stopped_again["tacho_fault_pattern"])
         self.assertFalse(stopped_again["tacho_supply_fault_confirmed"])
         self.assertFalse(stopped_again["tacho_extract_fault_confirmed"])
 
