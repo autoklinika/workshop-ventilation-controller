@@ -5,9 +5,11 @@ from datetime import datetime
 from threading import RLock
 from typing import Any, Callable, Mapping, Protocol
 
+from ventilation_core.application.operator_control import apply_operator_intent
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
 from ventilation_core.domain.control_engine_config import ControlEngineConfig
 from ventilation_core.domain.models import CoreState
+from ventilation_core.domain.operator_control import OperatorControlIntent
 from ventilation_core.domain.shadow import ShadowAutomationState, ShadowZoneProposal
 
 
@@ -18,12 +20,12 @@ class ControlEngineConfigStore(Protocol):
 
 
 class PersistentControlEngineEvaluator:
-    """Hot-reloadable persistent SHADOW evaluator with no actuator authority.
+    """Hot-reloadable persistent SHADOW evaluator with volatile operator intent.
 
-    Replacing configuration atomically swaps the whole deterministic evaluator,
-    intentionally resetting hysteresis/debounce state so thresholds are never mixed
-    across revisions. The wrapped evaluator itself still reports
-    ``actuation_supported=False`` and has no DAC/AERO port.
+    Configuration is persisted in SQLite.  Operator AUTO/MANUAL intent is
+    deliberately process-local and starts from AUTO after every core restart so a
+    stale manual override cannot revive silently.  Neither path has actuator
+    authority.
     """
 
     def __init__(
@@ -39,6 +41,8 @@ class PersistentControlEngineEvaluator:
         self._config = config
         self._revision = revision
         self._evaluator = self._build(config)
+        self._operator_intent = OperatorControlIntent()
+        self._operator_revision = 0
         self._closed = False
 
     def _build(self, config: ControlEngineConfig) -> PolicyShadowAutomationEvaluator:
@@ -52,8 +56,17 @@ class PersistentControlEngineEvaluator:
     def evaluate(self, state: CoreState) -> ShadowAutomationState:
         with self._lock:
             evaluator = self._evaluator
+            config = self._config
             revision = self._revision
+            operator_intent = self._operator_intent
+            operator_revision = self._operator_revision
         result = evaluator.evaluate(state)
+        result = apply_operator_intent(
+            result,
+            config.policy,
+            operator_intent,
+            revision=operator_revision,
+        )
         zones = tuple(_attach_sensor_provenance(zone, state) for zone in result.zones)
         return replace(
             result,
@@ -86,6 +99,31 @@ class PersistentControlEngineEvaluator:
                 "config": config.to_dict(),
                 "actuation_supported": False,
                 "dynamics_reset": True,
+            }
+
+    def operator_state(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "revision": self._operator_revision,
+                "intent": self._operator_intent.to_dict(),
+                "persistent": False,
+                "reset_on_core_restart": True,
+                "actuation_supported": False,
+            }
+
+    def replace_operator_intent(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        intent = OperatorControlIntent.from_dict(payload)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Control Engine configuration runtime is closed")
+            self._operator_intent = intent
+            self._operator_revision += 1
+            return {
+                "revision": self._operator_revision,
+                "intent": intent.to_dict(),
+                "persistent": False,
+                "reset_on_core_restart": True,
+                "actuation_supported": False,
             }
 
     def close(self) -> None:
