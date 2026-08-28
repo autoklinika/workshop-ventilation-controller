@@ -11,6 +11,13 @@ DEFAULT_ZIGBEE_STALE_SECONDS = 14400.0
 
 
 @dataclass(frozen=True)
+class ZigbeeMeasurementTimestamp:
+    timestamp: str | None
+    source: str | None
+    age_seconds: float | None
+
+
+@dataclass(frozen=True)
 class ZigbeeTemperatureMeasurement:
     role: str
     temperature_celsius: float | None
@@ -32,6 +39,38 @@ def timestamp_age_seconds(value: str | None, *, now_utc: datetime) -> float | No
         parsed = parsed.replace(tzinfo=timezone.utc)
     now = _aware_utc(now_utc)
     return max(0.0, (now - parsed.astimezone(timezone.utc)).total_seconds())
+
+
+def zigbee_measurement_timestamp(
+    device: ZigbeeTemperatureSensorState,
+    *,
+    now_utc: datetime,
+) -> ZigbeeMeasurementTimestamp:
+    """Resolve one authoritative measurement timestamp for Zigbee telemetry.
+
+    `last_seen` has strict precedence when present because it represents the device
+    measurement timestamp.  `last_message_at` is only a fallback when `last_seen`
+    is absent.  In particular an invalid-but-present `last_seen` must not be
+    replaced by a recent MQTT receive timestamp: doing that could make a retained
+    old sensor payload look fresh after reconnect/restart.
+    """
+
+    now = _aware_utc(now_utc)
+    if device.last_seen:
+        timestamp = device.last_seen
+        return ZigbeeMeasurementTimestamp(
+            timestamp=timestamp,
+            source="last_seen",
+            age_seconds=timestamp_age_seconds(timestamp, now_utc=now),
+        )
+    if device.last_message_at:
+        timestamp = device.last_message_at
+        return ZigbeeMeasurementTimestamp(
+            timestamp=timestamp,
+            source="last_message_at",
+            age_seconds=timestamp_age_seconds(timestamp, now_utc=now),
+        )
+    return ZigbeeMeasurementTimestamp(timestamp=None, source=None, age_seconds=None)
 
 
 def normalize_zigbee_temperature(
@@ -81,8 +120,9 @@ def normalize_zigbee_temperature(
     ):
         return _from_device(device, usable=False, stale=False, age=None, timestamp=None, reason="TEMPERATURE_UNAVAILABLE")
 
-    timestamp = device.last_seen or device.last_message_at
-    age = timestamp_age_seconds(timestamp, now_utc=now)
+    resolved = zigbee_measurement_timestamp(device, now_utc=now)
+    age = resolved.age_seconds
+    timestamp = resolved.timestamp
     if age is None:
         return _from_device(
             device,
