@@ -180,6 +180,41 @@ assert_branch_core_runtime() {
     echo "PASS: $label: exact branch core + isolated automation DB + scheduled shutdown disabled"
 }
 
+dump_web_diagnostics() {
+    local label="$1"
+    echo "===== WEBGUI DIAGNOSTICS: $label =====" >&2
+    systemctl status "$WEB_UNIT" --no-pager --full >&2 || true
+    sudo journalctl -u "$WEB_UNIT" --no-pager -n 120 >&2 || true
+}
+
+wait_web_process_stable() {
+    local label="$1"
+    local attempt pid cwd
+    for attempt in $(seq 1 80); do
+        if systemctl is-active --quiet "$WEB_UNIT"; then
+            pid="$(unit_pid "$WEB_UNIT" 2>/dev/null || true)"
+            if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ -d "/proc/$pid" ]; then
+                cwd="$(unit_cwd "$pid" 2>/dev/null || true)"
+                if [ "$cwd" = "$WT" ]; then
+                    return 0
+                fi
+            fi
+        fi
+        sleep 0.1
+    done
+    dump_web_diagnostics "$label"
+    fail "$label: $WEB_UNIT did not reach a stable Stage3 process"
+}
+
+restart_web_checked() {
+    local label="$1"
+    if ! sudo systemctl restart "$WEB_UNIT"; then
+        dump_web_diagnostics "$label restart command failed"
+        fail "$label: systemctl restart $WEB_UNIT failed"
+    fi
+    wait_web_process_stable "$label"
+}
+
 wait_web_ready() {
     local attempt
     for attempt in $(seq 1 60); do
@@ -188,23 +223,23 @@ wait_web_ready() {
         fi
         if ! systemctl is-active --quiet "$WEB_UNIT"; then
             echo "FAIL: $WEB_UNIT exited while waiting for $WEB_URL" >&2
-            sudo journalctl -u "$WEB_UNIT" --no-pager -n 100 >&2 || true
+            dump_web_diagnostics "HTTP readiness"
             return 1
         fi
         sleep 0.25
     done
     echo "FAIL: $WEB_UNIT did not become ready at $WEB_URL" >&2
-    sudo journalctl -u "$WEB_UNIT" --no-pager -n 100 >&2 || true
+    dump_web_diagnostics "HTTP readiness timeout"
     return 1
 }
 
 assert_branch_web_runtime() {
     local label="$1"
     local pid cwd port socket pythonpath
-    systemctl is-active --quiet "$WEB_UNIT" || fail "$label: $WEB_UNIT is not active"
-    pid="$(unit_pid "$WEB_UNIT")"
+    wait_web_process_stable "$label"
+    pid="$(unit_pid "$WEB_UNIT" 2>/dev/null || true)"
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "$label: invalid WebGUI PID"
-    cwd="$(unit_cwd "$pid")"
+    cwd="$(unit_cwd "$pid" 2>/dev/null || true)"
     [ "$cwd" = "$WT" ] || fail "$label: WebGUI CWD=$cwd expected=$WT"
     port="$(proc_env_var "$pid" WVC_WEB_PORT)"
     socket="$(proc_env_var "$pid" WVC_CORE_SOCKET)"
@@ -441,7 +476,7 @@ assert_host_untouched "after isolated 4.0 s config"
 echo "===== 4. START REAL wvc-web-ui.service AS STAGE3 CLIENT ON 18091 ====="
 write_web_dropin
 sudo systemctl daemon-reload
-sudo systemctl restart "$WEB_UNIT"
+restart_web_checked "Stage3 WebGUI startup"
 assert_branch_web_runtime "Stage3 WebGUI startup"
 require_zero_output "$WT/src" "after Stage3 WebGUI startup" 1
 assert_host_untouched "after Stage3 WebGUI startup"
@@ -457,7 +492,7 @@ assert_host_untouched "after Stage3 client round-trip"
 
 echo "===== 6. RESTART WEBGUI CLIENT ONLY: CORE-OWNED STATE MUST NOT CHANGE ====="
 CORE_PID_BEFORE_WEB_RESTART="$(unit_pid "$CORE_UNIT")"
-sudo systemctl restart "$WEB_UNIT"
+restart_web_checked "WebGUI-only restart"
 assert_branch_web_runtime "after WebGUI-only restart"
 [ "$(unit_pid "$CORE_UNIT")" = "$CORE_PID_BEFORE_WEB_RESTART" ] || fail "WebGUI restart unexpectedly restarted authoritative core"
 env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$WT/src:$WT/tools" \
