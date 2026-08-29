@@ -181,10 +181,21 @@ class Stage3SystemdHarnessContractTest(unittest.TestCase):
 
     def test_webgui_restart_proves_client_state_is_core_owned(self):
         self.assertIn("CORE_PID_BEFORE_WEB_RESTART", self.harness)
+        self.assertIn('restart_web_checked "WebGUI-only restart"', self.harness)
         self.assertIn("--phase web-restart", self.harness)
         self.assertIn("WebGUI restart unexpectedly restarted authoritative core", self.harness)
         self.assertIn("operator_revision_before_restart", self.validator)
         self.assertIn("WebGUI restart changed core-owned Calendar revision", self.validator)
+
+    def test_webgui_restart_waits_for_stable_process_and_dumps_diagnostics(self):
+        self.assertIn("wait_web_process_stable()", self.harness)
+        self.assertIn("restart_web_checked()", self.harness)
+        self.assertIn('restart_web_checked "Stage3 WebGUI startup"', self.harness)
+        self.assertIn('restart_web_checked "WebGUI-only restart"', self.harness)
+        self.assertIn('systemctl status "$WEB_UNIT" --no-pager --full', self.harness)
+        self.assertIn('sudo journalctl -u "$WEB_UNIT" --no-pager -n 120', self.harness)
+        self.assertIn('cwd="$(unit_cwd "$pid" 2>/dev/null || true)"', self.harness)
+        self.assertIn("did not reach a stable Stage3 process", self.harness)
 
     def test_core_restart_proves_independent_client_survives(self):
         self.assertIn("WEB_PID_BEFORE_CORE_RESTART", self.harness)
