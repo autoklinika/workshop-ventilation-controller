@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ast
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -8,6 +11,8 @@ from ventilation_core.web.main import DEFAULT_PORT
 
 
 ROOT = Path(__file__).resolve().parents[1]
+HARNESS = ROOT / "tools" / "install_validate_web_gui_automation_stage3_deployment_cm5.sh"
+VALIDATOR = ROOT / "tools" / "validate_web_gui_automation_stage3_deployment_cm5.py"
 
 
 class _State:
@@ -83,7 +88,12 @@ class Stage3ShadowOnlyCoreGuardTest(unittest.IsolatedAsyncioTestCase):
             await self._server(service)._dispatch(
                 {
                     "command": "control-engine-operator-replace",
-                    "operator": {"mode": "MANUAL", "manual_supply_pct": 20.0, "manual_extract_pct": 20.0, "manual_aero_speed": 1},
+                    "operator": {
+                        "mode": "MANUAL",
+                        "manual_supply_pct": 20.0,
+                        "manual_extract_pct": 20.0,
+                        "manual_aero_speed": 1,
+                    },
                     "require_shadow_only": True,
                 }
             )
@@ -128,8 +138,97 @@ class Stage3WebClientContractTest(unittest.TestCase):
         app = (ROOT / "src/ventilation_core/web/control_engine_app.py").read_text(encoding="utf-8")
         self.assertNotIn("Requires=ventilation-core.service", unit)
         self.assertIn('"require_shadow_only": True', app)
-        self.assertNotIn("actuation-enable", app)
-        self.assertNotIn("actuation_enabled", app)
+        self.assertNotIn('"/api/v1/actuation-enable"', app)
+        self.assertNotIn('"/api/v1/automation/actuation-enable"', app)
+        self.assertNotIn('"actuation_enabled":', app)
+
+
+class Stage3SystemdHarnessContractTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.harness = HARNESS.read_text(encoding="utf-8")
+        cls.validator = VALIDATOR.read_text(encoding="utf-8")
+
+    def test_harness_has_valid_bash_syntax(self):
+        bash = shutil.which("bash")
+        self.assertIsNotNone(bash)
+        subprocess.run([bash, "-n", str(HARNESS)], check=True)
+
+    def test_validator_is_valid_python(self):
+        ast.parse(self.validator)
+        self.assertIn("import validate_web_gui_automation_stage2_runtime_cm5 as stage2", self.validator)
+
+    def test_harness_pins_main_exact_stage3_branch_and_port_18091(self):
+        self.assertIn("EXPECTED_MAIN=7628c407cfc9c0ea72d262566759ea2d4598fec8", self.harness)
+        self.assertIn("BRANCH=agent/web-gui-automation-stage3-deployment", self.harness)
+        self.assertIn("WEBGUI_AUTOMATION_STAGE3_EXPECTED_BRANCH_SHA", self.harness)
+        self.assertIn("WEB_PORT=18091", self.harness)
+        self.assertNotIn("WEB_PORT=18094", self.harness)
+        self.assertNotIn("WEB_PORT=8088", self.harness)
+        self.assertIn("git ls-remote origin refs/heads/main", self.harness)
+        self.assertIn('git ls-remote origin "refs/heads/$BRANCH"', self.harness)
+
+    def test_harness_uses_real_systemd_webgui_client_not_foreground_web_process(self):
+        self.assertIn("WEB_UNIT=wvc-web-ui.service", self.harness)
+        self.assertIn('sudo systemctl restart "$WEB_UNIT"', self.harness)
+        self.assertIn('assert_branch_web_runtime "Stage3 WebGUI startup"', self.harness)
+        self.assertIn("WorkingDirectory=$WT", self.harness)
+        self.assertIn("Environment=WVC_WEB_PORT=$WEB_PORT", self.harness)
+        self.assertIn("Environment=WVC_CORE_SOCKET=/run/workshop-ventilation/ventilation-core.sock", self.harness)
+        self.assertIn("EnvironmentFile=", self.harness)
+        self.assertNotIn("/usr/bin/python3 -B -m ventilation_core.web.main >", self.harness)
+        self.assertNotIn("WEB_PID=$!", self.harness)
+
+    def test_webgui_restart_proves_client_state_is_core_owned(self):
+        self.assertIn("CORE_PID_BEFORE_WEB_RESTART", self.harness)
+        self.assertIn("--phase web-restart", self.harness)
+        self.assertIn("WebGUI restart unexpectedly restarted authoritative core", self.harness)
+        self.assertIn("operator_revision_before_restart", self.validator)
+        self.assertIn("WebGUI restart changed core-owned Calendar revision", self.validator)
+
+    def test_core_restart_proves_independent_client_survives(self):
+        self.assertIn("WEB_PID_BEFORE_CORE_RESTART", self.harness)
+        self.assertIn('sudo systemctl restart "$CORE_UNIT"', self.harness)
+        self.assertIn("--phase core-restart", self.harness)
+        self.assertIn("core restart unexpectedly restarted independent WebGUI client", self.harness)
+        self.assertIn("stage2.verify(web_url, state_file)", self.validator)
+
+    def test_harness_uses_isolated_automation_db_and_keeps_production_rows_unchanged(self):
+        self.assertIn("TEST_ROOT=/var/tmp/wvc-webgui-automation-stage3-deployment", self.harness)
+        self.assertIn("--automation-db $TEST_ROOT/automation.sqlite3", self.harness)
+        self.assertIn("PRODUCTION_AUTOMATION_ROWS_BEFORE", self.harness)
+        self.assertIn("production Calendar/Control Engine SQLite rows unchanged by isolated Stage3", self.harness)
+
+    def test_harness_does_not_issue_physical_control_or_host_power_actions(self):
+        forbidden = (
+            'ctl "$WT/src" set',
+            'ctl "$WT/src" stop',
+            'ctl "$WT/src" aero-speed',
+            'ctl "$WT/src" aero-airing',
+            "systemctl poweroff",
+            "systemctl reboot",
+            "/sbin/shutdown",
+            "/sbin/reboot",
+            '"action":"shutdown"',
+            '"action":"restart"',
+        )
+        for marker in forbidden:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, self.harness)
+        self.assertIn("--enable-scheduled-shutdown", self.harness)
+        self.assertIn("scheduled shutdown unexpectedly enabled", self.harness)
+
+    def test_harness_restores_webgui_state_core_host_rtc_and_main(self):
+        for marker in (
+            "WEB_ACTIVE_BEFORE",
+            "WEB_ENABLED_BEFORE",
+            "WEB_PORT_BEFORE",
+            'sudo rm -f "$WEB_DROPIN" "$CORE_DROPIN"',
+            'assert_host_untouched "rollback production main"',
+            "production main remains clean at $EXPECTED_MAIN",
+            "production $WEB_UNIT restored",
+        ):
+            self.assertIn(marker, self.harness)
 
 
 if __name__ == "__main__":
