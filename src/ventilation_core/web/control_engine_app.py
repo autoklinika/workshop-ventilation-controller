@@ -122,7 +122,30 @@ class ControlEngineWebApplication(AlertHistoryWebApplication):
         response = self._core.request({"command": "control-engine-operator"})
         if response.get("ok") is not True:
             return self._core_rejection(response)
-        return ApiResponse(200, response)
+
+        # The authoritative ControlEngineCoreServer exposes this object as
+        # ``operator``. WebGUI keeps its public API name stable as
+        # ``control_engine_operator``. The legacy fallback exists only for older
+        # test fixtures / clients and can be removed once all stacked branches are
+        # rebased past Stage2.
+        operator = response.get("operator")
+        if operator is None:
+            operator = response.get("control_engine_operator")
+        if not isinstance(operator, dict):
+            return ApiResponse(
+                502,
+                {
+                    "ok": False,
+                    "error": "Invalid Control Engine operator state from ventilation-core",
+                },
+            )
+        return ApiResponse(
+            200,
+            {
+                "ok": True,
+                "control_engine_operator": operator,
+            },
+        )
 
     def _automation_operator_replace(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
