@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "session_id": "WORKSHOP-YYYYMMDD-NNN",
+  "environment": "WORKSHOP",
+  "status": "PENDING",
+  "timezone": "Europe/Warsaw",
+  "started_at": null,
+  "finished_at": null,
+  "operator": null,
+  "location": {
+    "site": "docelowy-warsztat",
+    "zone": null,
+    "doors_gates_state": null,
+    "process_context": null
+  },
+  "runtime": {
+    "main_sha": null,
+    "core_runtime_sha": null,
+    "web_runtime_sha": null,
+    "core_pid": null,
+    "core_cwd": null,
+    "web_pid": null,
+    "web_cwd": null,
+    "boot_id": null,
+    "calendar_revision": null,
+    "control_engine_revision": null,
+    "actuation_supported": false,
+    "actuation_authorized": false,
+    "readiness": false,
+    "default_runtime_binding": false
+  },
+  "installation": {
+    "hardware_revision": null,
+    "fan_supply_identity": null,
+    "fan_extract_identity": null,
+    "aero_identity": null,
+    "sen55_fan_zone_identity": null,
+    "sen55_aero_zone_identity": null,
+    "zigbee_supply_identity": null,
+    "zigbee_extract_identity": null,
+    "rs485_transceiver_revision": null,
+    "tacho_path_changed_since_physical_validation": false,
+    "notes": null
+  },
+  "evidence": {
+    "pre_snapshot": null,
+    "post_snapshot": null,
+    "telemetry_from": null,
+    "telemetry_to": null,
+    "telemetry_reference": null,
+    "photos": [],
+    "reports": [],
+    "anomalies": []
+  },
+  "baseline": {
+    "required_hours_min": 48,
+    "target_hours": 72,
+    "completed_hours": null,
+    "normal_work_period_observed": false,
+    "inactive_night_period_observed": false,
+    "data_gaps_explained": false,
+    "notes": null
+  },
+  "groups": {
+    "fan_outputs": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "normal_air_request_pct": null,
+        "boost_air_request_pct": null,
+        "high_air_request_pct": null,
+        "max_air_request_pct": null,
+        "thermal_normal_limit_pct": null,
+        "thermal_limiting_limit_pct": null,
+        "thermal_minimum_limit_pct": null,
+        "thermal_protection_limit_pct": null,
+        "extract_bias_pct": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "aero_outputs": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "aero_normal_speed": null,
+        "aero_boost_speed": null,
+        "aero_high_speed": null,
+        "aero_max_speed": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "dynamics": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "pm2_5_hysteresis_ug_m3": null,
+        "voc_hysteresis_index": null,
+        "nox_hysteresis_index": null,
+        "temperature_hysteresis_celsius": null,
+        "pm2_5_boost_confirmation_seconds": null,
+        "state_minimum_hold_seconds": null,
+        "boost_decay_seconds": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "fan_sensor_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "sensor_fallback_supply_pct": null,
+        "sensor_fallback_extract_pct": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "aero_sensor_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "aero_sensor_fallback_speed": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "tacho_confirmation": {
+      "target_level": "PHYSICAL_VALIDATED",
+      "status": "ALREADY_VALIDATED_RECONFIRM_IF_HARDWARE_CHANGED",
+      "candidate_values": {
+        "tacho_failure_confirmation_seconds": 4.0
+      },
+      "observations": [],
+      "evidence": [
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7B_TACHO_CHARACTERIZATION_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7C_TACHO_LOW_SPEED_CHARACTERIZATION_2026-08-28_PL.md",
+        "docs/reports/CONTROL_ENGINE_V1_STAGE7D_TACHO_CONFIRMATION_VALIDATION_2026-08-28_PL.md",
+        "physical-code-sha:f899f0589fb05bbb56c7df298ee6a268d85d7941"
+      ],
+      "pass": true,
+      "notes": "Retain 4.0 s unless fan/TACHO hardware or conditioning changes."
+    },
+    "tacho_supply_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "tacho_supply_fault_fallback_supply_pct": null,
+        "tacho_supply_fault_fallback_extract_pct": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "tacho_extract_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "tacho_extract_fault_fallback_supply_pct": null,
+        "tacho_extract_fault_fallback_extract_pct": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    },
+    "tacho_both_fallback": {
+      "target_level": "WORKSHOP_VALIDATED",
+      "status": "PENDING",
+      "candidate_values": {
+        "tacho_both_fault_fallback_supply_pct": null,
+        "tacho_both_fault_fallback_extract_pct": null
+      },
+      "observations": [],
+      "evidence": [],
+      "pass": null,
+      "notes": null
+    }
+  },
+  "system_acceptance": {
+    "calendar": {
+      "weekly_rule": null,
+      "date_exception": null,
+      "core_restart_persistence": null,
+      "notes": null
+    },
+    "restart_recovery": {
+      "web_restart_preserves_core_state": null,
+      "core_restart_preserves_web_client": null,
+      "operator_returns_auto_after_core_restart": null,
+      "full_cm5_reboot_safe": null,
+      "notes": null
+    },
+    "telemetry": {
+      "continuous_recording": null,
+      "timestamps_valid": null,
+      "gaps_accounted_for": null,
+      "notes": null
+    },
+    "alerts": {
+      "operator_visibility_verified": null,
+      "notes": null
+    }
+  },
+  "abort_events": [],
+  "final_decision": {
+    "session_result": "INCOMPLETE",
+    "all_required_evidence_versioned": false,
+    "candidate_profile_reference": null,
+    "runtime_binding_requested": false,
+    "physical_authority_requested": false,
+    "notes": null
+  }
+}

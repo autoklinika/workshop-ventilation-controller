@@ -43,6 +43,41 @@ class ControlEngineCoreServer(CoreServer):
             raw_operator = request.get("operator")
             if not isinstance(raw_operator, dict):
                 raise ValueError("Control Engine operator intent must be a JSON object")
+
+            require_shadow_only = request.get("require_shadow_only", False)
+            if not isinstance(require_shadow_only, bool):
+                raise ValueError("require_shadow_only must be a boolean")
+            if require_shadow_only:
+                configuration_method = getattr(
+                    self._service, "control_engine_configuration", None
+                )
+                if configuration_method is None:
+                    raise RuntimeError(
+                        "Persistent Control Engine configuration is not configured"
+                    )
+                configuration = await asyncio.to_thread(configuration_method)
+                if (
+                    not isinstance(configuration, dict)
+                    or configuration.get("actuation_supported") is not False
+                ):
+                    raise RuntimeError(
+                        "SHADOW-only operator request rejected: Control Engine supports actuation"
+                    )
+
+                state = self._service.state().to_dict()
+                shadow = state.get("shadow_automation")
+                readiness = shadow.get("actuation_readiness") if isinstance(shadow, dict) else None
+                if (
+                    not isinstance(shadow, dict)
+                    or shadow.get("actuation_supported") is not False
+                    or not isinstance(readiness, dict)
+                    or readiness.get("actuation_authorized") is not False
+                    or readiness.get("ready") is not False
+                ):
+                    raise RuntimeError(
+                        "SHADOW-only operator request rejected: runtime is not fail-closed"
+                    )
+
             method = getattr(self._service, "replace_control_engine_operator_intent", None)
             if method is None:
                 raise RuntimeError("Control Engine operator runtime is not configured")

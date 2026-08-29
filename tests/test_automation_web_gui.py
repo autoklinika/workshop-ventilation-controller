@@ -39,7 +39,7 @@ class AutomationWebApiTest(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(core.requests, [{"command": "control-engine-operator"}])
 
-    def test_operator_auto_replace_forwards_only_validated_operator_intent(self):
+    def test_operator_auto_replace_forwards_only_validated_shadow_only_intent(self):
         core = FakeCoreClient([{"ok": True, "control_engine_operator": {}}])
         response = ControlEngineWebApplication(core).handle(
             "POST", "/api/v1/automation/operator", {"mode": "AUTO"}
@@ -51,6 +51,7 @@ class AutomationWebApiTest(unittest.TestCase):
                 {
                     "command": "control-engine-operator-replace",
                     "operator": {"mode": "AUTO"},
+                    "require_shadow_only": True,
                 }
             ],
         )
@@ -73,6 +74,7 @@ class AutomationWebApiTest(unittest.TestCase):
                 {
                     "command": "control-engine-operator-replace",
                     "operator": intent,
+                    "require_shadow_only": True,
                 }
             ],
         )
