@@ -29,7 +29,7 @@ class WebSystemdTest(unittest.TestCase):
         env = (ROOT / "deploy/cm5/web/wvc-web-ui.env.example").read_text(encoding="utf-8")
         self.assertIn("WVC_CORE_SOCKET=/run/workshop-ventilation/ventilation-core.sock", env)
         self.assertIn("WVC_WEB_HOST=0.0.0.0", env)
-        self.assertIn("WVC_WEB_PORT=8088", env)
+        self.assertIn("WVC_WEB_PORT=18091", env)
         for path in (
             "WVC_WEB_TELEMETRY_DATABASE=/srv/wvc-data/workshop-ventilation/telemetry.sqlite3",
             "WVC_WEB_ALERT_DATABASE=/srv/wvc-data/workshop-ventilation/alerts.sqlite3",

@@ -21,7 +21,8 @@ class ControlEngineWebApplication(AlertHistoryWebApplication):
 
     The browser receives no generic core proxy and no actuation-enable endpoint.
     Configuration updates and operator intent are strictly validated and forwarded
-    through fixed, narrow ventilation-core commands only.
+    through fixed, narrow ventilation-core commands only. Operator changes carry an
+    explicit SHADOW-only requirement which is enforced authoritatively by core.
     """
 
     _tuning_validation_path = (
@@ -162,6 +163,10 @@ class ControlEngineWebApplication(AlertHistoryWebApplication):
             {
                 "command": "control-engine-operator-replace",
                 "operator": sanitized,
+                # WebGUI is only a client. This flag does not grant authority; it asks
+                # authoritative ventilation-core to reject the mutation unless the
+                # runtime is still strictly SHADOW / fail-closed.
+                "require_shadow_only": True,
             }
         )
         if response.get("ok") is not True:

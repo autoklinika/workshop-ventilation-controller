@@ -25,7 +25,7 @@ DEFAULT_ALERT_DATABASE = Path("/var/lib/workshop-ventilation/alerts.sqlite3")
 DEFAULT_WEATHER_SNAPSHOT = Path("/var/lib/workshop-ventilation/weather.json")
 DEFAULT_AI_ADVISORY_CACHE = Path("/var/lib/workshop-ventilation/ai-advisory.json")
 DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 8088
+DEFAULT_PORT = 18091
 
 
 def build_parser() -> argparse.ArgumentParser:
