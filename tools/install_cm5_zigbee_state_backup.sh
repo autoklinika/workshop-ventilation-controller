@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_TARGET="/usr/local/sbin/wvc-zigbee-state-backup"
 SERVICE_TARGET="/etc/systemd/system/wvc-zigbee-state-backup.service"
-TIMER_TARGET="/etc/systemd/system/wvc-zigbee-state-backup.timer"
+PATH_TARGET="/etc/systemd/system/wvc-zigbee-state-backup.path"
+LEGACY_TIMER_TARGET="/etc/systemd/system/wvc-zigbee-state-backup.timer"
 BACKUP_ROOT="/var/backups/workshop-ventilation/zigbee2mqtt"
 
 fail() {
@@ -19,10 +20,15 @@ mountpoint -q /srv/wvc-data || fail "/srv/wvc-data is not mounted"
 install -d -m 0700 "${BACKUP_ROOT}"
 install -m 0755 "${ROOT_DIR}/tools/backup_cm5_zigbee_state.sh" "${SCRIPT_TARGET}"
 install -m 0644 "${ROOT_DIR}/deploy/systemd/wvc-zigbee-state-backup.service" "${SERVICE_TARGET}"
-install -m 0644 "${ROOT_DIR}/deploy/systemd/wvc-zigbee-state-backup.timer" "${TIMER_TARGET}"
+install -m 0644 "${ROOT_DIR}/deploy/systemd/wvc-zigbee-state-backup.path" "${PATH_TARGET}"
+
+# Stage 1 used an hourly timer. Event-driven backup supersedes it.
+systemctl disable --now wvc-zigbee-state-backup.timer 2>/dev/null || true
+rm -f "${LEGACY_TIMER_TARGET}"
 
 systemctl daemon-reload
-systemctl enable --now wvc-zigbee-state-backup.timer
+systemctl reset-failed wvc-zigbee-state-backup.service 2>/dev/null || true
+systemctl enable --now wvc-zigbee-state-backup.path
 if ! systemctl start wvc-zigbee-state-backup.service; then
     echo "===== wvc-zigbee-state-backup.service =====" >&2
     systemctl status wvc-zigbee-state-backup.service --no-pager -l >&2 || true
@@ -30,7 +36,7 @@ if ! systemctl start wvc-zigbee-state-backup.service; then
     journalctl -u wvc-zigbee-state-backup.service -n 80 --no-pager >&2 || true
     fail "Initial Zigbee state backup failed"
 fi
-systemctl is-active --quiet wvc-zigbee-state-backup.timer || fail "Backup timer is not active"
+systemctl is-active --quiet wvc-zigbee-state-backup.path || fail "Backup path watcher is not active"
 
 LATEST="$(find "${BACKUP_ROOT}" -maxdepth 1 -type f -name 'zigbee2mqtt-state-*.tar.gz' -printf '%p\n' | LC_ALL=C sort | tail -n 1)"
 [[ -n "${LATEST}" ]] || fail "Initial Zigbee state backup was not created"
@@ -39,4 +45,4 @@ tar -tzf "${LATEST}" >/dev/null
 
 echo "WVC Zigbee state backup: PASS"
 echo "Latest: ${LATEST}"
-systemctl list-timers wvc-zigbee-state-backup.timer --no-pager
+systemctl status wvc-zigbee-state-backup.path --no-pager -l
