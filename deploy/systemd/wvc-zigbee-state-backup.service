@@ -1,0 +1,25 @@
+[Unit]
+Description=WVC Zigbee2MQTT state backup from NVMe to eMMC
+After=local-fs.target
+RequiresMountsFor=/srv/wvc-data
+ConditionPathExists=/srv/wvc-data/zigbee2mqtt/configuration.yaml
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/wvc-zigbee-state-backup
+Nice=10
+IOSchedulingClass=idle
+RuntimeDirectory=wvc-zigbee-state-backup
+RuntimeDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+ReadOnlyPaths=/srv/wvc-data/zigbee2mqtt
+ReadWritePaths=/var/backups/workshop-ventilation/zigbee2mqtt /run/wvc-zigbee-state-backup
+UMask=0077
