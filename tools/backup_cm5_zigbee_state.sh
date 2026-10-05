@@ -39,9 +39,17 @@ install -d -m 0700 "$(dirname "${LOCK_FILE}")"
 exec 9>"${LOCK_FILE}"
 flock -n 9 || fail "Another Zigbee state backup is already running"
 
-SOURCE_DEVICE="$(findmnt -n -o SOURCE -T "${SOURCE_DIR}" 2>/dev/null || true)"
-BACKUP_DEVICE="$(findmnt -n -o SOURCE -T "${BACKUP_ROOT}" 2>/dev/null || true)"
-ROOT_DEVICE="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+SOURCE_DEVICE_RAW="$(findmnt -n -o SOURCE -T "${SOURCE_DIR}" 2>/dev/null || true)"
+BACKUP_DEVICE_RAW="$(findmnt -n -o SOURCE -T "${BACKUP_ROOT}" 2>/dev/null || true)"
+ROOT_DEVICE_RAW="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+
+normalize_source_device() {
+    printf '%s\n' "$1" | sed 's/\[.*$//'
+}
+
+SOURCE_DEVICE="$(normalize_source_device "${SOURCE_DEVICE_RAW}")"
+BACKUP_DEVICE="$(normalize_source_device "${BACKUP_DEVICE_RAW}")"
+ROOT_DEVICE="$(normalize_source_device "${ROOT_DEVICE_RAW}")"
 
 [[ "${SOURCE_DEVICE}" == /dev/nvme* ]] || fail "Source is not on NVMe: ${SOURCE_DEVICE:-unknown}"
 [[ -n "${BACKUP_DEVICE}" ]] || fail "Cannot identify backup filesystem"
@@ -120,8 +128,10 @@ WVC Zigbee2MQTT state backup
 created_utc=${STAMP}
 source=${SOURCE_DIR}
 source_device=${SOURCE_DEVICE}
+source_device_raw=${SOURCE_DEVICE_RAW}
 backup_root=${BACKUP_ROOT}
 backup_device=${BACKUP_DEVICE}
+backup_device_raw=${BACKUP_DEVICE_RAW}
 source_fingerprint_sha256=${CURRENT_FINGERPRINT}
 archive_sha256=${ARCHIVE_SHA256}
 repository_sha=${REPO_SHA}
