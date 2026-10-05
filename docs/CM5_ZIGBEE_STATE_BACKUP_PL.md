@@ -16,7 +16,10 @@ Mechanizm kopiuje wyłącznie stan `/srv/wvc-data/zigbee2mqtt` z NVMe na eMMC do
 - snapshot jest tworzony tylko wtedy, gdy stan zmienił się od ostatniej kopii,
 - podczas tworzenia snapshotu stan jest haszowany przed i po odczycie; przy zmianie wykonywana jest ponowna próba,
 - przechowywanych jest maksymalnie 30 różnych snapshotów,
-- timer sprawdza stan co godzinę z losowym opóźnieniem do 5 minut; brak zmian oznacza brak nowego zapisu na eMMC.
+- nie ma cyklicznego timera,
+- `systemd.path` obserwuje wyłącznie trwałe pliki stanu `configuration.yaml`, `database.db` i `coordinator_backup.json`,
+- zmiana któregoś z tych plików uruchamia backup; krótki 2-sekundowy delay scala serię zapisów Zigbee2MQTT,
+- dodatkowa kontrola fingerprintu nadal gwarantuje, że identyczny stan nie tworzy kolejnego archiwum.
 
 ## Instalacja na CM5
 
@@ -26,13 +29,13 @@ git pull --ff-only origin main
 sudo bash tools/install_cm5_zigbee_state_backup.sh
 ```
 
-Installer od razu wykonuje pierwszy snapshot i sprawdza SHA-256 oraz strukturę archiwum.
+Installer usuwa wcześniejszy timer, uruchamia event-driven `wvc-zigbee-state-backup.path`, a następnie wykonuje pierwszy snapshot i sprawdza SHA-256 oraz strukturę archiwum.
 
 ## Kontrola
 
 ```bash
-systemctl status wvc-zigbee-state-backup.timer --no-pager
-systemctl list-timers wvc-zigbee-state-backup.timer --no-pager
+systemctl status wvc-zigbee-state-backup.path --no-pager
+systemctl status wvc-zigbee-state-backup.service --no-pager
 sudo ls -lah /var/backups/workshop-ventilation/zigbee2mqtt
 ```
 
