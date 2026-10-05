@@ -26,6 +26,8 @@ class ZigbeeStateBackupDeploymentTest(unittest.TestCase):
         self.assertIn('sha256sum', text)
         self.assertIn('source_fingerprint_sha256', text)
         self.assertIn("--exclude='./log'", text)
+        self.assertNotIn('grep -Fxq', text)
+        self.assertIn('grep -Fx "${required}" >/dev/null', text)
 
     def test_snapshot_retries_if_state_changes_during_copy(self) -> None:
         text = (ROOT / "tools/backup_cm5_zigbee_state.sh").read_text(encoding="utf-8")
@@ -49,6 +51,8 @@ class ZigbeeStateBackupDeploymentTest(unittest.TestCase):
         text = (ROOT / "tools/install_cm5_zigbee_state_backup.sh").read_text(encoding="utf-8")
         self.assertIn('systemctl enable --now wvc-zigbee-state-backup.timer', text)
         self.assertIn('systemctl start wvc-zigbee-state-backup.service', text)
+        self.assertIn('journalctl -u wvc-zigbee-state-backup.service -n 80 --no-pager', text)
+        self.assertIn('Initial Zigbee state backup failed', text)
         self.assertIn('sha256sum -c', text)
         self.assertIn('tar -tzf', text)
         self.assertIn('Initial Zigbee state backup was not created', text)
