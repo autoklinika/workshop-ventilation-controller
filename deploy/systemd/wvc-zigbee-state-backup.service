@@ -7,6 +7,8 @@ ConditionPathExists=/srv/wvc-data/zigbee2mqtt/configuration.yaml
 [Service]
 Type=oneshot
 User=root
+# Coalesce a short burst of Zigbee2MQTT persistence writes before snapshotting.
+ExecStartPre=/bin/sleep 2
 ExecStart=/usr/local/sbin/wvc-zigbee-state-backup
 Nice=10
 IOSchedulingClass=idle
