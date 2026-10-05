@@ -103,7 +103,7 @@ done
 [[ "${CONSISTENT}" -eq 1 ]] || fail "Could not obtain a consistent Zigbee2MQTT snapshot after 3 attempts"
 
 for required in ./configuration.yaml ./database.db ./coordinator_backup.json; do
-    tar -tzf "${TMP_ARCHIVE}" | grep -Fxq "${required}" || fail "Snapshot does not contain ${required}"
+    tar -tzf "${TMP_ARCHIVE}" | grep -Fx "${required}" >/dev/null || fail "Snapshot does not contain ${required}"
 done
 
 tar -tzf "${TMP_ARCHIVE}" >/dev/null
