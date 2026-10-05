@@ -56,8 +56,8 @@ class AlertV2PolicyTests(unittest.TestCase):
     def test_default_policy_loads_and_has_expected_contract(self) -> None:
         policy = load_alert_policy(DEFAULT_POLICY)
         self.assertEqual(policy.schema_version, 1)
-        self.assertEqual(policy.policy_version, "2026-08-21.1")
-        self.assertEqual(policy.alert_count, 50)
+        self.assertEqual(policy.policy_version, "2026-08-27.1")
+        self.assertEqual(policy.alert_count, 52)
         self.assertEqual(len(policy.sha256), 64)
 
         tacho = policy.get("TACHO_MONITOR_UNAVAILABLE")
@@ -83,6 +83,17 @@ class AlertV2PolicyTests(unittest.TestCase):
         self.assertEqual(undervoltage.reaction, "continue_degraded")
         self.assertFalse(undervoltage.affects_control)
         self.assertEqual(undervoltage.hmi_color, "red")
+
+        for code in ("RTC_WAKE_ARM_FAILED", "HOST_POWER_REQUEST_FAILED"):
+            with self.subTest(code=code):
+                power_scheduler = policy.get(code)
+                self.assertIsNotNone(power_scheduler)
+                assert power_scheduler is not None
+                self.assertEqual(power_scheduler.weight, 3)
+                self.assertEqual(power_scheduler.reaction, "continue_degraded")
+                self.assertFalse(power_scheduler.affects_control)
+                self.assertEqual(power_scheduler.hmi_color, "orange")
+                self.assertEqual(power_scheduler.category, "power_scheduler")
 
     def test_production_communication_loss_is_critical_red(self) -> None:
         policy = load_alert_policy(DEFAULT_POLICY)
@@ -128,6 +139,20 @@ class AlertV2PolicyTests(unittest.TestCase):
         with self.assertRaises(AlertPolicyError) as ctx:
             load_alert_policy(self._write_policy(text))
         self.assertIn("loss of TACHO is diagnostic only", str(ctx.exception))
+
+    def test_power_scheduler_failures_cannot_gain_ventilation_control_authority(self) -> None:
+        for code in ("RTC_WAKE_ARM_FAILED", "HOST_POWER_REQUEST_FAILED"):
+            with self.subTest(code=code):
+                text = DEFAULT_POLICY.read_text(encoding="utf-8")
+                text = _mutate_alert(
+                    text,
+                    code,
+                    "affects_control = false",
+                    "affects_control = true",
+                )
+                with self.assertRaises(AlertPolicyError) as ctx:
+                    load_alert_policy(self._write_policy(text))
+                self.assertIn(f"{code}.affects_control must remain false", str(ctx.exception))
 
     def test_dac_communication_lost_cannot_be_downgraded_to_continue(self) -> None:
         text = DEFAULT_POLICY.read_text(encoding="utf-8")
@@ -223,7 +248,7 @@ class AlertV2PolicyTests(unittest.TestCase):
             result = alertctl_main(["validate", str(DEFAULT_POLICY)])
         self.assertEqual(result, 0)
         self.assertIn("PASS: AlertV2 policy valid", stdout.getvalue())
-        self.assertIn("alerts=50", stdout.getvalue())
+        self.assertIn("alerts=52", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 
     def test_cli_validate_json_output_and_invalid_exit_code(self) -> None:
@@ -233,7 +258,7 @@ class AlertV2PolicyTests(unittest.TestCase):
         self.assertEqual(result, 0)
         payload = json.loads(stdout.getvalue())
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["alerts"], 50)
+        self.assertEqual(payload["alerts"], 52)
 
         invalid = self._write_policy("schema_version = 1")
         stdout = io.StringIO()

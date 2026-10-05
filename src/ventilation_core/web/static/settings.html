@@ -8,9 +8,9 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/sidebar.css">
-  <link rel="stylesheet" href="/schedule.css">
+  <link rel="stylesheet" href="/calendar.css">
   <script src="/zigbee-settings.js" defer></script>
-  <script src="/schedule.js" defer></script>
+  <script src="/calendar.js" defer></script>
 </head>
 <body class="v2-body">
   <aside class="v2-sidebar" aria-label="Główna nawigacja">
@@ -22,54 +22,60 @@
     <a class="v2-nav disabled" href="#" aria-disabled="true"><span class="v2-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14.7 5.3 4-4a5 5 0 0 1-6.4 6.4L6 14l4 4 6.3-6.3a5 5 0 0 1 6.4-6.4l-4 4"/><path d="m5 15-3 3 4 4 3-3"/></svg></span><span>SERWIS</span></a>
   </aside>
 
-  <main class="v2-main schedule-main">
+  <main class="v2-main calendar-main">
     <section class="v2-page-heading">
       <h1>USTAWIENIA</h1>
-      <p>Konfiguracja harmonogramów i urządzeń Zigbee</p>
+      <p>Calendar Engine i urządzenia Zigbee</p>
     </section>
 
     <section class="settings-tabs-shell" aria-label="Podzakładki ustawień">
-      <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabSchedule" checked>
-      <label class="settings-tab-label" for="settingsTabSchedule">
-        <span>HARMONOGRAMY</span>
-        <small>Czas pracy stref</small>
-      </label>
+      <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabCalendar" checked>
+      <label class="settings-tab-label" for="settingsTabCalendar"><span>KALENDARZ</span></label>
 
       <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabZigbee">
-      <label class="settings-tab-label" for="settingsTabZigbee">
-        <span>ZIGBEE</span>
-        <small>Koordynator i urządzenia</small>
-      </label>
+      <label class="settings-tab-label" for="settingsTabZigbee"><span>ZIGBEE</span></label>
 
       <div class="settings-tab-panels">
-        <section class="settings-tab-panel" data-settings-panel="schedule" aria-label="Harmonogramy">
-          <section class="schedule-overview" aria-label="Stan harmonogramu">
-            <article><span>STATUS</span><strong id="scheduleAvailability">Łączenie…</strong><small id="scheduleError">—</small></article>
-            <article><span>STREFA CZASOWA</span><strong id="scheduleTimezone">—</strong><small>czas lokalny core</small></article>
-            <article><span>CZAS LOKALNY</span><strong id="scheduleLocalTime">—</strong><small id="scheduleEvaluatedAt">—</small></article>
+        <section class="settings-tab-panel" data-settings-panel="calendar" data-calendar-editor aria-label="Calendar Engine">
+          <section class="calendar-overview" aria-label="Stan Calendar Engine">
+            <article><span>STATUS</span><strong id="calendarAvailability">Łączenie…</strong><small id="calendarError">—</small></article>
+            <article><span>REWIZJA / STREFA</span><strong id="calendarRevision">—</strong><small id="calendarTimezoneState">—</small></article>
+            <article><span>FAZA / TRYB</span><strong id="calendarPhase">—</strong><small id="calendarMode">—</small></article>
+            <article><span>PROFIL</span><strong id="calendarProfile">—</strong><small><span id="calendarRuleSource">—</span> · <span id="calendarRuleId">—</span></small></article>
+            <article><span>NASTĘPNE PRZEJŚCIE</span><strong id="calendarNextTransition">—</strong><small>zmiana stanu kalendarza</small></article>
+            <article><span>NASTĘPNE WYBUDZENIE</span><strong id="calendarNextWake">—</strong><small>początek PREVENTILATION</small></article>
+            <article><span>CZAS LOKALNY CORE</span><strong id="calendarLocalTime">—</strong><small>timezone-aware / DST</small></article>
           </section>
 
-          <section class="schedule-note">
-            <strong>Harmonogram nie steruje bezpośrednio wentylatorami ani AERO.</strong>
-            <span>Określa tylko oczekiwaną obecność dla przyszłej automatyki. Bezpieczeństwo i jakość powietrza pozostają nadrzędne.</span>
+          <section class="calendar-note">
+            <strong>Calendar Engine nie steruje bezpośrednio wentylatorami ani AERO.</strong>
+            <span>Wyznacza deterministyczny kontekst czasu dla automatyki SHADOW. Bezpieczeństwo i jakość powietrza pozostają nadrzędne.</span>
           </section>
 
-          <section class="schedule-grid">
-            <article class="schedule-zone" data-zone-editor="zone-1">
-              <header><div><span class="schedule-kicker">STREFA 1</span><h2 id="scheduleZone1Name">Mycie / Wygrzewanie</h2></div><div class="schedule-zone-state"><span>BIEŻĄCY KONTEKST</span><strong id="scheduleZone1State">—</strong></div></header>
-              <div class="schedule-columns" aria-hidden="true"><span>DZIEŃ</span><span>OD</span><span>DO</span><span>KONTEKST</span><span>OPIS</span><span>AKTYWNY</span><span></span></div>
-              <div id="scheduleZone1Rows" class="schedule-rows"></div>
-              <div class="schedule-empty" id="scheduleZone1Empty">Brak przedziałów. Poza przedziałami core przyjmuje brak oczekiwanej obecności.</div>
-              <footer><button type="button" class="schedule-btn secondary" data-add-window="zone-1">+ Dodaj przedział</button><div class="schedule-actions"><span class="schedule-save-status" id="scheduleZone1Message"></span><button type="button" class="schedule-btn ghost" data-reload-zone="zone-1">Wczytaj ponownie</button><button type="button" class="schedule-btn primary" data-save-zone="zone-1">Zapisz strefę</button></div></footer>
-            </article>
+          <section class="calendar-card">
+            <header>
+              <div><span class="calendar-kicker">KONFIGURACJA</span><h2>Profile pracy</h2></div>
+              <div class="calendar-timezone"><span>STREFA CZASOWA</span><input id="calendarTimezone" type="text" value="Europe/Warsaw" autocomplete="off"></div>
+            </header>
+            <div class="calendar-columns calendar-profile-columns" aria-hidden="true"><span>ID</span><span>TRYB</span><span>PRE [min]</span><span>PURGE [min]</span><span>MIN NAW.</span><span>MIN WYW.</span><span>FIX NAW.</span><span>FIX WYW.</span><span>OPIS</span><span></span></div>
+            <div id="calendarProfilesRows" class="calendar-profile-rows"></div>
+            <div id="calendarProfilesEmpty" class="calendar-empty">Brak profili.</div>
+            <div class="calendar-footer">
+              <button type="button" class="calendar-btn secondary" data-calendar-action="add-profile">+ Dodaj profil</button>
+              <span class="calendar-help">AUTO używa wartości minimalnych jako kontekstu bazowego; FIXED wymaga obu wartości FIX. STANDBY i OFF nie tworzą aktywnego okresu.</span>
+            </div>
+          </section>
 
-            <article class="schedule-zone" data-zone-editor="zone-2">
-              <header><div><span class="schedule-kicker">STREFA 2</span><h2 id="scheduleZone2Name">Lutowanie</h2></div><div class="schedule-zone-state"><span>BIEŻĄCY KONTEKST</span><strong id="scheduleZone2State">—</strong></div></header>
-              <div class="schedule-columns" aria-hidden="true"><span>DZIEŃ</span><span>OD</span><span>DO</span><span>KONTEKST</span><span>OPIS</span><span>AKTYWNY</span><span></span></div>
-              <div id="scheduleZone2Rows" class="schedule-rows"></div>
-              <div class="schedule-empty" id="scheduleZone2Empty">Brak przedziałów. Poza przedziałami core przyjmuje brak oczekiwanej obecności.</div>
-              <footer><button type="button" class="schedule-btn secondary" data-add-window="zone-2">+ Dodaj przedział</button><div class="schedule-actions"><span class="schedule-save-status" id="scheduleZone2Message"></span><button type="button" class="schedule-btn ghost" data-reload-zone="zone-2">Wczytaj ponownie</button><button type="button" class="schedule-btn primary" data-save-zone="zone-2">Zapisz strefę</button></div></footer>
-            </article>
+          <section class="calendar-card">
+            <header><div><span class="calendar-kicker">HIERARCHIA REGUŁ</span><h2>Reguły kalendarza</h2></div></header>
+            <div class="calendar-columns calendar-rule-columns" aria-hidden="true"><span>ID</span><span>TYP</span><span>PROFIL</span><span>SELEKTOR</span><span>OD</span><span>DO</span><span>OPIS</span><span>AKT.</span><span></span></div>
+            <div id="calendarRulesRows" class="calendar-rule-rows"></div>
+            <div id="calendarRulesEmpty" class="calendar-empty">Brak reguł.</div>
+            <div class="calendar-help">Selektor: WEEKLY = dni ISO np. 1,2,3,4,5; SEASON = miesiące np. 12,1,2; DATE_RANGE = YYYY-MM-DD..YYYY-MM-DD; DATE_EXCEPTION = YYYY-MM-DD; DEFAULT = pusty. Priorytet: DATE_EXCEPTION &gt; DATE_RANGE &gt; SEASON &gt; WEEKLY &gt; DEFAULT.</div>
+            <div class="calendar-footer">
+              <button type="button" class="calendar-btn secondary" data-calendar-action="add-rule">+ Dodaj regułę</button>
+              <div class="calendar-actions"><span id="calendarMessage" class="calendar-message"></span><button type="button" class="calendar-btn ghost" data-calendar-action="reload">Wczytaj ponownie</button><button type="button" class="calendar-btn primary" data-calendar-action="save">Zapisz kalendarz</button></div>
+            </div>
           </section>
         </section>
 

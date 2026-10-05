@@ -11,7 +11,6 @@ from typing import Any
 
 from ventilation_core.application.service import VentilationService
 from ventilation_core.domain.aero_control import AeroControlCommand
-from ventilation_core.domain.schedule import ScheduleWindow
 
 
 LOGGER = logging.getLogger(__name__)
@@ -127,25 +126,25 @@ class CoreServer:
         if command == "status":
             state = self._service.state()
             return {"ok": True, "state": state.to_dict()}
-        if command == "schedule":
-            method = getattr(self._service, "schedule_configuration", None)
+        if command == "calendar":
+            method = getattr(self._service, "calendar_configuration", None)
             if method is None:
-                raise RuntimeError("Schedule manager is not configured")
-            schedule = await asyncio.to_thread(method)
-            return {"ok": True, "schedule": schedule}
-        if command == "schedule-replace":
-            zone = request.get("zone")
-            raw_windows = request.get("windows")
-            if not isinstance(zone, str) or not zone:
-                raise ValueError("Schedule zone must be non-empty text")
-            if not isinstance(raw_windows, list):
-                raise ValueError("Schedule windows must be a JSON list")
-            windows = tuple(ScheduleWindow.from_payload(zone, item) for item in raw_windows)
-            method = getattr(self._service, "replace_schedule", None)
+                raise RuntimeError("Calendar Engine is not configured")
+            calendar = await asyncio.to_thread(method)
+            return {"ok": True, "calendar": calendar}
+        if command == "calendar-replace":
+            raw_config = request.get("config")
+            if not isinstance(raw_config, dict):
+                raise ValueError("Calendar config must be a JSON object")
+            method = getattr(self._service, "replace_calendar_configuration", None)
             if method is None:
-                raise RuntimeError("Schedule manager is not configured")
-            schedule = await asyncio.to_thread(method, zone, windows)
-            return {"ok": True, "schedule": schedule, "state": self._service.state().to_dict()}
+                raise RuntimeError("Calendar Engine is not configured")
+            calendar = await asyncio.to_thread(method, raw_config)
+            return {
+                "ok": True,
+                "calendar": calendar,
+                "state": self._service.state().to_dict(),
+            }
         if command == "alerts":
             limit = request.get("limit", 200)
             if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
@@ -156,7 +155,11 @@ class CoreServer:
                 raise RuntimeError("Alert history is not configured")
             active = await asyncio.to_thread(active_method)
             history = await asyncio.to_thread(history_method, limit)
-            return {"ok": True, "active": [record.to_dict() for record in active], "history": [record.to_dict() for record in history]}
+            return {
+                "ok": True,
+                "active": [record.to_dict() for record in active],
+                "history": [record.to_dict() for record in history],
+            }
         if command == "ack-alert":
             alert_id = request.get("alert_id")
             if isinstance(alert_id, bool) or not isinstance(alert_id, int) or alert_id < 1:
@@ -165,24 +168,40 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Alert acknowledgement is not configured")
             record = await asyncio.to_thread(method, alert_id)
-            return {"ok": True, "alert": record.to_dict(), "state": self._service.state().to_dict()}
+            return {
+                "ok": True,
+                "alert": record.to_dict(),
+                "state": self._service.state().to_dict(),
+            }
         if command == "sensors":
             sensor_bus = self._service.state().sensor_bus
-            return {"ok": True, "sensor_bus": None if sensor_bus is None else sensor_bus.to_dict()}
+            return {
+                "ok": True,
+                "sensor_bus": None if sensor_bus is None else sensor_bus.to_dict(),
+            }
         if command == "aero":
             aero_bus = self._service.state().aero_bus
-            return {"ok": True, "aero_bus": None if aero_bus is None else aero_bus.to_dict()}
+            return {
+                "ok": True,
+                "aero_bus": None if aero_bus is None else aero_bus.to_dict(),
+            }
         if command == "aero-speed":
             speed = request["speed"]
             if isinstance(speed, bool) or not isinstance(speed, int):
                 raise ValueError("AERO speed must be an integer 0..3")
-            result = await asyncio.to_thread(self._service.control_aero, AeroControlCommand.set_speed(speed))
+            result = await asyncio.to_thread(
+                self._service.control_aero,
+                AeroControlCommand.set_speed(speed),
+            )
             return {"ok": result.succeeded, "aero_control": result.to_dict()}
         if command == "aero-airing":
             enabled = request["enabled"]
             if not isinstance(enabled, bool):
                 raise ValueError("AERO airing state must be boolean")
-            result = await asyncio.to_thread(self._service.control_aero, AeroControlCommand.set_airing(enabled))
+            result = await asyncio.to_thread(
+                self._service.control_aero,
+                AeroControlCommand.set_airing(enabled),
+            )
             return {"ok": result.succeeded, "aero_control": result.to_dict()}
         if command == "zigbee-permit-join":
             seconds = request.get("seconds")
@@ -192,7 +211,11 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, seconds)
-            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
         if command == "zigbee-ack-pairing":
             ieee_address = request.get("ieee_address")
             if not isinstance(ieee_address, str) or not ieee_address.strip():
@@ -201,9 +224,16 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Zigbee pairing acknowledgement is not configured")
             result = await asyncio.to_thread(method, ieee_address.strip())
-            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
         if command == "zigbee-removal-confirmation-state":
-            return {"ok": True, "confirmation": self._current_zigbee_remove_confirmation()}
+            return {
+                "ok": True,
+                "confirmation": self._current_zigbee_remove_confirmation(),
+            }
         if command == "zigbee-request-remove-device":
             device_id = request.get("device_id")
             if not isinstance(device_id, str) or not device_id.strip():
@@ -213,7 +243,14 @@ class CoreServer:
             if zigbee is None:
                 raise RuntimeError("Zigbee management is not configured")
             needle = device_id.strip()
-            device = next((item for item in zigbee.inventory if needle in {item.ieee_address, item.friendly_name}), None)
+            device = next(
+                (
+                    item
+                    for item in zigbee.inventory
+                    if needle in {item.ieee_address, item.friendly_name}
+                ),
+                None,
+            )
             if device is None:
                 raise ValueError(f"Unknown Zigbee device: {needle}")
             if device.is_coordinator:
@@ -221,18 +258,42 @@ class CoreServer:
             existing = self._current_zigbee_remove_confirmation()
             if existing is not None:
                 if existing.get("device_id") != device.ieee_address:
-                    raise RuntimeError("Another Zigbee device removal is already awaiting operator confirmation")
-                return {"ok": True, "confirmation_required": True, "confirmation": existing, "state": state.to_dict()}
-            role = next((row.role for row in zigbee.sensor_list if row.ieee_address == device.ieee_address), None)
+                    raise RuntimeError(
+                        "Another Zigbee device removal is already awaiting operator confirmation"
+                    )
+                return {
+                    "ok": True,
+                    "confirmation_required": True,
+                    "confirmation": existing,
+                    "state": state.to_dict(),
+                }
+            role = next(
+                (
+                    row.role
+                    for row in zigbee.sensor_list
+                    if row.ieee_address == device.ieee_address
+                ),
+                None,
+            )
             if role is None:
-                role = next((semantic.role for semantic in zigbee.devices if semantic.ieee_address == device.ieee_address), None)
+                role = next(
+                    (
+                        semantic.role
+                        for semantic in zigbee.devices
+                        if semantic.ieee_address == device.ieee_address
+                    ),
+                    None,
+                )
             now = datetime.now(timezone.utc)
             pending = {
                 "confirmation_id": uuid.uuid4().hex,
                 "type": "zigbee_remove_device",
                 "title": "USUNIĘCIE URZĄDZENIA ZIGBEE",
                 "message": f"Czy na pewno usunąć urządzenie {device.friendly_name}?",
-                "detail": "Urządzenie zostanie usunięte z sieci Zigbee i będzie wymagało ponownego parowania. Przypisana rola systemowa zostanie zwolniona.",
+                "detail": (
+                    "Urządzenie zostanie usunięte z sieci Zigbee i będzie wymagało "
+                    "ponownego parowania. Przypisana rola systemowa zostanie zwolniona."
+                ),
                 "device_id": device.ieee_address,
                 "friendly_name": device.friendly_name,
                 "role": role,
@@ -243,7 +304,12 @@ class CoreServer:
                 "last_error_at": None,
             }
             self._zigbee_remove_confirmation = pending
-            return {"ok": True, "confirmation_required": True, "confirmation": dict(pending), "state": state.to_dict()}
+            return {
+                "ok": True,
+                "confirmation_required": True,
+                "confirmation": dict(pending),
+                "state": state.to_dict(),
+            }
         if command == "zigbee-resolve-remove-device":
             confirmation_id = request.get("confirmation_id")
             confirmed = request.get("confirmed")
@@ -258,7 +324,18 @@ class CoreServer:
                 raise ValueError("Zigbee removal confirmation id does not match")
             if not confirmed:
                 self._zigbee_remove_confirmation = None
-                return {"ok": True, "zigbee_management": {"status": "cancelled", "data": {"id": pending.get("device_id")}}, "confirmation": {"confirmation_id": confirmation_id.strip(), "confirmed": False}, "state": self._service.state().to_dict()}
+                return {
+                    "ok": True,
+                    "zigbee_management": {
+                        "status": "cancelled",
+                        "data": {"id": pending.get("device_id")},
+                    },
+                    "confirmation": {
+                        "confirmation_id": confirmation_id.strip(),
+                        "confirmed": False,
+                    },
+                    "state": self._service.state().to_dict(),
+                }
             method = getattr(self._service, "zigbee_remove_device", None)
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
@@ -266,12 +343,32 @@ class CoreServer:
                 result = await asyncio.to_thread(method, str(pending["device_id"]))
             except Exception as exc:
                 raw_error = str(exc)
-                operator_error = _REMOVE_SLEEP_HINT if "mgmtLeaveRsp" in raw_error or "Failed to remove device" in raw_error else f"Usunięcie urządzenia Zigbee nie powiodło się: {raw_error}"
-                self._zigbee_remove_confirmation = {**pending, "last_error": operator_error, "last_error_at": datetime.now(timezone.utc).isoformat()}
-                LOGGER.warning("Zigbee remove failed for %s: %s", pending.get("device_id"), raw_error)
+                operator_error = (
+                    _REMOVE_SLEEP_HINT
+                    if "mgmtLeaveRsp" in raw_error or "Failed to remove device" in raw_error
+                    else f"Usunięcie urządzenia Zigbee nie powiodło się: {raw_error}"
+                )
+                self._zigbee_remove_confirmation = {
+                    **pending,
+                    "last_error": operator_error,
+                    "last_error_at": datetime.now(timezone.utc).isoformat(),
+                }
+                LOGGER.warning(
+                    "Zigbee remove failed for %s: %s",
+                    pending.get("device_id"),
+                    raw_error,
+                )
                 raise RuntimeError(operator_error) from exc
             self._zigbee_remove_confirmation = None
-            return {"ok": True, "zigbee_management": result, "confirmation": {"confirmation_id": confirmation_id.strip(), "confirmed": True}, "state": self._service.state().to_dict()}
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "confirmation": {
+                    "confirmation_id": confirmation_id.strip(),
+                    "confirmed": True,
+                },
+                "state": self._service.state().to_dict(),
+            }
         if command == "zigbee-remove-device":
             device_id = request.get("device_id")
             if not isinstance(device_id, str) or not device_id.strip():
@@ -280,7 +377,11 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, device_id.strip())
-            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
         if command == "zigbee-rename-device":
             device_id = request.get("device_id")
             new_name = request.get("new_name")
@@ -291,8 +392,16 @@ class CoreServer:
             method = getattr(self._service, "zigbee_rename_device", None)
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
-            result = await asyncio.to_thread(method, device_id.strip(), new_name.strip())
-            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+            result = await asyncio.to_thread(
+                method,
+                device_id.strip(),
+                new_name.strip(),
+            )
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
         if command == "zigbee-assign-role":
             device_id = request.get("device_id")
             role = request.get("role")
@@ -304,9 +413,17 @@ class CoreServer:
             if method is None:
                 raise RuntimeError("Zigbee management is not configured")
             result = await asyncio.to_thread(method, device_id.strip(), role)
-            return {"ok": True, "zigbee_management": result, "state": self._service.state().to_dict()}
+            return {
+                "ok": True,
+                "zigbee_management": result,
+                "state": self._service.state().to_dict(),
+            }
         if command == "set":
-            state = await asyncio.to_thread(self._service.set_manual, float(request["supply_voltage"]), float(request["extract_voltage"]))
+            state = await asyncio.to_thread(
+                self._service.set_manual,
+                float(request["supply_voltage"]),
+                float(request["extract_voltage"]),
+            )
         elif command == "stop":
             state = await asyncio.to_thread(self._service.stop)
         elif command == "shutdown":

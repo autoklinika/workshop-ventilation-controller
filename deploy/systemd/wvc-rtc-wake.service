@@ -1,0 +1,25 @@
+[Unit]
+Description=Workshop Ventilation Privileged RTC Wake Agent
+After=local-fs.target
+Before=ventilation-core.service
+
+[Service]
+Type=simple
+User=root
+Group=wentylacja
+WorkingDirectory=/home/wentylacja/workshop-ventilation-controller
+Environment=PYTHONPATH=/home/wentylacja/workshop-ventilation-controller/src
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+RuntimeDirectory=wvc-rtc
+RuntimeDirectoryMode=0770
+UMask=0007
+ExecStart=/usr/bin/python3 -m ventilation_core.rtc_wake_agent --socket /run/wvc-rtc/rtc-wake.sock --wakealarm /sys/class/rtc/rtc0/wakealarm --log-level INFO
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

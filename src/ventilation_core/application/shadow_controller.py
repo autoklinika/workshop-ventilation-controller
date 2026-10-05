@@ -68,18 +68,17 @@ class UnconfiguredShadowAutomationEvaluator:
     def evaluate(self, state: CoreState) -> ShadowAutomationState:
         now = datetime.now(timezone.utc).isoformat()
         safety_blocked = _safety_blocked(state)
-        schedule_by_zone = _schedule_by_zone(state)
+        calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
         sensor_by_address = _sensor_by_address(state)
 
         proposals: list[ShadowZoneProposal] = []
         for binding in self._zone_bindings:
             node = sensor_by_address.get(binding.sensor_address)
             sensor_usable = _sensor_usable(node)
-            expectation = schedule_by_zone.get(binding.zone, "UNKNOWN")
             if safety_blocked:
                 reason = "SAFETY_BLOCK_ACTIVE"
-            elif expectation == "UNKNOWN":
-                reason = "SCHEDULE_CONTEXT_UNKNOWN"
+            elif calendar_phase == "UNKNOWN":
+                reason = "CALENDAR_CONTEXT_UNKNOWN"
             elif not sensor_usable:
                 reason = "SENSOR_CONTEXT_UNAVAILABLE"
             else:
@@ -87,7 +86,9 @@ class UnconfiguredShadowAutomationEvaluator:
             proposals.append(
                 ShadowZoneProposal(
                     zone=binding.zone,
-                    schedule_expectation=expectation,
+                    calendar_phase=calendar_phase,
+                    calendar_mode=calendar_mode,
+                    calendar_profile=calendar_profile,
                     sensor_address=binding.sensor_address,
                     sensor_usable=sensor_usable,
                     safety_override=safety_blocked,
@@ -130,7 +131,7 @@ class PolicyShadowAutomationEvaluator:
     def evaluate(self, state: CoreState) -> ShadowAutomationState:
         now = datetime.now(timezone.utc).isoformat()
         safety_blocked = _safety_blocked(state)
-        schedule_by_zone = _schedule_by_zone(state)
+        calendar_phase, calendar_mode, calendar_profile = _calendar_context(state)
         sensor_by_address = _sensor_by_address(state)
         degraded = False
         proposals: list[ShadowZoneProposal] = []
@@ -138,7 +139,6 @@ class PolicyShadowAutomationEvaluator:
         for binding in self._zone_bindings:
             node = sensor_by_address.get(binding.sensor_address)
             sensor_usable = _sensor_usable(node)
-            expectation = schedule_by_zone.get(binding.zone, "UNKNOWN")
 
             pm2_5 = None
             pm10 = None
@@ -207,7 +207,7 @@ class PolicyShadowAutomationEvaluator:
             reason = self._control_reason(
                 binding=binding,
                 safety_blocked=safety_blocked,
-                expectation=expectation,
+                calendar_phase=calendar_phase,
                 sensor_usable=sensor_usable,
                 air_level=air_level,
                 air_driver=air_driver,
@@ -216,7 +216,7 @@ class PolicyShadowAutomationEvaluator:
             )
 
             if (
-                expectation == "UNKNOWN"
+                calendar_phase == "UNKNOWN"
                 or not sensor_usable
                 or air_level is None
                 or (
@@ -229,7 +229,9 @@ class PolicyShadowAutomationEvaluator:
             proposals.append(
                 ShadowZoneProposal(
                     zone=binding.zone,
-                    schedule_expectation=expectation,
+                    calendar_phase=calendar_phase,
+                    calendar_mode=calendar_mode,
+                    calendar_profile=calendar_profile,
                     sensor_address=binding.sensor_address,
                     sensor_usable=sensor_usable,
                     air_quality_level=None if air_level is None else air_level.name,
@@ -280,7 +282,7 @@ class PolicyShadowAutomationEvaluator:
         *,
         binding: ShadowZoneBinding,
         safety_blocked: bool,
-        expectation: str,
+        calendar_phase: str,
         sensor_usable: bool,
         air_level: AirQualityLevel | None,
         air_driver: str | None,
@@ -289,8 +291,8 @@ class PolicyShadowAutomationEvaluator:
     ) -> str:
         if safety_blocked:
             return "SAFETY_BLOCK_ACTIVE"
-        if expectation == "UNKNOWN":
-            return "SCHEDULE_CONTEXT_UNKNOWN"
+        if calendar_phase == "UNKNOWN":
+            return "CALENDAR_CONTEXT_UNKNOWN"
         if not sensor_usable:
             return "SENSOR_CONTEXT_UNAVAILABLE"
         if air_level is None:
@@ -327,10 +329,12 @@ def _safety_blocked(state: CoreState) -> bool:
     )
 
 
-def _schedule_by_zone(state: CoreState) -> dict[str, str]:
-    if state.schedule is None:
-        return {}
-    return {zone.zone: zone.expectation.value for zone in state.schedule.zones}
+def _calendar_context(state: CoreState) -> tuple[str, str | None, str | None]:
+    calendar = state.calendar
+    if calendar is None or calendar.available is not True:
+        return "UNKNOWN", None, None
+    mode = None if calendar.effective_mode is None else calendar.effective_mode.value
+    return calendar.phase.value, mode, calendar.effective_profile
 
 
 def _sensor_by_address(state: CoreState) -> dict[int, object]:

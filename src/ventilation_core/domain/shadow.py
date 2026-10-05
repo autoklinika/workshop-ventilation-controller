@@ -16,7 +16,9 @@ class ShadowAutomationStatus(StrEnum):
 @dataclass(frozen=True)
 class ShadowZoneProposal:
     zone: str
-    schedule_expectation: str
+    calendar_phase: str
+    calendar_mode: str | None
+    calendar_profile: str | None
     sensor_address: int | None
     sensor_usable: bool
 
@@ -46,7 +48,9 @@ class ShadowZoneProposal:
     def to_dict(self) -> dict[str, Any]:
         return {
             "zone": self.zone,
-            "schedule_expectation": self.schedule_expectation,
+            "calendar_phase": self.calendar_phase,
+            "calendar_mode": self.calendar_mode,
+            "calendar_profile": self.calendar_profile,
             "sensor_address": self.sensor_address,
             "sensor_usable": self.sensor_usable,
             "air_quality_level": self.air_quality_level,

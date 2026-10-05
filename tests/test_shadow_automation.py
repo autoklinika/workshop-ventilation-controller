@@ -3,6 +3,11 @@ from __future__ import annotations
 import unittest
 
 from ventilation_core.application.shadow_controller import UnconfiguredShadowAutomationEvaluator
+from ventilation_core.calendar.model import (
+    CalendarMode,
+    CalendarPhase,
+    CalendarResolution,
+)
 from ventilation_core.domain.models import (
     AlarmCode,
     AlarmSeverity,
@@ -10,11 +15,6 @@ from ventilation_core.domain.models import (
     CoreState,
     FanSetpoints,
     VentilationMode,
-)
-from ventilation_core.domain.schedule import (
-    ScheduleExpectation,
-    ScheduleState,
-    ZoneScheduleState,
 )
 from ventilation_core.domain.sensors import AirQualityReading, SensorBusState, SensorNodeState
 from ventilation_core.domain.shadow import ShadowAutomationStatus
@@ -27,34 +27,20 @@ class ShadowAutomationTest(unittest.TestCase):
         hardware_ready: bool = True,
         output_state_known: bool = True,
         alarms=(),
-        schedule_available: bool = True,
+        calendar_available: bool = True,
         sensor_1_usable: bool = True,
         sensor_2_usable: bool = True,
     ) -> CoreState:
-        schedule = ScheduleState(
-            available=schedule_available,
+        calendar = CalendarResolution(
+            available=calendar_available,
             timezone="Europe/Warsaw",
             evaluated_at_utc="2026-08-17T16:00:00+00:00",
             local_time="2026-08-17T18:00:00+02:00",
-            zones=(
-                ZoneScheduleState(
-                    zone="zone-1",
-                    expectation=(
-                        ScheduleExpectation.OCCUPIED_EXPECTED
-                        if schedule_available
-                        else ScheduleExpectation.UNKNOWN
-                    ),
-                ),
-                ZoneScheduleState(
-                    zone="zone-2",
-                    expectation=(
-                        ScheduleExpectation.UNOCCUPIED_EXPECTED
-                        if schedule_available
-                        else ScheduleExpectation.UNKNOWN
-                    ),
-                ),
-            ),
-            last_error="" if schedule_available else "db unavailable",
+            phase=CalendarPhase.ACTIVE if calendar_available else CalendarPhase.INACTIVE,
+            effective_profile="NORMAL_WORKDAY" if calendar_available else None,
+            effective_mode=CalendarMode.AUTO if calendar_available else None,
+            rule_id="MON_FRI" if calendar_available else None,
+            last_error="" if calendar_available else "calendar db unavailable",
         )
         nodes = (
             SensorNodeState(
@@ -91,10 +77,10 @@ class ShadowAutomationTest(unittest.TestCase):
             output_state_known=output_state_known,
             active_alarms=tuple(alarms),
             sensor_bus=sensor_bus,
-            schedule=schedule,
+            calendar=calendar,
         )
 
-    def test_unconfigured_policy_publishes_context_but_no_proposed_outputs(self):
+    def test_unconfigured_policy_publishes_calendar_context_but_no_outputs(self):
         result = UnconfiguredShadowAutomationEvaluator().evaluate(self._state())
 
         self.assertTrue(result.enabled)
@@ -103,12 +89,11 @@ class ShadowAutomationTest(unittest.TestCase):
         self.assertIsNone(result.policy_version)
         self.assertEqual(len(result.zones), 2)
 
-        zone1, zone2 = result.zones
-        self.assertEqual(zone1.schedule_expectation, "OCCUPIED_EXPECTED")
-        self.assertEqual(zone2.schedule_expectation, "UNOCCUPIED_EXPECTED")
-        self.assertTrue(zone1.sensor_usable)
-        self.assertTrue(zone2.sensor_usable)
         for proposal in result.zones:
+            self.assertEqual(proposal.calendar_phase, "ACTIVE")
+            self.assertEqual(proposal.calendar_mode, "AUTO")
+            self.assertEqual(proposal.calendar_profile, "NORMAL_WORKDAY")
+            self.assertTrue(proposal.sensor_usable)
             self.assertIsNone(proposal.air_request_pct)
             self.assertIsNone(proposal.temperature_limit_pct)
             self.assertIsNone(proposal.proposed_supply_voltage)
@@ -131,7 +116,9 @@ class ShadowAutomationTest(unittest.TestCase):
 
         self.assertEqual(result.status, ShadowAutomationStatus.BLOCKED_SAFETY)
         self.assertTrue(all(zone.safety_override for zone in result.zones))
-        self.assertTrue(all(zone.control_reason == "SAFETY_BLOCK_ACTIVE" for zone in result.zones))
+        self.assertTrue(
+            all(zone.control_reason == "SAFETY_BLOCK_ACTIVE" for zone in result.zones)
+        )
 
     def test_unknown_output_state_blocks_shadow_even_without_alarm(self):
         result = UnconfiguredShadowAutomationEvaluator().evaluate(
@@ -150,6 +137,17 @@ class ShadowAutomationTest(unittest.TestCase):
         self.assertIsNone(zone1.proposed_supply_voltage)
         self.assertIsNone(zone1.proposed_extract_voltage)
 
+    def test_unavailable_calendar_is_explicit_context_failure(self):
+        result = UnconfiguredShadowAutomationEvaluator().evaluate(
+            self._state(calendar_available=False)
+        )
+        self.assertTrue(
+            all(zone.calendar_phase == "UNKNOWN" for zone in result.zones)
+        )
+        self.assertTrue(
+            all(zone.control_reason == "CALENDAR_CONTEXT_UNKNOWN" for zone in result.zones)
+        )
+
     def test_corestate_serializes_forward_compatible_shadow_contract(self):
         state = self._state()
         shadow = UnconfiguredShadowAutomationEvaluator().evaluate(state)
@@ -160,15 +158,28 @@ class ShadowAutomationTest(unittest.TestCase):
             output_state_known=state.output_state_known,
             active_alarms=state.active_alarms,
             sensor_bus=state.sensor_bus,
-            schedule=state.schedule,
+            calendar=state.calendar,
             shadow_automation=shadow,
         )
 
         payload = state.to_dict()
-        self.assertEqual(payload["setpoints"], {"supply_voltage": 0.0, "extract_voltage": 0.0})
-        self.assertEqual(payload["shadow_automation"]["status"], "POLICY_UNCONFIGURED")
+        self.assertEqual(
+            payload["setpoints"],
+            {"supply_voltage": 0.0, "extract_voltage": 0.0},
+        )
+        self.assertEqual(payload["calendar"]["phase"], "ACTIVE")
+        self.assertEqual(
+            payload["shadow_automation"]["status"],
+            "POLICY_UNCONFIGURED",
+        )
         self.assertFalse(payload["shadow_automation"]["actuation_supported"])
-        self.assertIsNone(payload["shadow_automation"]["zones"][0]["proposed_supply_voltage"])
+        self.assertEqual(
+            payload["shadow_automation"]["zones"][0]["calendar_profile"],
+            "NORMAL_WORKDAY",
+        )
+        self.assertIsNone(
+            payload["shadow_automation"]["zones"][0]["proposed_supply_voltage"]
+        )
 
 
 if __name__ == "__main__":

@@ -3,9 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from threading import Lock, RLock
-from typing import Sequence
 
-from ventilation_core.application.schedule_controller import ScheduleManager
+from ventilation_core.calendar.engine import CalendarRuntime
 from ventilation_core.domain.aero_control import AeroControlCommand, AeroControlResult
 from ventilation_core.domain.models import (
     AlarmCode,
@@ -16,7 +15,6 @@ from ventilation_core.domain.models import (
     VentilationMode,
 )
 from ventilation_core.domain.policy import FanSetpointPolicy
-from ventilation_core.domain.schedule import ScheduleWindow
 
 from .ports import AeroBusMonitor, SensorBusMonitor, TachoMonitor, VentilationActuator
 
@@ -45,7 +43,7 @@ class VentilationService:
         sensor_bus: SensorBusMonitor | None = None,
         aero_bus: AeroBusMonitor | None = None,
         tacho: TachoMonitor | None = None,
-        schedule_manager: ScheduleManager | None = None,
+        calendar_engine: CalendarRuntime | None = None,
     ) -> None:
         if hardware_failure_threshold < 1:
             raise ValueError("Hardware failure threshold must be at least 1")
@@ -55,7 +53,7 @@ class VentilationService:
         self._sensor_bus = sensor_bus
         self._aero_bus = aero_bus
         self._tacho = tacho
-        self._schedule_manager = schedule_manager
+        self._calendar_engine = calendar_engine
         self._lock = RLock()
         self._aero_control_lock = Lock()
         self._setpoints = FanSetpoints.stopped()
@@ -131,10 +129,8 @@ class VentilationService:
             sensor_bus_state = None if self._sensor_bus is None else self._sensor_bus.state()
             aero_bus_state = None if self._aero_bus is None else self._aero_bus.state()
             tacho_state = None if self._tacho is None else self._tacho.state()
-            schedule_state = (
-                None
-                if self._schedule_manager is None
-                else self._schedule_manager.current_state()
+            calendar_state = (
+                None if self._calendar_engine is None else self._calendar_engine.resolve()
             )
             return CoreState(
                 mode=self._mode,
@@ -146,24 +142,23 @@ class VentilationService:
                 sensor_bus=sensor_bus_state,
                 aero_bus=aero_bus_state,
                 tacho=tacho_state,
-                schedule=schedule_state,
+                calendar=calendar_state,
             )
 
-    def schedule_configuration(self) -> dict[str, object]:
+    def calendar_configuration(self) -> dict[str, object]:
         with self._lock:
-            if self._schedule_manager is None:
-                raise RuntimeError("Schedule manager is not configured")
-            return self._schedule_manager.configuration()
+            if self._calendar_engine is None:
+                raise RuntimeError("Calendar Engine is not configured")
+            return self._calendar_engine.configuration()
 
-    def replace_schedule(
+    def replace_calendar_configuration(
         self,
-        zone: str,
-        windows: Sequence[ScheduleWindow],
+        payload: dict[str, object],
     ) -> dict[str, object]:
         with self._lock:
-            if self._schedule_manager is None:
-                raise RuntimeError("Schedule manager is not configured")
-            return self._schedule_manager.replace_zone(zone, windows)
+            if self._calendar_engine is None:
+                raise RuntimeError("Calendar Engine is not configured")
+            return self._calendar_engine.replace_configuration(payload)
 
     def health_check(self) -> CoreState:
         """Supervise DAC and independent read-only/RS-485 monitors."""
@@ -223,8 +218,8 @@ class VentilationService:
                                     if self._tacho is not None:
                                         self._tacho.close()
                                 finally:
-                                    if self._schedule_manager is not None:
-                                        self._schedule_manager.close()
+                                    if self._calendar_engine is not None:
+                                        self._calendar_engine.close()
 
     def _require_operational_hardware(self) -> None:
         if self._recovery_required or not self._actuator.ready or self._active_alarms:

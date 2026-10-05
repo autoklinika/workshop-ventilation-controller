@@ -3,12 +3,8 @@ from __future__ import annotations
 import unittest
 
 from ventilation_core.application.shadow_controller import PolicyShadowAutomationEvaluator
+from ventilation_core.calendar.model import CalendarMode, CalendarPhase, CalendarResolution
 from ventilation_core.domain.models import CoreState, FanSetpoints, VentilationMode
-from ventilation_core.domain.schedule import (
-    ScheduleExpectation,
-    ScheduleState,
-    ZoneScheduleState,
-)
 from ventilation_core.domain.sensors import AirQualityReading, SensorBusState, SensorNodeState
 from ventilation_core.domain.shadow import ShadowAutomationStatus
 from ventilation_core.domain.shadow_policy import (
@@ -110,21 +106,15 @@ class PolicyShadowAutomationEvaluatorTest(unittest.TestCase):
             nox_index=5.0,
             temperature_celsius=21.0,
         )
-        schedule = ScheduleState(
+        calendar = CalendarResolution(
             available=True,
             timezone="Europe/Warsaw",
             evaluated_at_utc="2026-08-17T16:00:00+00:00",
             local_time="2026-08-17T18:00:00+02:00",
-            zones=(
-                ZoneScheduleState(
-                    zone="zone-1",
-                    expectation=ScheduleExpectation.OCCUPIED_EXPECTED,
-                ),
-                ZoneScheduleState(
-                    zone="zone-2",
-                    expectation=ScheduleExpectation.OCCUPIED_EXPECTED,
-                ),
-            ),
+            phase=CalendarPhase.ACTIVE,
+            effective_profile="NORMAL_WORKDAY",
+            effective_mode=CalendarMode.AUTO,
+            rule_id="MON_FRI",
         )
         nodes = (
             SensorNodeState(
@@ -160,7 +150,7 @@ class PolicyShadowAutomationEvaluatorTest(unittest.TestCase):
             hardware_ready=True,
             output_state_known=True,
             sensor_bus=sensor_bus,
-            schedule=schedule,
+            calendar=calendar,
         )
 
     def test_real_policy_classifies_but_production_tuning_stays_empty(self):
@@ -181,6 +171,8 @@ class PolicyShadowAutomationEvaluatorTest(unittest.TestCase):
         self.assertFalse(result.actuation_supported)
 
         zone1, zone2 = result.zones
+        self.assertEqual(zone1.calendar_phase, "ACTIVE")
+        self.assertEqual(zone1.calendar_mode, "AUTO")
         self.assertEqual(zone1.air_quality_level, "NORMAL")
         self.assertEqual(zone1.thermal_band, "LIMITING")
         self.assertEqual(zone1.control_reason, "THERMAL_LIMITING")
@@ -240,7 +232,10 @@ class PolicyShadowAutomationEvaluatorTest(unittest.TestCase):
         )
         zone1 = PolicyShadowAutomationEvaluator(ShadowPolicyV1()).evaluate(state).zones[0]
         self.assertEqual(zone1.air_quality_level, "BOOST")
-        self.assertEqual(zone1.control_reason, "PM2_5_BOOST_CONFIRMATION_TUNING_REQUIRED")
+        self.assertEqual(
+            zone1.control_reason,
+            "PM2_5_BOOST_CONFIRMATION_TUNING_REQUIRED",
+        )
 
     def test_explicit_test_tuning_can_generate_shadow_percentages_without_actuation(self):
         tuning = ShadowOutputTuning(
