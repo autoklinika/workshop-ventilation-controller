@@ -1,0 +1,15 @@
+[Unit]
+Description=Watch WVC Zigbee2MQTT persistent state for backup
+RequiresMountsFor=/srv/wvc-data
+
+[Path]
+PathChanged=/srv/wvc-data/zigbee2mqtt/configuration.yaml
+PathModified=/srv/wvc-data/zigbee2mqtt/configuration.yaml
+PathChanged=/srv/wvc-data/zigbee2mqtt/database.db
+PathModified=/srv/wvc-data/zigbee2mqtt/database.db
+PathChanged=/srv/wvc-data/zigbee2mqtt/coordinator_backup.json
+PathModified=/srv/wvc-data/zigbee2mqtt/coordinator_backup.json
+Unit=wvc-zigbee-state-backup.service
+
+[Install]
+WantedBy=multi-user.target

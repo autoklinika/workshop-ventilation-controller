@@ -40,12 +40,17 @@ class ZigbeeStateBackupDeploymentTest(unittest.TestCase):
         self.assertIn('AFTER="$(state_fingerprint)"', text)
         self.assertIn('Could not obtain a consistent Zigbee2MQTT snapshot after 3 attempts', text)
 
-    def test_timer_is_hourly_but_backup_only_writes_on_change(self) -> None:
-        timer = (ROOT / "deploy/systemd/wvc-zigbee-state-backup.timer").read_text(encoding="utf-8")
+    def test_backup_is_event_driven_by_persistent_zigbee_state_changes(self) -> None:
+        watcher = (ROOT / "deploy/systemd/wvc-zigbee-state-backup.path").read_text(encoding="utf-8")
         service = (ROOT / "deploy/systemd/wvc-zigbee-state-backup.service").read_text(encoding="utf-8")
-        self.assertIn('OnCalendar=hourly', timer)
-        self.assertIn('Persistent=true', timer)
-        self.assertIn('RandomizedDelaySec=5m', timer)
+        self.assertFalse((ROOT / "deploy/systemd/wvc-zigbee-state-backup.timer").exists())
+        for name in ("configuration.yaml", "database.db", "coordinator_backup.json"):
+            path = f"/srv/wvc-data/zigbee2mqtt/{name}"
+            self.assertIn(f"PathChanged={path}", watcher)
+            self.assertIn(f"PathModified={path}", watcher)
+        self.assertIn("Unit=wvc-zigbee-state-backup.service", watcher)
+        self.assertIn("WantedBy=multi-user.target", watcher)
+        self.assertIn("ExecStartPre=/bin/sleep 2", service)
         self.assertIn('RequiresMountsFor=/srv/wvc-data', service)
         self.assertIn('ReadOnlyPaths=/srv/wvc-data/zigbee2mqtt', service)
         self.assertIn('ReadWritePaths=/var/backups/workshop-ventilation/zigbee2mqtt', service)
@@ -53,7 +58,9 @@ class ZigbeeStateBackupDeploymentTest(unittest.TestCase):
 
     def test_installer_creates_and_verifies_initial_snapshot(self) -> None:
         text = (ROOT / "tools/install_cm5_zigbee_state_backup.sh").read_text(encoding="utf-8")
-        self.assertIn('systemctl enable --now wvc-zigbee-state-backup.timer', text)
+        self.assertIn('systemctl disable --now wvc-zigbee-state-backup.timer', text)
+        self.assertIn('rm -f "${LEGACY_TIMER_TARGET}"', text)
+        self.assertIn('systemctl enable --now wvc-zigbee-state-backup.path', text)
         self.assertIn('systemctl start wvc-zigbee-state-backup.service', text)
         self.assertIn('journalctl -u wvc-zigbee-state-backup.service -n 80 --no-pager', text)
         self.assertIn('Initial Zigbee state backup failed', text)
