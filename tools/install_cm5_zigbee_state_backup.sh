@@ -23,7 +23,13 @@ install -m 0644 "${ROOT_DIR}/deploy/systemd/wvc-zigbee-state-backup.timer" "${TI
 
 systemctl daemon-reload
 systemctl enable --now wvc-zigbee-state-backup.timer
-systemctl start wvc-zigbee-state-backup.service
+if ! systemctl start wvc-zigbee-state-backup.service; then
+    echo "===== wvc-zigbee-state-backup.service =====" >&2
+    systemctl status wvc-zigbee-state-backup.service --no-pager -l >&2 || true
+    echo "===== recent journal =====" >&2
+    journalctl -u wvc-zigbee-state-backup.service -n 80 --no-pager >&2 || true
+    fail "Initial Zigbee state backup failed"
+fi
 systemctl is-active --quiet wvc-zigbee-state-backup.timer || fail "Backup timer is not active"
 
 LATEST="$(find "${BACKUP_ROOT}" -maxdepth 1 -type f -name 'zigbee2mqtt-state-*.tar.gz' -printf '%p\n' | LC_ALL=C sort | tail -n 1)"
