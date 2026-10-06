@@ -6,6 +6,10 @@
 
 Finalny raport walidacji: `docs/reports/IYAMA_ANDROID_KIOSK_STAGE4_FINAL_VALIDATION_2026-08-20_PL.md`.
 
+**RGB Alert LED Stage 1 — finalna paleta zakodowana; deterministyczna walidacja sprzętowa w toku.**
+
+Raport implementacji: `docs/reports/IYAMA_ANDROID_LED_ALERT_STAGE1_IMPLEMENTATION_PL.md`.
+
 ## Stage 4 — local service access management
 
 Stage 4 builds on the validated native Android dedicated-device kiosk:
@@ -139,20 +143,28 @@ The current APK is still marked `android:testOnly="true"`; this is retained as a
 
 ## Build / deploy
 
+For the current RGB LED Stage 1 branch:
+
 ```powershell
 cd C:\PROJEKTY\wvc-iiyama-kiosk
 
-git switch agent/iiyama-android-kiosk-stage4-service-access
-git pull --ff-only origin agent/iiyama-android-kiosk-stage4-service-access
+git switch agent/iiyama-led-alert-stage1
+git pull --ff-only origin agent/iiyama-led-alert-stage1
 
 cd hmi\iiyama-android
 
-.\tools\configure-admin-settings-pin.ps1
 .\tools\build-debug.ps1
 .\tools\deploy-debug.ps1
 ```
 
 `deploy-debug.ps1` uses `adb install -r -t`; app-private service cards and the normal service PIN are preserved across this update path.
+
+Current LED build:
+
+```text
+versionCode 11
+versionName 0.5.4-led-diagnostic
+```
 
 ## Stage 4 hardware validation — PASS
 
@@ -170,3 +182,57 @@ Na docelowym panelu iiyama TW1025LASC-B3PNR potwierdzono:
 - po ponownym uruchomieniu HMI Lock Task wraca do `LOCKED` i pakiet HMI wraca na allowlistę.
 
 Szczegółowy zapis testów i wyniki znajdują się w finalnym raporcie Stage 4.
+
+## RGB Alert LED Stage 1
+
+RGB jest sterowane natywnie przez Androida, niezależnie od WebView. Aplikacja odpytuje istniejące `/api/v1/alerts` co 2 s; `ventilation-core` pozostaje źródłem prawdy i nie został zmodyfikowany dla tej funkcji.
+
+Priorytet lokalnej wizualizacji:
+
+```text
+CRITICAL > ALARM > WARNING > INFO > SERVICE > NORMAL
+```
+
+Finalne mapowanie:
+
+- NORMAL → zielony stały,
+- SERVICE / Android → niebieski stały, o ile nie ma aktywnego alertu,
+- INFO → niebieski; UNACK miga, ACK stały,
+- WARNING → żółty; UNACK miga, ACK stały,
+- ALARM → pomarańczowy; UNACK miga, ACK stały,
+- CRITICAL → czerwony; UNACK szybko miga, ACK stały,
+- przed pierwszym poprawnym snapshotem → biały wolno migający,
+- utrata komunikacji po wcześniejszym połączeniu przez ponad 6 s → czerwony szybko migający.
+
+ACK nie obniża priorytetu i nie zmienia koloru.
+
+Sprzętowo potwierdzona paleta docelowego B3:
+
+```text
+0x02 = OFF
+0x03 = LED ON
+0x04 = RED / CRITICAL
+0x05 = GREEN / NORMAL
+0x06 = BLUE / INFO + SERVICE
+0x07 = WHITE / STARTUP UNKNOWN
+0x08 = ORANGE / ALARM
+0x10 = YELLOW / WARNING
+```
+
+Potwierdzone efekty `0x0B`, `0x0F`, `0x13`, `0x17` nie są używane przez AlertV2, ponieważ mają własne zachowanie kolorystyczne. Próby uzyskania fade bieżącego koloru przez efekt producenta, custom RGB i brightness nie dały poprawnego fade na B3. Starszy interfejs `/dev/ledjni` z demo B1 nie istnieje na docelowym B3.
+
+Sterownik używa zatem statycznego koloru oraz kontrolowanego programowo ON/OFF dla stanów UNACK. Po OFF wysyła `0x03`, a następnie właściwy statyczny kolor; przy zwykłej zmianie koloru bez OFF nie powtarza `0x03`.
+
+### Deterministyczna walidacja LED
+
+Ręczne wysyłanie komend bezpośrednio do `zigbee_reset` podczas działania APK może ścigać się z `HmiLedController` i dawać pozornie przypadkowe zmiany koloru/stanu. Dlatego walidacja AlertV2 nie używa już równoległych ręcznych zapisów sysfs.
+
+Debug build ma kontrolowany ADB diagnostic override. Live polling CM5 nadal działa w tle, ale renderer LED pozostaje w jednym wymuszonym stanie aż do komendy `CLEAR`. Funkcja jest rejestrowana tylko dla `BuildConfig.DEBUG`.
+
+Pełny test:
+
+```powershell
+.\tools\test-led-alert-states-diagnostic.ps1
+```
+
+Skrypt przechodzi kolejno przez NORMAL, INFO UNACK/ACK, WARNING UNACK/ACK, ALARM UNACK/ACK, CRITICAL UNACK/ACK, COMMUNICATION_LOST, STARTUP_UNKNOWN i SERVICE. Każdy krok wymaga jawnego `P=PASS` albo `F=FAIL`, zapisuje wynik i `WvcHmiLed` logcat do pliku, a na końcu — także przy przerwaniu — próbuje wysłać `CLEAR`, aby oddać LED z powrotem logice live.
