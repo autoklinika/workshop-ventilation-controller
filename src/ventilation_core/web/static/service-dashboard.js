@@ -17,6 +17,10 @@
     return value === null || value === undefined || value === "" ? "—" : String(value);
   }
 
+  function objectOrEmpty(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
   function formatNumber(value, digits = 1) {
     if (typeof value !== "number" || !Number.isFinite(value)) return "—";
     return value.toFixed(digits);
@@ -232,10 +236,10 @@
 
   function renderSystem(system) {
     const panel = makePanel("CM5 / SYSTEM", "LINUX · ZASILANIE");
-    const memory = system && typeof system.memory === "object" ? system.memory : {};
-    const storage = system && typeof system.root_storage === "object" ? system.root_storage : {};
-    const load = system && typeof system.load_average === "object" ? system.load_average : {};
-    const power = system && typeof system.power === "object" ? system.power : {};
+    const memory = objectOrEmpty(system && system.memory);
+    const storage = objectOrEmpty(system && system.root_storage);
+    const load = objectOrEmpty(system && system.load_average);
+    const power = objectOrEmpty(system && system.power);
     panel.appendChild(makeKv([
       ["Model", system && system.model],
       ["Hostname", system && system.hostname],
@@ -260,8 +264,8 @@
 
   function renderCore(core) {
     const panel = makePanel("CORE / BEZPIECZEŃSTWO", "VENTILATION-CORE");
-    const setpoints = core && typeof core.setpoints === "object" ? core.setpoints : {};
-    const v2 = core && typeof core.alert_v2 === "object" ? core.alert_v2 : {};
+    const setpoints = objectOrEmpty(core && core.setpoints);
+    const v2 = objectOrEmpty(core && core.alert_v2);
     panel.appendChild(makeKv([
       ["Dostępność core", formatBool(core && core.available, "DOSTĘPNY", "BRAK"), boolClass(core && core.available)],
       ["Tryb", core && core.mode],
@@ -316,10 +320,10 @@
 
   function renderHardware(hardware) {
     const panel = makePanel("SPRZĘT / MAGISTRALE", "SEN55 · AERO · TACHO · ZIGBEE", "double");
-    const sensor = hardware && typeof hardware.sensor_bus === "object" ? hardware.sensor_bus : {};
-    const aero = hardware && typeof hardware.aero === "object" ? hardware.aero : {};
-    const tacho = hardware && typeof hardware.tacho === "object" ? hardware.tacho : {};
-    const zigbee = hardware && typeof hardware.zigbee === "object" ? hardware.zigbee : {};
+    const sensor = objectOrEmpty(hardware && hardware.sensor_bus);
+    const aero = objectOrEmpty(hardware && hardware.aero);
+    const tacho = objectOrEmpty(hardware && hardware.tacho);
+    const zigbee = objectOrEmpty(hardware && hardware.zigbee);
 
     const subgrid = document.createElement("div");
     subgrid.className = "v2-service-subgrid";
@@ -357,10 +361,10 @@
     const tachoCard = document.createElement("div");
     tachoCard.className = "v2-service-subcard";
     tachoCard.innerHTML = "<h3>TACHO</h3>";
-    const supply = tacho && typeof tacho.supply === "object" ? tacho.supply : {};
-    const extract = tacho && typeof tacho.extract === "object" ? tacho.extract : {};
-    const supplyStatus = supply && typeof supply.service_status === "object" ? supply.service_status : {};
-    const extractStatus = extract && typeof extract.service_status === "object" ? extract.service_status : {};
+    const supply = objectOrEmpty(tacho.supply);
+    const extract = objectOrEmpty(tacho.extract);
+    const supplyStatus = objectOrEmpty(supply.service_status);
+    const extractStatus = objectOrEmpty(extract.service_status);
     tachoCard.appendChild(makeKv([
       ["Monitor ready", formatBool(tacho.ready), boolClass(tacho.ready)],
       ["Worker", formatBool(tacho.worker_alive), boolClass(tacho.worker_alive)],
@@ -429,11 +433,11 @@
 
   function renderNetwork(network) {
     const panel = makePanel("SIEĆ", "ETHERNET · WI-FI · SERVICE AP");
-    const route = network && typeof network.default_route === "object" ? network.default_route : {};
-    const ai = network && typeof network.ai_server === "object" ? network.ai_server : {};
-    const mqtt = network && typeof network.mqtt === "object" ? network.mqtt : {};
-    const plane = network && typeof network.service_plane === "object" ? network.service_plane : {};
-    const planeNetwork = plane && typeof plane.network === "object" ? plane.network : {};
+    const route = objectOrEmpty(network && network.default_route);
+    const ai = objectOrEmpty(network && network.ai_server);
+    const mqtt = objectOrEmpty(network && network.mqtt);
+    const plane = objectOrEmpty(network && network.service_plane);
+    const planeNetwork = objectOrEmpty(plane.network);
     panel.appendChild(makeKv([
       ["Default route", `${valueOrDash(route.interface)} → ${valueOrDash(route.gateway)}`],
       ["AI Server", `${valueOrDash(ai.host)}:${valueOrDash(ai.port)}`],
@@ -472,9 +476,9 @@
 
   function renderDataAi(data, ai) {
     const panel = makePanel("DANE / AI", "SQLITE · SYNC · ADVISORY");
-    const telemetry = data && typeof data.telemetry === "object" ? data.telemetry : {};
-    const alerts = data && typeof data.alerts === "object" ? data.alerts : {};
-    const rollups = telemetry && typeof telemetry.rollups === "object" ? telemetry.rollups : {};
+    const telemetry = objectOrEmpty(data && data.telemetry);
+    const alerts = objectOrEmpty(data && data.alerts);
+    const rollups = objectOrEmpty(telemetry.rollups);
     panel.appendChild(makeKv([
       ["Telemetry DB", formatBytes(telemetry.size_bytes)],
       ["Próbek raw", telemetry.samples],
@@ -499,9 +503,9 @@
   }
 
   function renderServicePlane(network) {
-    const plane = network && typeof network.service_plane === "object" ? network.service_plane : {};
-    const agent = plane && typeof plane.agent === "object" ? plane.agent : {};
-    const nodes = Array.isArray(plane && plane.nodes) ? plane.nodes : [];
+    const plane = objectOrEmpty(network && network.service_plane);
+    const agent = objectOrEmpty(plane.agent);
+    const nodes = Array.isArray(plane.nodes) ? plane.nodes : [];
     const panel = makePanel("WĘZŁY SERWISOWE", "WVC-SERVICE", "wide");
     panel.appendChild(makeKv([
       ["Agent ready", formatBool(agent.ready), boolClass(agent.ready)],
@@ -582,7 +586,7 @@
     try {
       const response = await fetch("/api/v1/service/status", { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok || payload.ok !== true || typeof payload.service !== "object") {
+      if (!response.ok || payload.ok !== true || !payload.service || typeof payload.service !== "object") {
         throw new Error(payload.error || `HTTP ${response.status}`);
       }
       renderSnapshot(payload.service);
