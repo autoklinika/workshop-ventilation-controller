@@ -10,8 +10,11 @@ inline constexpr char kProjectName[] = "kamod-sen55-sensor-node";
 #ifdef CONFIG_WVC_OTA_ROLLBACK_TEST_IMAGE
 inline constexpr char kVersion[] = "0.6.1-stage1-rollback-test";
 #else
-inline constexpr char kVersion[] = "0.6.0-stage1-sen55-status";
+inline constexpr char kVersion[] = "0.6.1-stage1-transport-diag";
 #endif
+// Keep the validated pre-diagnostic production identifier visible for OTA
+// contract/regression checks while this branch is evaluated on one KAmod.
+inline constexpr char kProductionBaselineVersion[] = "0.6.0-stage1-sen55-status";
 inline constexpr std::uint16_t kFirmwareVersionPacked = 0x0006;
 
 inline constexpr std::uint32_t kApplicationLoopPeriodMs = 100;

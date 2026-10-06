@@ -156,7 +156,7 @@ void ServiceWifi::task_entry(void* context)
 void ServiceWifi::event_handler(void* context,
                                 const char* event_base,
                                 const std::int32_t event_id,
-                                void*)
+                                void* event_data)
 {
     auto* self = static_cast<ServiceWifi*>(context);
     auto* group = static_cast<EventGroupHandle_t>(self->event_group_);
@@ -165,9 +165,27 @@ void ServiceWifi::event_handler(void* context,
     }
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        std::uint32_t reason = 0;
+        if (event_data != nullptr) {
+            const auto* event = static_cast<const wifi_event_sta_disconnected_t*>(event_data);
+            reason = event->reason;
+        }
+
+        portENTER_CRITICAL(&self->transport_lock_);
+        ++self->transport_diagnostics_.wifi_disconnect_events;
+        self->transport_diagnostics_.wifi_last_disconnect_reason = reason;
+        portEXIT_CRITICAL(&self->transport_lock_);
+
         xEventGroupClearBits(group, kGotIpBit);
         xEventGroupSetBits(group, kDisconnectedBit);
+        LOG_WARN(kTag,
+                 "service Wi-Fi disconnected reason=%lu; reconnect scheduled",
+                 static_cast<unsigned long>(reason));
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        portENTER_CRITICAL(&self->transport_lock_);
+        ++self->transport_diagnostics_.wifi_got_ip_events;
+        portEXIT_CRITICAL(&self->transport_lock_);
+
         xEventGroupClearBits(group, kDisconnectedBit);
         xEventGroupSetBits(group, kGotIpBit);
     }
@@ -216,11 +234,18 @@ void ServiceWifi::run()
 
         const std::int64_t now_us = esp_timer_get_time();
         if (now_us >= next_heartbeat_us) {
+            record_send_attempt();
             const esp_err_t send_result = send_heartbeat();
+            record_send_result(send_result);
             if (send_result != ESP_OK) {
-                LOG_WARN(kTag,
-                         "heartbeat send failed: %s; production channel unaffected",
-                         esp_err_to_name(send_result));
+                const TransportDiagnostics diagnostics = transport_diagnostics();
+                LOG_WARN(
+                    kTag,
+                    "heartbeat send failed: %s consecutive=%lu total=%lu; production channel unaffected",
+                    esp_err_to_name(send_result),
+                    static_cast<unsigned long>(
+                        diagnostics.heartbeat_consecutive_send_failures),
+                    static_cast<unsigned long>(diagnostics.heartbeat_send_failures));
             }
             next_heartbeat_us = now_us + static_cast<std::int64_t>(kHeartbeatPeriodMs) * 1'000;
         }
@@ -327,6 +352,7 @@ esp_err_t ServiceWifi::send_heartbeat()
     snapshot = snapshot_;
     portEXIT_CRITICAL(&snapshot_lock_);
 
+    const TransportDiagnostics transport = transport_diagnostics();
     const std::int64_t now_us = esp_timer_get_time();
     wifi_ap_record_t access_point{};
     std::int32_t rssi = -127;
@@ -369,7 +395,12 @@ esp_err_t ServiceWifi::send_heartbeat()
     const int payload_length = std::snprintf(
         payload.data(),
         payload.size(),
-        "{\"boot_id\":\"%s\",\"firmware\":\"%s\",\"key_id\":\"%s\","
+        "{\"boot_id\":\"%s\",\"firmware\":\"%s\","
+        "\"heartbeat_consecutive_send_failures\":%lu,"
+        "\"heartbeat_last_send_error\":%ld,"
+        "\"heartbeat_max_consecutive_send_failures\":%lu,"
+        "\"heartbeat_send_attempts\":%lu,\"heartbeat_send_failures\":%lu,"
+        "\"heartbeat_send_successes\":%lu,\"key_id\":\"%s\","
         "\"last_modbus_request_age_ms\":%ld,\"mac\":\"%s\","
         "\"measurement_age_ms\":%ld,\"modbus_monitor_ready\":%s,"
         "\"modbus_requests_last_60s\":%lu,\"modbus_requests_total\":%lu,"
@@ -380,9 +411,18 @@ esp_err_t ServiceWifi::send_heartbeat()
         "\"sensor_crc_failures\":%lu,\"sensor_detection_failures\":%lu,"
         "\"sensor_last_error\":%ld,\"sensor_state\":\"%s\","
         "\"sensor_successful_measurements\":%lu,\"seq\":%llu,"
-        "\"uptime_s\":%lu,\"wifi_rssi_dbm\":%ld}",
+        "\"uptime_s\":%lu,\"wifi_disconnect_events\":%lu,"
+        "\"wifi_got_ip_events\":%lu,\"wifi_last_disconnect_reason\":%lu,"
+        "\"wifi_rssi_dbm\":%ld}",
         boot_id_text,
         config::firmware::kVersion,
+        static_cast<unsigned long>(transport.heartbeat_consecutive_send_failures),
+        static_cast<long>(transport.heartbeat_last_send_error),
+        static_cast<unsigned long>(
+            transport.heartbeat_max_consecutive_send_failures),
+        static_cast<unsigned long>(transport.heartbeat_send_attempts),
+        static_cast<unsigned long>(transport.heartbeat_send_failures),
+        static_cast<unsigned long>(transport.heartbeat_send_successes),
         credentials_.key_id.data(),
         static_cast<long>(age_ms(now_us, snapshot.last_modbus_request_us)),
         mac_text,
@@ -406,6 +446,9 @@ esp_err_t ServiceWifi::send_heartbeat()
         static_cast<unsigned long>(snapshot.sensor_successful_measurements),
         static_cast<unsigned long long>(sequence_),
         static_cast<unsigned long>(uptime_s),
+        static_cast<unsigned long>(transport.wifi_disconnect_events),
+        static_cast<unsigned long>(transport.wifi_got_ip_events),
+        static_cast<unsigned long>(transport.wifi_last_disconnect_reason),
         static_cast<long>(rssi));
     if (payload_length <= 0 || static_cast<std::size_t>(payload_length) >= payload.size()) {
         return ESP_ERR_INVALID_SIZE;
@@ -460,6 +503,40 @@ esp_err_t ServiceWifi::send_heartbeat()
 
     ++sequence_;
     return ESP_OK;
+}
+
+void ServiceWifi::record_send_attempt()
+{
+    portENTER_CRITICAL(&transport_lock_);
+    ++transport_diagnostics_.heartbeat_send_attempts;
+    portEXIT_CRITICAL(&transport_lock_);
+}
+
+void ServiceWifi::record_send_result(const esp_err_t result)
+{
+    portENTER_CRITICAL(&transport_lock_);
+    if (result == ESP_OK) {
+        ++transport_diagnostics_.heartbeat_send_successes;
+        transport_diagnostics_.heartbeat_consecutive_send_failures = 0;
+        transport_diagnostics_.heartbeat_last_send_error = ESP_OK;
+    } else {
+        ++transport_diagnostics_.heartbeat_send_failures;
+        ++transport_diagnostics_.heartbeat_consecutive_send_failures;
+        transport_diagnostics_.heartbeat_max_consecutive_send_failures = std::max(
+            transport_diagnostics_.heartbeat_max_consecutive_send_failures,
+            transport_diagnostics_.heartbeat_consecutive_send_failures);
+        transport_diagnostics_.heartbeat_last_send_error = result;
+    }
+    portEXIT_CRITICAL(&transport_lock_);
+}
+
+ServiceWifi::TransportDiagnostics ServiceWifi::transport_diagnostics() const
+{
+    TransportDiagnostics result{};
+    portENTER_CRITICAL(&transport_lock_);
+    result = transport_diagnostics_;
+    portEXIT_CRITICAL(&transport_lock_);
+    return result;
 }
 
 std::uint32_t ServiceWifi::requests_last_60_seconds(const std::uint32_t current_total)
