@@ -21,6 +21,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("calendar")
     subparsers.add_parser("control-engine")
     subparsers.add_parser("control-engine-operator")
+    subparsers.add_parser("auto-status")
+    subparsers.add_parser("auto-hold")
+    subparsers.add_parser("auto-resume")
 
     calendar_replace = subparsers.add_parser("calendar-replace")
     calendar_replace.add_argument("--file", type=Path, required=True)

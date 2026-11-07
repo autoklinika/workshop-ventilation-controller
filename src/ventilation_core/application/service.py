@@ -88,6 +88,18 @@ class VentilationService:
             self._output_state_known = True
             return self.state()
 
+    def set_automatic(self, supply_voltage: float, extract_voltage: float) -> CoreState:
+        """Core-owned AUTO write path, distinct from operator MANUAL.
+
+        The same FanSetpointPolicy, DAC process isolation, error recording and
+        synchronization apply as for manual writes. The background controller
+        (never the GUI or AI) is the only caller of this method.
+        """
+        self.set_manual(supply_voltage, extract_voltage)
+        with self._lock:
+            self._mode = VentilationMode.AUTO
+            return self.state()
+
     def control_aero(self, command: AeroControlCommand) -> AeroControlResult:
         if not self._aero_control_lock.acquire(blocking=False):
             raise AeroControlUnavailableError("AERO control command already in progress")

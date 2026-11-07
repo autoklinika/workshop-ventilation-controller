@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "site": "WVC_WORKSHOP",
+  "approval": "PENDING",
+  "responsible_person": "",
+  "evidence": {
+    "occupational_risk_assessment": "",
+    "soldering_local_exhaust": "",
+    "fan_airflow_commissioning": "",
+    "aero_physical_confirmation": "",
+    "tacho_fault_procedure": "",
+    "sensor_loss_procedure": "",
+    "independent_co_protection_if_applicable": "",
+    "manual_override_and_stop": ""
+  }
+}

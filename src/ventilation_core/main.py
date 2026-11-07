@@ -14,6 +14,7 @@ from ventilation_core.application.control_engine_bootstrap import build_control_
 from ventilation_core.application.power_scheduler import PowerScheduler
 from ventilation_core.application.power_scheduler_runtime import PowerSchedulerRuntime
 from ventilation_core.application.power_scheduler_service import PowerSchedulingVentilationService
+from ventilation_core.application.active_auto import ActiveWorkshopAuto, commissioning_approved
 from ventilation_core.application.service_plane_alert_registry import (
     ServicePlaneCorrelatingAlertRegistry,
 )
@@ -95,6 +96,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--service-agent-failure-threshold", type=int, default=3)
     parser.add_argument("--service-node-initial-grace", type=float, default=40.0)
     parser.add_argument("--disable-service-plane-correlation", action="store_true")
+    parser.add_argument("--enable-active-auto", action="store_true",
+                        help="Explicit opt-in to core-owned physical EC and AERO AUTO")
+    parser.add_argument("--active-auto-hold-path", type=Path,
+                        default=Path("/var/lib/workshop-ventilation/active-auto-hold.json"))
+    parser.add_argument("--active-auto-profile", type=Path,
+                        default=Path("config/active-auto-v1.json"))
+    parser.add_argument("--active-auto-approval", type=Path,
+                        default=Path("/var/lib/workshop-ventilation/active-auto-approval.json"))
     parser.add_argument("--minimum-running-voltage", type=float, default=1.0)
     parser.add_argument("--maximum-voltage", type=float, default=10.0)
     parser.add_argument("--command-timeout", type=float, default=3.0)
@@ -361,10 +370,34 @@ async def run_core(args: argparse.Namespace) -> None:
             args.rtc_agent_socket,
             args.host_power_socket,
         )
+        requested = bool(args.enable_active_auto)
+        approved, reason = (
+            commissioning_approved(args.active_auto_approval)
+            if requested else (False, "ACTIVE_AUTO_DISABLED_BY_DEFAULT")
+        )
+        try:
+            auto_controller = ActiveWorkshopAuto(
+                enabled=requested and approved,
+                hold_path=args.active_auto_hold_path,
+                profile_path=args.active_auto_profile if requested and approved else None,
+                blocked_reason=reason,
+            )
+        except (OSError, ValueError) as exc:
+            # Configuration errors must NEVER render ventilation-core unusable.
+            # Reject AUTO and retain the existing manual controls/status.
+            LOGGER.exception("ACTIVE_AUTO profile rejected; keeping physical AUTO disabled")
+            auto_controller = ActiveWorkshopAuto(
+                enabled=False,
+                hold_path=args.active_auto_hold_path,
+                blocked_reason=f"AUTO_PROFILE_INVALID:{type(exc).__name__}",
+            )
+        LOGGER.warning("ACTIVE_AUTO configuration: requested=%s enabled=%s blocked_reason=%s",
+                       requested, auto_controller.enabled, auto_controller.blocked_reason)
         server = ControlEngineCoreServer(
             service=service,
             socket_path=args.socket,
             health_interval_seconds=args.health_interval,
+            auto_controller=auto_controller,
         )
     except BaseException:
         if service is not None:
