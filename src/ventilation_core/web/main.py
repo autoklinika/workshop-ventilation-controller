@@ -8,6 +8,7 @@ from pathlib import Path
 from ventilation_core.telemetry.long_range_history import LongRangeTelemetryHistoryReader
 
 from .advisory import FileAdvisoryProvider
+from .auto_mode_auth import AutoModePinVerifier
 from .alert_history import SqliteAlertHistoryReader
 from .alert_history_app import AlertHistoryWebApplication
 from .client import CoreUnixClient
@@ -101,6 +102,12 @@ def main() -> int:
         alert_history=alert_history,
         service_status=service_status,
         host_power=host_power,
+        auto_mode_pin=AutoModePinVerifier(
+            Path(os.getenv(
+                "WVC_AUTO_MODE_PIN_FILE",
+                "/var/lib/workshop-ventilation/auto-mode-pin.json",
+            ))
+        ),
     )
     server = WebUiHttpServer((args.host, args.port), app, static_root)
 
