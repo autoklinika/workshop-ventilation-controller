@@ -178,6 +178,22 @@ class CoreServer:
             if self._auto_controller is None:
                 return {"ok": True, "active_auto": {"enabled": False}}
             return {"ok": True, "active_auto": self._auto_controller.snapshot()}
+        if command == "auto-manual":
+            if self._auto_controller is None:
+                raise RuntimeError("Active AUTO controller is not configured")
+            self._auto_controller.hold("OPERATOR_SELECTED_MANUAL")
+            return {
+                "ok": True,
+                "active_auto": self._auto_controller.snapshot(),
+                "state": self._service.state().to_dict(),
+            }
+        if command == "auto-ack-fault":
+            if self._auto_controller is None:
+                raise RuntimeError("Active AUTO controller is not configured")
+            await asyncio.to_thread(
+                self._auto_controller.acknowledge_fault, self._service.state().to_dict()
+            )
+            return {"ok": True, "active_auto": self._auto_controller.snapshot()}
         if command == "auto-hold":
             if self._auto_controller is None:
                 raise RuntimeError("Active AUTO controller is not configured")

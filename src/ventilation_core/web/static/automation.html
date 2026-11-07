@@ -30,9 +30,35 @@
       <span id="automationConnection" class="automation-connection pending">ŁĄCZENIE…</span>
     </section>
 
+    <section class="automation-physical-mode" aria-labelledby="physicalModeHeading">
+      <div class="physical-mode-heading">
+        <div>
+          <span class="automation-kicker">STEROWANIE RZECZYWISTE · EC + AERO</span>
+          <h2 id="physicalModeHeading">Tryb pracy WVC</h2>
+        </div>
+        <strong id="physicalModeValue" class="physical-mode-value">ODCZYT…</strong>
+      </div>
+      <p id="physicalModeDescription" class="physical-mode-description">Sprawdzam uprawnienia automatyki i aktualny stan CM5.</p>
+      <div class="physical-mode-controls">
+        <button id="physicalManualBtn" class="physical-mode-btn" type="button" aria-pressed="false">MANUAL</button>
+        <label class="physical-mode-pin">
+          <span>PIN operatora (powrót do AUTO)</span>
+          <input id="physicalAutoPin" type="password" inputmode="numeric" pattern="[0-9]*"
+            minlength="6" maxlength="12" autocomplete="off" placeholder="6–12 cyfr" disabled>
+        </label>
+        <button id="physicalAutoBtn" class="physical-mode-btn" type="button" aria-pressed="false" disabled>AUTO</button>
+      </div>
+      <label class="physical-mode-confirm">
+        <input id="physicalAutoConfirm" type="checkbox" disabled>
+        <span>Potwierdzam wznowienie automatycznego sterowania wentylatorami EC i rekuperatorem.</span>
+      </label>
+      <p id="physicalModeMessage" class="automation-message" role="status" aria-live="polite"></p>
+      <p class="automation-safe-note">MANUAL natychmiast blokuje następne polecenia AUTO i zachowuje aktualne wyjścia. Aby fizycznie wyłączyć EC, użyj STOP na ekranie STREFY. Po awarii powrót do AUTO wymaga potwierdzenia serwisowego.</p>
+    </section>
+
     <section class="automation-shadow-banner" role="status" aria-live="polite">
-      <strong>SHADOW — BRAK STEROWANIA FIZYCZNYMI WYJŚCIAMI</strong>
-      <span>Procenty i prędkość AERO poniżej są decyzją logiczną Control Engine. Fizyczne wyjścia pozostają poza authority tego modułu.</span>
+      <strong>OSOBNY CONTROL ENGINE SHADOW — WYŁĄCZNIE SYMULACJA</strong>
+      <span>Wartości logiczne i przełączniki w zakładce MANUAL SHADOW poniżej nie sterują urządzeniami. Rzeczywisty tryb jest pokazany powyżej.</span>
     </section>
 
     <nav class="automation-tabs" aria-label="Sekcje automatyki">
@@ -125,7 +151,7 @@
       <section class="automation-test-banner"><strong>TRYB TESTOWY / SHADOW</strong><span>Zmiana operator intent nie steruje fizycznymi wyjściami. Intent jest volatile i po restarcie core wraca do AUTO.</span></section>
       <section class="automation-card manual-card">
         <header><span class="automation-kicker">OPERATOR INTENT</span><h2>AUTO / MANUAL SHADOW</h2></header>
-        <div class="manual-mode-buttons"><button id="operatorAutoBtn" type="button" class="operator-mode-btn active">AUTO</button><button id="operatorManualBtn" type="button" class="operator-mode-btn">MANUAL</button></div>
+        <div class="manual-mode-buttons"><button id="operatorAutoBtn" type="button" class="operator-mode-btn active">AUTO (SHADOW)</button><button id="operatorManualBtn" type="button" class="operator-mode-btn">MANUAL (SHADOW)</button></div>
         <form id="operatorManualForm" class="manual-form">
           <label><span>Nawiew</span><div><input id="manualSupplyPct" type="number" min="0" max="100" step="1" value="20"><b>%</b></div></label>
           <label><span>Wyciąg</span><div><input id="manualExtractPct" type="number" min="0" max="100" step="1" value="20"><b>%</b></div></label>

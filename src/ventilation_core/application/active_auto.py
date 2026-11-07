@@ -204,6 +204,7 @@ class ActiveWorkshopAuto:
         aero_target_poll_seconds: float = 2.0,
         profile_path: Path | None = None,
         blocked_reason: str = "",
+        startup_manual_hold: bool = True,
     ) -> None:
         self._presets, self._thresholds, self._dynamics = load_tuning(profile_path)
         self.enabled = bool(enabled)
@@ -213,6 +214,19 @@ class ActiveWorkshopAuto:
         self._lock = RLock()
         self.paused = hold_path.exists()
         self.pause_reason = "PERSISTED_OPERATOR_HOLD" if self.paused else ""
+        self._fault_latched = False
+        self._fault_mask: str | None = None
+        if self.paused:
+            try:
+                persisted = json.loads(hold_path.read_text(encoding="utf-8"))
+                self.pause_reason = str(persisted.get("reason") or "PERSISTED_OPERATOR_HOLD")
+                self._fault_latched = persisted.get("fault_latched") is True
+                mask = persisted.get("fault_mask")
+                self._fault_mask = mask if isinstance(mask,str) else None
+            except (OSError, ValueError, TypeError):
+                # A corrupt hold file must still block all future auto writes.
+                self.pause_reason = "PERSISTED_HOLD_FILE_INVALID"
+                self._fault_latched = True
         self.last_error = ""
         self.last_action: dict[str, Any] | None = None
         self.last_evaluated_at_utc: str | None = None
@@ -227,6 +241,7 @@ class ActiveWorkshopAuto:
         self._aero_last_set_at: float | None = None
         self._last_aero_mode: str | None = None
         self._zones = {1: _ZoneDynamics(), 2: _ZoneDynamics()}
+        self._tacho_missing_since: dict[str, float | None] = {"supply": None, "extract": None}
         if self.enabled:
             # A reboot must not silently erase an operator HOLD due to a
             # read-only/full filesystem. Disable AUTO if persistence is broken.
@@ -240,31 +255,92 @@ class ActiveWorkshopAuto:
                 self.enabled = False
                 self.blocked_reason = "AUTO_HOLD_STORAGE_UNAVAILABLE"
                 LOGGER.error("ACTIVE_AUTO disabled: cannot persist operator HOLD: %s", exc)
+        if self.enabled and startup_manual_hold and not self.paused:
+            # Never energize fans solely because the CM5 has rebooted.
+            self.hold("BOOT_MANUAL_REQUIRES_EXPLICIT_AUTO_RESUME")
 
-    def hold(self, reason: str = "OPERATOR") -> None:
+    def hold(
+        self,
+        reason: str = "OPERATOR",
+        *,
+        fault: bool = False,
+        fault_mask: str | None = None,
+    ) -> None:
+        """Latch MANUAL/HOLD before any future automated output write.
+
+        Faults are persisted separately from ordinary manual handoff. AUTO
+        resume after a fault requires an explicit local fault acknowledgement.
+        """
         with self._lock:
             self.paused = True
             self.pause_reason = reason
+            if fault:
+                self._fault_latched = True
+                self._fault_mask = fault_mask
             try:
                 self._hold_path.parent.mkdir(parents=True, exist_ok=True)
                 temp = self._hold_path.with_suffix(".tmp")
                 temp.write_text(
-                    json.dumps({"reason":reason,"at":datetime.now(timezone.utc).isoformat()}),
+                    json.dumps({
+                        "reason": reason,
+                        "at": datetime.now(timezone.utc).isoformat(),
+                        "fault_latched": self._fault_latched,
+                        "fault_mask": self._fault_mask,
+                    }),
                     encoding="utf-8",
                 )
                 os.replace(temp, self._hold_path)
             except OSError as exc:
-                # An emergency manual STOP must never be rejected because the
-                # hold file cannot be saved. Memory HOLD takes effect now;
-                # the next reboot also fail-closes via write-probe above.
                 self.last_error = f"HOLD_PERSISTENCE_FAILED:{type(exc).__name__}"
                 LOGGER.critical("AUTO hold persistence failed: %s", exc)
             LOGGER.warning("ACTIVE_AUTO HOLD: %s", reason)
+
+    def acknowledge_fault(self, state: Mapping[str, Any]) -> None:
+        """Local service acknowledgement. Never resumes AUTO by itself."""
+        with self._lock:
+            if not self.paused or not self._fault_latched:
+                raise RuntimeError("No latched AUTO fault awaiting acknowledgement")
+            if state.get("mode") != "STOP" or state.get("setpoints") != {
+                "supply_voltage": 0.0, "extract_voltage": 0.0
+            }:
+                raise RuntimeError("Cannot acknowledge fault unless EC outputs are STOP / 0 V")
+            if not state.get("hardware_ready") or not state.get("output_state_known"):
+                raise RuntimeError("Cannot acknowledge fault: DAC not ready")
+            tacho = state.get("tacho") or {}
+            if not (tacho.get("ready") and tacho.get("worker_alive")):
+                raise RuntimeError("Cannot acknowledge fault: TACHO worker unavailable")
+            if any(a.get("severity") == "critical" for a in state.get("active_alarms") or []):
+                raise RuntimeError("Cannot acknowledge fault with active critical alarms")
+            self._fault_latched = False
+            self._fault_mask = None
+            self.hold("OPERATOR_MANUAL_AFTER_FAULT_ACK")
+            LOGGER.warning("AUTO fault acknowledged locally; MANUAL remains active")
+
+    def _fault_stop_ec(self, service: Any, reason: str, *, mask: str | None = None) -> None:
+        """Conservative hardware imbalance response: stop BOTH EC outputs.
+
+        Stops uncontrolled supply/negative pressure excursions, but is NOT an
+        assurance of occupational air safety. Work emitting fumes must halt
+        and personnel must use the independently approved site procedure.
+        """
+        with self._lock:
+            self.last_error = reason
+            self.hold(reason, fault=True, fault_mask=mask)
+            try:
+                service.stop()
+                LOGGER.error("ACTIVE_AUTO FAULT: both EC outputs forced 0 V; %s", reason)
+            except Exception as exc:
+                self.last_error = f"{reason}:EC_STOP_FAILED:{type(exc).__name__}"
+                LOGGER.critical("Cannot verify 0 V on TACHO fault: %s", exc)
 
     def resume(self, state: Mapping[str, Any]) -> None:
         with self._lock:
             if not self.enabled:
                 raise RuntimeError("Active AUTO is not enabled in core configuration")
+            if self._fault_latched:
+                raise RuntimeError("Latched AUTO fault requires local service acknowledgement")
+            if any(a.get("severity") == "critical" for a in state.get("active_alarms") or []):
+                raise RuntimeError("Cannot resume AUTO: active critical alarm")
             if not state.get("hardware_ready") or not state.get("output_state_known"):
                 raise RuntimeError("Cannot resume AUTO: DAC hardware not ready")
             if not (state.get("tacho") or {}).get("ready"):
@@ -281,6 +357,7 @@ class ActiveWorkshopAuto:
             self._aero_last_set_at = None
             self._last_aero_mode = None
             self._zones = {1: _ZoneDynamics(), 2: _ZoneDynamics()}
+            self._tacho_missing_since = {"supply": None, "extract": None}
             LOGGER.warning("ACTIVE_AUTO resumed by explicit operator command")
 
     def snapshot(self) -> dict[str, Any]:
@@ -289,6 +366,13 @@ class ActiveWorkshopAuto:
                 "enabled": self.enabled, "active": self.enabled and not self.paused,
                 "blocked_reason": self.blocked_reason,
                 "hold": self.paused, "hold_reason": self.pause_reason,
+                "mode": ("MANUAL" if (self.paused or not self.enabled) else "AUTO"),
+                "fault_latched": self._fault_latched,
+                "fault_mask": self._fault_mask,
+                "operator_action": (
+                    "STOP_HAZARDOUS_WORK_AND_CHECK_VENTILATION"
+                    if self._fault_latched else None
+                ),
                 "last_error": self.last_error, "last_action": self.last_action,
                 "evaluated_at_utc": self.last_evaluated_at_utc,
                 "zones": dict(self.last_decisions),
@@ -365,17 +449,31 @@ class ActiveWorkshopAuto:
         return presets[0], presets[1]
 
     def _check_tacho(self, state: Mapping[str, Any], now: float) -> None:
-        # Require 12 seconds after first nonzero output: validated first
-        # TACHO < 2 s at 1V, and mechanical settling ~8s.
+        # The physical Stage7D test validated a 4s confirmation window.
+        # Spin-up grace is 12s after each voltage change; then require 4s of
+        # continuously missing feedback before declaring a channel fault.
         if self._fan_last_set_at is None or now - self._fan_last_set_at < 12:
             return
         if state.get("mode") != "AUTO":
             return
         tacho = state.get("tacho") or {}
+        failed: list[str] = []
         for name in ("supply", "extract"):
             reading = tacho.get(name) or {}
-            if not (reading.get("valid") is True and float(reading.get("rpm") or 0) >= 80):
-                raise RuntimeError(f"TACHO_{name.upper()}_FEEDBACK_MISSING")
+            good = (reading.get("valid") is True
+                    and isinstance(reading.get("rpm"), (int,float))
+                    and isfinite(float(reading["rpm"]))
+                    and float(reading["rpm"]) >= 80)
+            if good:
+                self._tacho_missing_since[name] = None
+            else:
+                if self._tacho_missing_since[name] is None:
+                    self._tacho_missing_since[name] = now
+                if now - self._tacho_missing_since[name] >= 4:
+                    failed.append(name)
+        if failed:
+            mask = "BOTH" if len(failed) == 2 else failed[0].upper()
+            raise RuntimeError(f"TACHO_{mask}_FEEDBACK_MISSING")
 
     @staticmethod
     def _aero_pair_matches(state: Mapping[str, Any], action: str) -> bool:
@@ -429,18 +527,17 @@ class ActiveWorkshopAuto:
                 return
             s = service.state().to_dict()
             if not s.get("hardware_ready") or not s.get("output_state_known"):
-                self.last_error = "DAC_NOT_READY"
-                self.hold(self.last_error)
+                self._fault_stop_ec(service, "DAC_NOT_READY")
                 return
             if any(a.get("severity") == "critical" for a in s.get("active_alarms") or []):
-                self.last_error = "CRITICAL_ALARM"
-                self.hold(self.last_error)
+                self._fault_stop_ec(service, "CRITICAL_ALARM")
                 return
             try:
                 self._check_tacho(s, self._clock())
             except RuntimeError as exc:
-                self.last_error = str(exc)
-                self.hold(self.last_error)
+                reason = str(exc)
+                mask = reason.removeprefix("TACHO_").split("_")[0]
+                self._fault_stop_ec(service, reason, mask=mask)
 
     def step(self, service: Any) -> None:
         if not self.enabled:
@@ -452,16 +549,17 @@ class ActiveWorkshopAuto:
             now = self._clock()
             ec, aero = self._evaluate(state, now)
             if not state.get("hardware_ready") or not state.get("output_state_known"):
-                self.hold("DAC_NOT_READY")
+                self._fault_stop_ec(service, "DAC_NOT_READY")
                 return
             if any(a.get("severity") == "critical" for a in state.get("active_alarms") or []):
-                self.hold("CRITICAL_ALARM")
+                self._fault_stop_ec(service, "CRITICAL_ALARM")
                 return
             try:
                 self._check_tacho(state, now)
             except RuntimeError as exc:
-                self.last_error = str(exc)
-                self.hold(self.last_error)
+                reason = str(exc)
+                mask = reason.removeprefix("TACHO_").split("_")[0]
+                self._fault_stop_ec(service, reason, mask=mask)
                 return
 
             current = state.get("setpoints") or {}
@@ -472,6 +570,7 @@ class ActiveWorkshopAuto:
                 if self._fan_last_set_at is None or now-self._fan_last_set_at >= self.fan_min_interval:
                     service.set_automatic(ec.supply_v, ec.extract_v)
                     self._fan_last_set_at = now
+                    self._tacho_missing_since = {"supply": None, "extract": None}
                     self.last_action = {"target":"ec","supply_v":ec.supply_v,
                                         "extract_v":ec.extract_v,"at":self.last_evaluated_at_utc}
                     LOGGER.warning("ACTIVE_AUTO EC %s: %.1fV/%.1fV",

@@ -48,6 +48,7 @@ class StubCore:
         self.fan_calls=[]
         self.aero_calls=[]
         self.aero_succeeds=True
+        self.stop_calls=0
 
     def state(self):
         return SimpleNamespace(to_dict=lambda:deepcopy(self.value))
@@ -56,6 +57,16 @@ class StubCore:
         self.fan_calls.append((supply,extract))
         self.value["mode"]="AUTO"
         self.value["setpoints"]={"supply_voltage":supply,"extract_voltage":extract}
+        return self.state()
+
+    def stop(self):
+        self.stop_calls += 1
+        self.value["mode"] = "STOP"
+        self.value["setpoints"] = {"supply_voltage": 0.0, "extract_voltage": 0.0}
+        self.value["tacho"]["supply"]["rpm"] = 0.0
+        self.value["tacho"]["extract"]["rpm"] = 0.0
+        self.value["tacho"]["supply"]["valid"] = False
+        self.value["tacho"]["extract"]["valid"] = False
         return self.state()
 
     def control_aero(self, cmd):
@@ -77,12 +88,21 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.now=1_000.0
         self.hold_path=Path(self.tmp.name)/"auto-hold.json"
-        self.auto=ActiveWorkshopAuto(enabled=True,hold_path=self.hold_path,clock=lambda:self.now,
+        self.auto=ActiveWorkshopAuto(startup_manual_hold=False,enabled=True,hold_path=self.hold_path,clock=lambda:self.now,
                                      aero_min_interval=10,fan_min_interval=5)
+
+    def test_enabled_production_default_boots_in_persistent_manual(self):
+        ctrl=ActiveWorkshopAuto(enabled=True,hold_path=self.hold_path)
+        self.assertTrue(ctrl.paused)
+        self.assertEqual(ctrl.pause_reason,"BOOT_MANUAL_REQUIRES_EXPLICIT_AUTO_RESUME")
+        self.assertTrue(self.hold_path.is_file())
+        restored=ActiveWorkshopAuto(enabled=True,hold_path=self.hold_path)
+        self.assertTrue(restored.paused)
+        self.assertEqual(restored.snapshot()["mode"],"MANUAL")
 
     def test_off_by_default(self):
         self.assertFalse(build_parser().parse_args([]).enable_active_auto)
-        disabled=ActiveWorkshopAuto(enabled=False,hold_path=self.hold_path,clock=lambda:self.now)
+        disabled=ActiveWorkshopAuto(startup_manual_hold=False,enabled=False,hold_path=self.hold_path,clock=lambda:self.now)
         core=StubCore(state())
         disabled.step(core)
         self.assertEqual(core.fan_calls,[])
@@ -96,7 +116,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.assertEqual(self.auto.snapshot()["zones"]["ec"]["level"],"ECO")
         self.assertEqual(core.value["mode"],"AUTO")
         occupied=StubCore(state(phase="ACTIVE"))
-        ctrl=ActiveWorkshopAuto(enabled=True,hold_path=self.hold_path,clock=lambda:self.now)
+        ctrl=ActiveWorkshopAuto(startup_manual_hold=False,enabled=True,hold_path=self.hold_path,clock=lambda:self.now)
         ctrl.step(occupied)
         self.assertEqual(occupied.fan_calls,[(4.0,3.0)])
 
@@ -146,19 +166,31 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.auto.step(core)
         self.assertEqual(core.fan_calls[-1],(2.,1.))
 
-    def test_tacho_failure_latches_hold_and_preserves_last_output(self):
+    def test_tacho_failure_stops_both_ec_and_requires_local_acknowledgement(self):
         core=StubCore(state())
         self.auto.step(core)
         core.value["tacho"]["supply"]["valid"]=False
         core.value["tacho"]["supply"]["rpm"]=0
         self.now+=13
-        self.auto.step(core)
+        self.auto.supervise(core)
+        self.assertFalse(self.auto.paused)  # confirmation grace, not yet 4 s
+        self.now+=4.1
+        self.auto.supervise(core)
         self.assertTrue(self.auto.snapshot()["hold"])
-        self.assertIn("TACHO_SUPPLY",self.auto.snapshot()["hold_reason"])
-        self.assertTrue(self.hold_path.is_file())
-        self.assertEqual(core.fan_calls,[(2.,1.)])
-        after_restart=ActiveWorkshopAuto(enabled=True,hold_path=self.hold_path)
+        self.assertTrue(self.auto.snapshot()["fault_latched"])
+        self.assertEqual(self.auto.snapshot()["fault_mask"],"SUPPLY")
+        self.assertEqual(core.stop_calls,1)
+        self.assertEqual(core.value["setpoints"],{"supply_voltage":0.0,"extract_voltage":0.0})
+        with self.assertRaisesRegex(RuntimeError,"local service acknowledgement"):
+            self.auto.resume(core.state().to_dict())
+        after_restart=ActiveWorkshopAuto(startup_manual_hold=False,enabled=True,hold_path=self.hold_path)
         self.assertTrue(after_restart.paused)
+        self.assertTrue(after_restart.snapshot()["fault_latched"])
+        after_restart.acknowledge_fault(core.state().to_dict())
+        self.assertTrue(after_restart.paused)  # acknowledgement does not resume AUTO
+        self.assertFalse(after_restart.snapshot()["fault_latched"])
+        after_restart.resume(core.state().to_dict())
+        self.assertFalse(after_restart.paused)
 
     def test_operator_hold_and_resume_preflight(self):
         core=StubCore(state())
@@ -188,7 +220,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
                 return result
 
         core=OneFanSlow(state())
-        ctrl=ActiveWorkshopAuto(
+        ctrl=ActiveWorkshopAuto(startup_manual_hold=False,
             enabled=True,hold_path=self.hold_path,clock=lambda:self.now,
             aero_target_timeout_seconds=0.03,aero_target_poll_seconds=0.01)
         ctrl.step(core)
@@ -201,7 +233,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
             with self.subTest(faulty=names):
                 t=TemporaryDirectory()
                 self.addCleanup(t.cleanup)
-                c=ActiveWorkshopAuto(enabled=True,hold_path=Path(t.name)/"hold",
+                c=ActiveWorkshopAuto(startup_manual_hold=False,enabled=True,hold_path=Path(t.name)/"hold",
                                      clock=lambda:self.now)
                 core=StubCore(state())
                 c.step(core)
@@ -209,10 +241,14 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
                     core.value["tacho"][name]["valid"] = False
                     core.value["tacho"][name]["rpm"] = 0
                 self.now+=13.0
-                c.step(core)
+                c.supervise(core)
+                self.now+=4.1
+                c.supervise(core)
                 self.assertTrue(c.paused)
                 self.assertIn("TACHO",c.pause_reason)
-                self.assertEqual(core.fan_calls,[(2.0,1.0)])
+                self.assertTrue(c.snapshot()["fault_latched"])
+                self.assertEqual(core.stop_calls,1)
+                self.assertEqual(core.value["setpoints"],{"supply_voltage":0.0,"extract_voltage":0.0})
                 self.assertTrue(Path(t.name,"hold").is_file())
 
     def test_independent_tacho_supervision_runs_while_aero_command_waits(self):
@@ -236,8 +272,12 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         # This is a separate supervisory call from a different thread, NOT
         # another AERO actuator call.
         self.auto.supervise(core)
+        self.assertFalse(self.auto.paused)
+        self.now += 4.1
+        self.auto.supervise(core)
         self.assertTrue(self.auto.paused)
         self.assertIn("TACHO_EXTRACT", self.auto.pause_reason)
+        self.assertEqual(core.stop_calls,1)
         core.release.set()
         thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
@@ -250,6 +290,51 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.auto.supervise(core)
         self.assertTrue(self.auto.paused)
         self.assertEqual(self.auto.pause_reason,"CRITICAL_ALARM")
+
+    def test_operator_manual_takes_over_while_aero_is_busy(self):
+        class SlowAero(StubCore):
+            def __init__(self, s):
+                super().__init__(s)
+                self.started, self.release = Event(), Event()
+            def control_aero(self, cmd):
+                self.started.set()
+                assert self.release.wait(2), "AERO test timed out"
+                return super().control_aero(cmd)
+
+        core=SlowAero(state())
+        writer=Thread(target=lambda: self.auto.step(core),daemon=True)
+        writer.start()
+        self.assertTrue(core.started.wait(1))
+        server=CoreServer(service=core,socket_path=Path(self.tmp.name)/"core.sock",
+                          health_interval_seconds=1,auto_controller=self.auto)
+        response=asyncio.run(server._dispatch({"command":"auto-manual"}))
+        self.assertTrue(response["ok"])
+        self.assertEqual(self.auto.snapshot()["mode"],"MANUAL")
+        self.assertEqual(self.auto.snapshot()["hold_reason"],"OPERATOR_SELECTED_MANUAL")
+        core.release.set()
+        writer.join(timeout=2)
+        self.assertFalse(writer.is_alive())
+        before=list(core.fan_calls)
+        self.auto.step(core)
+        self.assertEqual(core.fan_calls,before)
+
+    def test_tacho_stop_write_failure_stays_fault_latched(self):
+        class FaultyStop(StubCore):
+            def stop(self):
+                self.stop_calls += 1
+                raise RuntimeError("I2C DAC unavailable")
+
+        core=FaultyStop(state())
+        self.auto.step(core)
+        core.value["tacho"]["extract"]["valid"]=False
+        core.value["tacho"]["extract"]["rpm"]=0
+        self.now+=13
+        self.auto.supervise(core)
+        self.now+=4.1
+        self.auto.supervise(core)
+        self.assertTrue(self.auto.snapshot()["fault_latched"])
+        self.assertIn("EC_STOP_FAILED",self.auto.snapshot()["last_error"])
+        self.assertTrue(self.hold_path.exists())
 
     def test_aero_max_requests_airing_after_high_speed(self):
         core=StubCore(state(pm1=65,pm2=65))
@@ -335,7 +420,7 @@ class ActiveAutoProfileValidationTests(unittest.TestCase):
         s=state()
         s["sensor_bus"]["nodes"][0]["reading"]["pm2_5_ug_m3"]=nan
         core=StubCore(s)
-        auto=ActiveWorkshopAuto(enabled=True,hold_path=Path(self.tmp.name)/"hold")
+        auto=ActiveWorkshopAuto(startup_manual_hold=False,enabled=True,hold_path=Path(self.tmp.name)/"hold")
         auto.step(core)
         self.assertEqual(core.fan_calls,[(4.,3.)])
         self.assertEqual(auto.snapshot()["zones"]["ec"]["level"],"SENSOR_FAULT")

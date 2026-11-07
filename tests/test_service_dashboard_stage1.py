@@ -359,7 +359,7 @@ class ServiceDashboardStage1Test(unittest.TestCase):
         # separate alert persistence and AI transport boundary checks.
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "runtime" / "server.py"),
-            "fe063c03eed2105a0358c6d7ef960c7d70aba829",
+            "a9695b2617c9aa125684eaf09a1826c5d8396f77",
         )
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "application" / "alert_registry.py"),

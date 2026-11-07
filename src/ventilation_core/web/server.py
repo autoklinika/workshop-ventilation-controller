@@ -16,6 +16,19 @@ LOGGER = logging.getLogger(__name__)
 MAX_REQUEST_BYTES = 64 * 1024
 
 
+def _same_origin(origin: str | None, host: str | None) -> bool:
+    if not origin or not host:
+        return False
+    parsed = urlsplit(origin)
+    return (
+        parsed.scheme in {"http", "https"}
+        and parsed.hostname is not None
+        and parsed.netloc.lower() == host.lower()
+        and parsed.path in {"", "/"}
+        and not parsed.username and not parsed.password
+    )
+
+
 class WebUiHttpServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -38,6 +51,17 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
+        if path == "/api/v1/physical-mode":
+            # A physical-mode write must originate from our own WVC page,
+            # not a malicious website submitting a cross-origin request.
+            origin = self.headers.get("Origin")
+            host = self.headers.get("Host")
+            if not _same_origin(origin, host):
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {"ok": False, "error": "Same-origin WVC operator action required"},
+                )
+                return
         if not path.startswith("/api/"):
             self._send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "Not found"})
             return
