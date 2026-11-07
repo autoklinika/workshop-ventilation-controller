@@ -1,67 +1,49 @@
 "use strict";
 (() => {
-  // This widget controls the actual ventilation-core authority, NOT SHADOW.
-  // Existing dashboard / STREFY scripts remain unchanged.
-  const els = {
-    mode: document.getElementById("wvcPhysicalMode"),
-    description: document.getElementById("wvcModeDescription"),
-    manual: document.getElementById("wvcManualMode"),
-    auto: document.getElementById("wvcAutoMode"),
-    pin: document.getElementById("wvcAutoPin"),
-    confirm: document.getElementById("wvcAutoConfirm"),
-    message: document.getElementById("wvcModeMessage"),
-  };
-  if (Object.values(els).some(node => !node)) return;
-  let latest = null;
-  let coreOnline = false;
-  let pinConfigured = false;
+  // Real actuator mode, not the legacy non-actuating SHADOW operator intent.
+  // Instantiated only after the STREFY view has been hydrated into the DOM.
+  const modeHeading = document.getElementById("wvcModeHeading");
+  const manualButton = document.getElementById("wvcManualMode");
+  const autoButton = document.getElementById("wvcAutoMode");
+  const note = document.getElementById("wvcModeNote");
+  if (!modeHeading || !manualButton || !autoButton || !note) return;
+
   let pending = false;
-  let pollPending = false;
+  let current = null;
+  let reachable = false;
+  let refreshPending = false;
 
-  function message(text, kind = "") {
-    els.message.textContent = text;
-    els.message.dataset.kind = kind;
+  function info(message, isError = false) {
+    note.textContent = message || "";
+    note.dataset.error = isError ? "true" : "false";
   }
 
-  function render() {
-    const a = latest && typeof latest.active_auto === "object" ? latest.active_auto : {};
-    const autoActive = a.active === true && a.hold !== true;
+  function paint() {
+    const a = current && typeof current.active_auto === "object"
+      ? current.active_auto : {};
+    const isAuto = reachable && a.enabled === true
+      && a.active === true && a.hold !== true;
     const fault = a.fault_latched === true;
-    const enabled = a.enabled === true;
-    const manual = !autoActive;
-    els.mode.textContent = !coreOnline ? "BRAK ŁĄCZNOŚCI"
-      : fault ? "MANUAL · AWARIA"
-      : autoActive ? "AUTO · AKTYWNE" : "MANUAL";
-    els.mode.dataset.state = fault ? "fault" : autoActive ? "auto" : "manual";
+    const canAuto = reachable && a.enabled === true && !fault && !pending;
 
-    let detail = "Stan fizycznego sterowania jest niedostępny.";
-    if (coreOnline) {
-      if (fault) {
-        detail = "AWARIA: " + (a.hold_reason || "nieznana")
-          + ". Przerwij emisję zanieczyszczeń; wymagany serwis.";
-      } else if (!enabled) {
-        detail = "AUTO wyłączone w CM5 lub brak zatwierdzenia. Sterowanie ręczne działa w STREFACH.";
-      } else if (autoActive) {
-        detail = "CM5 steruje EC i AERO. MANUAL blokuje dalsze automatyczne polecenia.";
-      } else {
-        detail = "MANUAL: ustaw wentylatory ręcznie w STREFACH. Aktualne wyjścia nie zmieniają się przy przełączeniu.";
-      }
-      if (!pinConfigured && enabled && !fault) {
-        detail += " PIN operatora nie jest skonfigurowany.";
-      }
+    modeHeading.textContent = isAuto ? "Sterowanie automatyczne" : "Sterowanie ręczne";
+    manualButton.setAttribute("aria-pressed", String(!isAuto));
+    autoButton.setAttribute("aria-pressed", String(isAuto));
+    manualButton.disabled = pending || !reachable;
+    autoButton.disabled = !canAuto || isAuto;
+    manualButton.title = "Przejmij sterowanie ręczne bez zmiany obecnych nastaw";
+    autoButton.title = !reachable ? "Brak połączenia z CM5"
+      : fault ? "AUTO zablokowane po awarii. Wymagane potwierdzenie serwisowe"
+      : !a.enabled ? "AUTO nie zostało jeszcze zatwierdzone lub włączone w CM5"
+      : isAuto ? "AUTO jest aktywne" : "Przekaż sterowanie automatowi";
+    if (!pending && reachable && fault) {
+      info("AWARIA — wymagany serwis", true);
+    } else if (!pending && reachable && !a.enabled && !note.dataset.userMessage) {
+      info("AUTO wyłączone w CM5");
     }
-    els.description.textContent = detail;
-    els.manual.disabled = pending || !coreOnline;
-    els.manual.setAttribute("aria-pressed", String(manual));
-    const canResume = coreOnline && enabled && !fault && !autoActive && pinConfigured && !pending;
-    els.pin.disabled = !canResume;
-    els.confirm.disabled = !canResume;
-    els.auto.disabled = !canResume || els.confirm.checked !== true
-      || !/^[0-9]{6,12}$/.test(els.pin.value);
-    els.auto.setAttribute("aria-pressed", String(autoActive));
   }
 
-  async function api(path, options = {}) {
+  async function request(path, options = {}) {
     const response = await fetch(path, {
       cache: "no-store",
       credentials: "same-origin",
@@ -69,81 +51,57 @@
     });
     let payload;
     try { payload = await response.json(); }
-    catch (_) { throw new Error("Nieprawidłowa odpowiedź CM5: HTTP " + response.status); }
+    catch (_) { throw new Error("Nieprawidłowa odpowiedź CM5"); }
     if (!response.ok || payload.ok !== true) {
       throw new Error(payload.error || ("HTTP " + response.status));
     }
     return payload;
   }
 
-  async function poll() {
-    if (pollPending || pending) return;
-    pollPending = true;
+  async function refresh() {
+    if (refreshPending || pending) return;
+    refreshPending = true;
     try {
-      const [state, status] = await Promise.all([
-        api("/api/v1/state"),
-        api("/api/v1/auto"),
-      ]);
-      latest = state.state;
-      pinConfigured = status.web_auto_pin_configured === true;
-      coreOnline = true;
+      const response = await request("/api/v1/state");
+      current = response.state;
+      reachable = true;
     } catch (_) {
-      coreOnline = false;
-      pinConfigured = false;
+      reachable = false;
+      info("Brak połączenia z CM5", true);
     } finally {
-      pollPending = false;
-      render();
+      refreshPending = false;
+      paint();
     }
   }
 
-  els.pin.addEventListener("input", render);
-  els.confirm.addEventListener("change", render);
-  els.manual.addEventListener("click", async () => {
-    if (pending || !coreOnline) return;
+  async function choose(mode) {
+    if (pending || !reachable) return;
+    if (mode === "AUTO"
+        && (current?.active_auto?.enabled !== true
+        || current?.active_auto?.fault_latched === true
+        || current?.active_auto?.active === true)) return;
     pending = true;
-    render();
-    message("Przełączam na sterowanie ręczne…");
+    note.dataset.userMessage = "true";
+    info(mode === "AUTO" ? "Włączanie AUTO…" : "Wybieranie MANUAL…");
+    paint();
     try {
-      await api("/api/v1/physical-mode", {
+      const result = await request("/api/v1/physical-mode", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({mode: "MANUAL"}),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
       });
-      message("MANUAL potwierdzony. AUTO nie wyda nowych poleceń. Ustawienia EC i AERO pozostają bez zmian.", "success");
+      current = result.state || current;
+      info(mode === "AUTO" ? "AUTO przyjęte przez Core" : "MANUAL aktywne");
     } catch (error) {
-      message("Nie potwierdzono przejścia na MANUAL: " + error.message, "error");
+      info("Nie wykonano: " + error.message, true);
     } finally {
       pending = false;
-      await poll();
+      await refresh();
     }
-  });
+  }
 
-  els.auto.addEventListener("click", async () => {
-    if (pending || !coreOnline || !pinConfigured || latest?.active_auto?.enabled !== true
-        || latest?.active_auto?.fault_latched === true
-        || els.confirm.checked !== true
-        || !/^[0-9]{6,12}$/.test(els.pin.value)) return;
-    pending = true;
-    render();
-    message("Weryfikuję PIN i warunki bezpiecznego AUTO…");
-    try {
-      await api("/api/v1/physical-mode", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({mode:"AUTO", pin:els.pin.value, confirm:true}),
-      });
-      message("AUTO potwierdzone przez ventilation-core.", "success");
-    } catch (error) {
-      message("AUTO zablokowane: " + error.message, "error");
-    } finally {
-      els.pin.value = "";
-      els.confirm.checked = false;
-      pending = false;
-      await poll();
-    }
-  });
-
-  render();
-  poll();
-  setInterval(poll, 3000);
+  manualButton.addEventListener("click", () => choose("MANUAL"));
+  autoButton.addEventListener("click", () => choose("AUTO"));
+  refresh();
+  setInterval(refresh, 2000);
 })();

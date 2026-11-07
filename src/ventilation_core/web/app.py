@@ -7,7 +7,6 @@ from typing import Any, Protocol
 from ventilation_core.telemetry.history import TelemetryHistoryUnavailable
 
 from .advisory import AdvisoryError
-from .auto_mode_auth import AutoModeAuthorizationError, AutoModePinVerifier
 from .client import CoreClient, CoreClientError
 from .config import WebUiConfig
 from .history_series import HistorySeriesService
@@ -61,9 +60,7 @@ class WebApplication:
         weather: WeatherProvider | None = None,
         history: HistoryProvider | None = None,
         advisory: AdvisoryProvider | None = None,
-        auto_mode_pin: AutoModePinVerifier | None = None,
     ) -> None:
-        self._auto_mode_pin = auto_mode_pin
         self._core = core
         self._config = config or WebUiConfig()
         self._weather_provider = weather
@@ -78,15 +75,7 @@ class WebApplication:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
             if method == "GET" and path == "/api/v1/auto":
-                response = self._command({"command": "auto-status"})
-                if response.payload.get("ok") is not True:
-                    return response
-                return ApiResponse(200, {
-                    **response.payload,
-                    "web_auto_pin_configured": bool(
-                        self._auto_mode_pin is not None and self._auto_mode_pin.configured
-                    )
-                })
+                return self._command({"command": "auto-status"})
             if method == "GET" and path == "/api/v1/zigbee":
                 return self._zigbee()
             if method == "GET" and path == "/api/v1/zigbee/removal-confirmation":
@@ -138,8 +127,6 @@ class WebApplication:
             if method == "POST" and path == "/api/v1/manual/aero/airing":
                 return self._aero_airing(body)
             return ApiResponse(404, {"ok": False, "error": "Not found"})
-        except AutoModeAuthorizationError as exc:
-            return ApiResponse(exc.status, {"ok": False, "error": str(exc)})
         except ValueError as exc:
             return ApiResponse(400, {"ok": False, "error": str(exc)})
         except TelemetryHistoryUnavailable as exc:
@@ -338,19 +325,13 @@ class WebApplication:
     def _physical_mode(self, body: Any) -> ApiResponse:
         data = self._require_object(body)
         if data == {"mode": "MANUAL"}:
-            # This operation never requires a PIN and never changes physical
-            # outputs; it latches operator ownership in the authoritative Core.
+            # No PIN and no actuator change. Core persists operator ownership.
             return self._command({"command": "auto-manual"})
-        if (set(data) != {"mode", "pin", "confirm"}
-                or data.get("mode") != "AUTO"
-                or data.get("confirm") is not True):
-            raise ValueError("Expected MANUAL or confirmed AUTO plus operator PIN")
-        if self._auto_mode_pin is None:
-            raise AutoModeAuthorizationError("AUTO PIN verifier not configured", 503)
-        self._auto_mode_pin.require(data.get("pin"))
-        # Core has the final authority: fails closed unless active AUTO was
-        # commissioned, enabled and all current preflight conditions are met.
-        return self._command({"command": "auto-resume"})
+        if data == {"mode": "AUTO"}:
+            # No PIN. This does NOT grant actuator authority. The core remains
+            # authoritative over commissioning, sensor and fault preflight.
+            return self._command({"command": "auto-resume"})
+        raise ValueError("mode must be exactly MANUAL or AUTO")
 
     def _fans(self, body: Any) -> ApiResponse:
         data = self._require_object(body)

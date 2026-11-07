@@ -9,11 +9,9 @@
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/ai-detail.css">
   <link rel="stylesheet" href="/sidebar.css">
-  <link rel="stylesheet" href="/physical-mode.css">
   <link rel="stylesheet" href="/cm5-watchdog.css">
   <script src="/cm5-watchdog.js" defer></script>
   <script src="/dashboard-live.js" defer></script>
-  <script src="/physical-mode.js" defer></script>
   <script src="/ai-operator-view.js" defer></script>
   <script src="/alerts.js" defer></script>
 </head>
@@ -38,31 +36,6 @@
   </div>
 
   <main class="v2-main" id="viewHost">
-    <section class="wvc-mode-control" aria-label="Rzeczywiste sterowanie wentylacją">
-      <div class="wvc-mode-left">
-        <span class="wvc-mode-kicker">STEROWANIE FIZYCZNE · CM5</span>
-        <strong id="wvcPhysicalMode" class="wvc-mode-indicator">SPRAWDZAM…</strong>
-        <small id="wvcModeDescription">Odczytuję aktualny tryb AUTO / MANUAL.</small>
-      </div>
-      <div class="wvc-mode-actions">
-        <button type="button" id="wvcManualMode" class="wvc-mode-button" aria-pressed="false">
-          MANUAL
-        </button>
-        <div class="wvc-auto-field">
-          <label for="wvcAutoPin">PIN do wznowienia AUTO</label>
-          <input id="wvcAutoPin" type="password" inputmode="numeric" pattern="[0-9]*"
-                 minlength="6" maxlength="12" autocomplete="off" placeholder="PIN" disabled>
-        </div>
-        <button type="button" id="wvcAutoMode" class="wvc-mode-button" aria-pressed="false" disabled>
-          AUTO
-        </button>
-      </div>
-      <label class="wvc-mode-confirm">
-        <input id="wvcAutoConfirm" type="checkbox" disabled>
-        <span>Potwierdzam uruchomienie automatycznej regulacji EC i AERO.</span>
-      </label>
-      <p id="wvcModeMessage" class="wvc-mode-message" role="status" aria-live="polite"></p>
-    </section>
     <section id="dashboardView" class="v2-shell-view" data-view="dashboard">
       <section class="v2-top-grid">
         <article class="v2-zone-card zone-one">

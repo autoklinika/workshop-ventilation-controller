@@ -1,38 +1,36 @@
-# WVC — przełącznik rzeczywistego AUTO / MANUAL w produkcyjnym HMI
+# WVC — rzeczywiste AUTO/MANUAL bez PIN, mały przełącznik w STREFACH
 
-Data: 2026-11-07.
+Data: 7 listopada 2026. Baza zmian: aktualne produkcyjne WebGUI `4c2912b`. Runtime Core jest niezależny, `6071dfa`.
 
-## Dlaczego oddzielny wariant WebGUI
+## Zmieniony interfejs
 
-Produkcja ma dwa niezależne runtime:
-- Core: osobne worktree Stage3, wcześniej wydanie `7210e8d`.
-- WebGUI: aktualne `main`, `be8e6e5`, zawiera nowszy pulpit i SPA.
+- Usunięto duży, globalny pasek fizycznego AUTO/MANUAL ze wszystkich ekranów WebGUI.
+- Jedyny przełącznik fizycznego AUTO/MANUAL znajduje się **tuż obok nagłówka „Sterowanie ręczne”**, po wejściu w zakładkę STREFY.
+- Przełącznik jest dyskretny, neutralny stylistycznie, bez PIN, checkboxu, modala ani osobnego banera.
+- Aktywna pozycja jest wyróżniona. Przy rzeczywistym AUTO nagłówek zmienia się na „Sterowanie automatyczne”.
+- Istniejące ręczne kontrolki EC, AERO i STOP nadal znajdują się w zakładce STREFY. Funkcja podglądu i sterowania ręcznego pozostaje niezmieniona.
+- W produkcyjnym SPA przyciski są inicjalizowane dopiero po załadowaniu `control.html`, dzięki czemu działają także przy bezpośrednim wejściu na `/control`. Wariant bezpośredniego `/control.html` również ładuje przełącznik.
 
-Nie wolno zastępować produkcyjnego WebGUI starszym Stage3. Ten zestaw zmian bazuje **wyłącznie na main** i dodaje mały, zawsze widoczny panel fizycznego AUTO/MANUAL w jego aktualnym widoku `index.html`. Stare ekrany PULPIT/STREFY/ALERTY/USTAWIENIA i pozostałe assety zachowują się jak przed zmianą.
+## API i logika
 
-## Sterowanie
+`POST /api/v1/physical-mode` przyjmuje **dokładnie**:
+- `{"mode":"MANUAL"}` — operator natychmiast blokuje kolejne polecenia AUTO; pozostawia ostatnie wyjścia do ręcznej regulacji w STREFACH;
+- `{"mode":"AUTO"}` — bez PIN, żądanie wznowienia AUTO w authoritative Core.
 
-- MANUAL: pojedynczy przycisk bez PIN, odsyła jedynie `{"command":"auto-manual"}` do lokalnego Core; nie zmienia napięć ani mocy AERO, lecz trwale blokuje następne automatyczne polecenia. Ręczny STOP i nastawy nadal są na ekranie STREFY.
-- AUTO: polecenie `auto-resume` tylko po sprawdzeniu PIN operatora 6–12 cyfr (scrypt + 0600, pięć błędnych prób -> pięć minut blokady), jawnego zaznaczenia potwierdzenia, a następnie *niezależnego* preflight w Core. Core musi mieć aktywną i zatwierdzoną funkcję AUTO, brak latcha błędu oraz czujniki i wykonawce w wymaganym stanie.
-- PIN nie jest udostępniany przez status ani przekazywany do Core, ale obecne WebGUI działa po zwykłym HTTP, dlatego przed dopuszczeniem aktywnego AUTO należy zabezpieczyć transport i dostęp operacyjny (HTTPS albo równoważny zaufany tunel lokalny).
-- Po fizycznej awarii TACHO AUTO nie może zostać włączone zwykłym przyciskiem. Wymagana lokalna diagnoza i serwisowy `auto-ack-fault`, który pozostawia MANUAL.
-- Po starcie Core przy włączonym AUTO domyślnie MANUAL (trwały latch); nie ma samoistnego rozpędzenia wentylatorów.
+Żadne pola `pin`, `confirm` czy `command` nie są dopuszczalne. Kod weryfikujący PIN i narzędzie jego konfigurowania zostały usunięte, a `GET /api/v1/auto` nie ujawnia stanu hasła.
 
-## Integracja
+Niezależnie od braku PIN-u WebGUI odrzuca cross-origin POST, nie wystawia ogólnego proxy Core i nie steruje bezpośrednio DAC/RS485.
 
-- Globalny panel w SPA `index.html` wraz z niezależnymi `physical-mode.js` i `physical-mode.css`.
-- WebUI `GET /api/v1/auto` udostępnia odczyt Core i samą informację, czy PIN jest skonfigurowany.
-- WebUI `POST /api/v1/physical-mode` dopuszcza dokładnie MANUAL bez PIN albo AUTO z PIN i potwierdzeniem. Sprawdzane Origin/Host blokuje proste CSRF. Brak ogólnego proxy komend.
-- WebGUI zawsze korzysta z rzeczywistego CoreState, nie z logiki SHADOW.
-- Wydanie produkcyjne wymaga osobnego worktree i drobnego drop-in systemd dla `wvc-web-ui.service`, bez modyfikacji `main`.
-- Trwałe wyłączenie aktywnego AUTO w systemd pozostaje zachowane. Sama aktualizacja kodu NIE uruchamia wentylacji.
+**Twarde zabezpieczenia pozostają w Core:** tryb AUTO musi być jawnie włączony w systemd, musi istnieć zatwierdzony commissioning, sprawny DAC, TACHO, oba SEN55, AERO i brak zatrzaśniętych błędów. Jeśli dowolny warunek nie jest spełniony, CORE odrzuca żądanie `auto-resume`. Bez zmiany ustawień Core obecne AUTO będzie nadal niedostępne; nie obchodzimy tej blokady przez UI.
 
-## Stan testów i ograniczenia
+Utrata TACHO po potwierdzeniu w logice Core powoduje trwały HOLD i próbę zatrzymania obu EC. Po awarii ponowne AUTO jest niemożliwe bez osobnego lokalnego `auto-ack-fault`. Manually latched MANUAL przetrwa restart.
 
-- Lokalna pełna regresja produkcyjnego WebGUI + integracja panelu: 702 testy PASS; `node --check` PASS.
-- Pełna regresja aktualnego Core z przełączaniem i reakcją TACHO: 1120 testów PASS.
-- Wcześniejszy test fizyczny EC RPM i AERO 1/2/3/MAX istnieje w protokole commissioning. Testy syntetyczne awarii TACHO nie są dowodem poprawności procedur pracowniczych.
-- Nie wolno generować fikcyjnego pliku commissioning APPROVED. Realne m³/h, procedury po rzeczywistym zaniku wentylacji, odciągi miejscowe i wymagania NDS nadal wymagają potwierdzenia na warsztacie.
-- Przy wymuszonym STOP obu EC z powodu awarii TACHO nie jest gwarantowane bezpieczne usuwanie szkodliwych substancji. Operator musi zatrzymać źródło emisji i zastosować procedurę BHP.
+## Plan wdrożenia i rollback
 
-**Repozytorium:** nie scalać do main bez osobnej zgody. Wdrożenie worktree nie zmienia domyślnego kodu main.
+Core bez zmian (obecnie `6071dfa`). Zmienia się tylko bieżące WebGUI, które działa z niezależnego git worktree `/home/wentylacja/wvc-webui-physical-mode`, a produkcyjne `main` pozostaje nienaruszone.
+
+Przed przełączeniem wydania zapisz commit poprzedniego WebGUI, backup unit/drop-in, sprawdź stan STOP/0V EC i AERO 0%, oba SEN55 oraz 0 alarmów. Po zmianie worktree wymagany jest kontrolowany `systemctl restart wvc-web-ui.service` (nie trzeba restartować Core). Test po wdrożeniu: aktualny pulpit 200, `/control` z nowym przełącznikiem, API statusu i żądanie AUTO odrzucone przez Core bez commissioning, zachowane MANUAL. Jeśli test nie przejdzie, cofnij worktree do poprzedniego commit i zrestartuj tylko WebGUI.
+
+Przy pracy emisjogennej trzeba stosować odciągi miejscowe i ocenę ryzyka. Ta zmiana UX nie dowodzi wymaganego bilansu m³/h ani spełnienia NDS — fizyczne AUTO pozostaje zablokowane do zatwierdzenia commissioning.
+
+Zmiany na osobnej gałęzi, bez scalania do main.
