@@ -354,9 +354,12 @@ class ServiceDashboardStage1Test(unittest.TestCase):
         self.assertIn("WVC_AI_SERVER_HOST", main)
         self.assertIn("WVC_AI_SERVER_PORT", main)
 
+        # AUTO V1 intentionally extends the core socket protocol; the pinned
+        # hash below protects its reviewed implementation without relaxing
+        # separate alert persistence and AI transport boundary checks.
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "runtime" / "server.py"),
-            "7e84987728fba6471bc1220cc3698bc6f8df07db",
+            "b72aabb73642ded70b2a09098bda5e9fe813601c",
         )
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "application" / "alert_registry.py"),
