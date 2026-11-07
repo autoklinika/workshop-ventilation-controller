@@ -74,6 +74,8 @@ class WebApplication:
         try:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
+            if method == "GET" and path == "/api/v1/auto":
+                return self._command({"command": "auto-status"})
             if method == "GET" and path == "/api/v1/zigbee":
                 return self._zigbee()
             if method == "GET" and path == "/api/v1/zigbee/removal-confirmation":
@@ -114,6 +116,8 @@ class WebApplication:
                 return self._zigbee_rename(body)
             if method == "POST" and path == "/api/v1/zigbee/role":
                 return self._zigbee_role(body)
+            if method == "POST" and path == "/api/v1/physical-mode":
+                return self._physical_mode(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -317,6 +321,17 @@ class WebApplication:
         except CoreClientError as exc:
             return ApiResponse(200, {"ok": True, "web": "ok", "core_available": False, "core_error": str(exc)})
         return ApiResponse(200, {"ok": True, "web": "ok", "core_available": response.get("ok") is True})
+
+    def _physical_mode(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        if data == {"mode": "MANUAL"}:
+            # No PIN and no actuator change. Core persists operator ownership.
+            return self._command({"command": "auto-manual"})
+        if data == {"mode": "AUTO"}:
+            # No PIN. This does NOT grant actuator authority. The core remains
+            # authoritative over commissioning, sensor and fault preflight.
+            return self._command({"command": "auto-resume"})
+        raise ValueError("mode must be exactly MANUAL or AUTO")
 
     def _fans(self, body: Any) -> ApiResponse:
         data = self._require_object(body)

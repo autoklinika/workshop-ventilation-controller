@@ -78,8 +78,10 @@ async function hydrateControlView() {
     }
 
     host.innerHTML = source.outerHTML;
+    loadV2Style("/physical-mode.css");
     await loadV2Script("/app.js");
     await loadV2Script("/tacho.js");
+    await loadV2Script("/physical-mode.js");
   } catch (error) {
     host.innerHTML = `<section class="v2-page-heading"><h1>STREFY</h1><p>Nie udało się załadować widoku sterowania: ${String(error.message || error)}</p></section>`;
   }

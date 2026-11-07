@@ -1,0 +1,63 @@
+/* Small physical-mode switch next to STREFY's "Sterowanie ręczne" title.
+   No global status bar, no PIN, no modal. */
+.wvc-mode-heading{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:10px 17px;
+}
+.wvc-mode-heading h1{
+  margin:0;
+}
+.wvc-mode-toggle{
+  display:inline-flex;
+  align-items:center;
+  padding:3px;
+  gap:2px;
+  background:#162535;
+  border:1px solid #3b5060;
+  border-radius:9px;
+  flex-shrink:0;
+}
+.wvc-mode-button{
+  min-width:82px;
+  min-height:37px;
+  border:0;
+  border-radius:6px;
+  padding:7px 11px;
+  background:transparent;
+  color:#adbfcc;
+  font:inherit;
+  font-size:12px;
+  font-weight:750;
+  letter-spacing:.035em;
+  cursor:pointer;
+}
+.wvc-mode-button[aria-pressed="true"]{
+  color:#eef5fa;
+  background:#354c60;
+}
+.wvc-mode-button:not(:disabled):focus-visible{
+  outline:2px solid #96b3c5;
+  outline-offset:2px;
+}
+.wvc-mode-button:disabled{
+  opacity:.40;
+  cursor:default;
+}
+.wvc-mode-button[aria-pressed="true"]:disabled{
+  opacity:1;
+}
+.wvc-mode-note{
+  font-size:11px;
+  color:#899fad;
+  max-width:260px;
+  line-height:1.3;
+}
+.wvc-mode-note:empty{display:none}
+.wvc-mode-note[data-error="true"]{color:#f3a9a3}
+@media(max-width:760px){
+  .wvc-mode-heading{gap:9px 11px}
+  .wvc-mode-button{min-width:74px;min-height:36px;padding:7px 10px}
+  .wvc-mode-note{flex-basis:100%}
+}
