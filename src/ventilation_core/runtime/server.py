@@ -40,6 +40,7 @@ class CoreServer:
     async def run(self) -> None:
         health_task: asyncio.Task[None] | None = None
         auto_task: asyncio.Task[None] | None = None
+        auto_supervision_task: asyncio.Task[None] | None = None
         try:
             self._prepare_socket_path()
             self._server = await asyncio.start_unix_server(
@@ -50,9 +51,13 @@ class CoreServer:
             health_task = asyncio.create_task(self._health_monitor())
             if self._auto_controller is not None and self._auto_controller.enabled:
                 auto_task = asyncio.create_task(self._active_auto_loop())
+                auto_supervision_task = asyncio.create_task(self._active_auto_supervision_loop())
             LOGGER.info("ventilation-core listening on %s", self._socket_path)
             await self._shutdown.wait()
         finally:
+            if auto_supervision_task is not None:
+                auto_supervision_task.cancel()
+                await asyncio.gather(auto_supervision_task, return_exceptions=True)
             if auto_task is not None:
                 # AERO commands can wait for physical confirmation; let them
                 # finish before shutting down the shared actuator service.
@@ -115,6 +120,22 @@ class CoreServer:
                     self._auto_controller.hold("AUTO_EXECUTION_EXCEPTION")
             try:
                 await asyncio.wait_for(self._shutdown.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _active_auto_supervision_loop(self) -> None:
+        """Supervise EC TACHO regardless of ongoing, slow AERO commands."""
+        await asyncio.sleep(3.0)
+        while not self._shutdown.is_set():
+            try:
+                await asyncio.to_thread(self._auto_controller.supervise, self._service)
+            except Exception as exc:
+                LOGGER.exception("ACTIVE_AUTO independent EC supervision failed")
+                if self._auto_controller is not None:
+                    self._auto_controller.last_error = str(exc)
+                    self._auto_controller.hold("AUTO_SUPERVISION_EXCEPTION")
+            try:
+                await asyncio.wait_for(self._shutdown.wait(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
 

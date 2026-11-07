@@ -5,6 +5,7 @@ import asyncio
 from copy import deepcopy
 import json
 from math import nan
+from threading import Event, Thread
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -66,7 +67,8 @@ class StubCore:
                 target=cmd.value * 30
             self.value["aero_bus"]["telemetry"]["fan_1_percent"]=target
             self.value["aero_bus"]["telemetry"]["fan_2_percent"]=target
-        return SimpleNamespace(succeeded=self.aero_succeeds)
+        return SimpleNamespace(succeeded=self.aero_succeeds,
+                               physical_confirmation=self.aero_succeeds)
 
 
 class ActiveWorkshopAutoTests(unittest.TestCase):
@@ -176,7 +178,78 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         core.aero_succeeds=False
         self.auto.step(core)
         self.assertTrue(self.auto.paused)
-        self.assertIn("AERO_COMMAND_NOT_CONFIRMED",self.auto.last_error)
+        self.assertIn("AERO_TARGET_PAIR_NOT_CONFIRMED",self.auto.last_error)
+
+    def test_aero_requires_both_fans_not_just_first_delta(self):
+        class OneFanSlow(StubCore):
+            def control_aero(self, cmd):
+                result = super().control_aero(cmd)
+                self.value["aero_bus"]["telemetry"]["fan_2_percent"] = 0
+                return result
+
+        core=OneFanSlow(state())
+        ctrl=ActiveWorkshopAuto(
+            enabled=True,hold_path=self.hold_path,clock=lambda:self.now,
+            aero_target_timeout_seconds=0.03,aero_target_poll_seconds=0.01)
+        ctrl.step(core)
+        self.assertTrue(ctrl.paused)
+        self.assertEqual(core.aero_calls,[("speed",1)])
+        self.assertIn("TARGET_PAIR_NOT_CONFIRMED",ctrl.last_error)
+
+    def test_each_tacho_failure_mask_is_detected_without_unplugging_anything(self):
+        for names in (("extract",),("supply",),("supply","extract")):
+            with self.subTest(faulty=names):
+                t=TemporaryDirectory()
+                self.addCleanup(t.cleanup)
+                c=ActiveWorkshopAuto(enabled=True,hold_path=Path(t.name)/"hold",
+                                     clock=lambda:self.now)
+                core=StubCore(state())
+                c.step(core)
+                for name in names:
+                    core.value["tacho"][name]["valid"] = False
+                    core.value["tacho"][name]["rpm"] = 0
+                self.now+=13.0
+                c.step(core)
+                self.assertTrue(c.paused)
+                self.assertIn("TACHO",c.pause_reason)
+                self.assertEqual(core.fan_calls,[(2.0,1.0)])
+                self.assertTrue(Path(t.name,"hold").is_file())
+
+    def test_independent_tacho_supervision_runs_while_aero_command_waits(self):
+        class SlowAero(StubCore):
+            def __init__(self, s):
+                super().__init__(s)
+                self.started = Event()
+                self.release = Event()
+            def control_aero(self, cmd):
+                self.started.set()
+                assert self.release.wait(2.0), "test AERO command never released"
+                return super().control_aero(cmd)
+
+        core=SlowAero(state())
+        thread=Thread(target=lambda:self.auto.step(core),daemon=True)
+        thread.start()
+        self.assertTrue(core.started.wait(1.0), "AERO command was not started")
+        self.now += 13.0
+        core.value["tacho"]["extract"]["valid"] = False
+        core.value["tacho"]["extract"]["rpm"] = 0
+        # This is a separate supervisory call from a different thread, NOT
+        # another AERO actuator call.
+        self.auto.supervise(core)
+        self.assertTrue(self.auto.paused)
+        self.assertIn("TACHO_EXTRACT", self.auto.pause_reason)
+        core.release.set()
+        thread.join(timeout=2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(core.aero_calls,[("speed",1)])
+
+    def test_independent_supervision_holds_on_critical_alert(self):
+        core=StubCore(state())
+        self.auto.step(core)
+        core.value["active_alarms"]=[{"severity":"critical","code":"TEST_CRITICAL"}]
+        self.auto.supervise(core)
+        self.assertTrue(self.auto.paused)
+        self.assertEqual(self.auto.pause_reason,"CRITICAL_ALARM")
 
     def test_aero_max_requests_airing_after_high_speed(self):
         core=StubCore(state(pm1=65,pm2=65))

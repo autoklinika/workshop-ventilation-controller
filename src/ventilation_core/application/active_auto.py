@@ -16,6 +16,7 @@ import json
 from math import isfinite
 import logging
 import os
+import time
 
 from ventilation_core.domain.aero_control import AeroControlCommand
 
@@ -199,6 +200,8 @@ class ActiveWorkshopAuto:
         clock: Callable[[], float] = monotonic,
         fan_min_interval: float = 15.0,
         aero_min_interval: float = 40.0,
+        aero_target_timeout_seconds: float = 25.0,
+        aero_target_poll_seconds: float = 2.0,
         profile_path: Path | None = None,
         blocked_reason: str = "",
     ) -> None:
@@ -216,6 +219,10 @@ class ActiveWorkshopAuto:
         self.last_decisions: dict[str, dict[str, Any]] = {}
         self.fan_min_interval = fan_min_interval
         self.aero_min_interval = aero_min_interval
+        if not 0 < aero_target_poll_seconds <= aero_target_timeout_seconds <= 60:
+            raise ValueError("Invalid AERO target confirmation interval/timeout")
+        self.aero_target_poll_seconds = aero_target_poll_seconds
+        self.aero_target_timeout_seconds = aero_target_timeout_seconds
         self._fan_last_set_at: float | None = None
         self._aero_last_set_at: float | None = None
         self._last_aero_mode: str | None = None
@@ -370,6 +377,71 @@ class ActiveWorkshopAuto:
             if not (reading.get("valid") is True and float(reading.get("rpm") or 0) >= 80):
                 raise RuntimeError(f"TACHO_{name.upper()}_FEEDBACK_MISSING")
 
+    @staticmethod
+    def _aero_pair_matches(state: Mapping[str, Any], action: str) -> bool:
+        aero = state.get("aero_bus") or {}
+        if not (aero.get("ready") and aero.get("online") and aero.get("usable")):
+            return False
+        telem = aero.get("telemetry") or {}
+        values = (telem.get("fan_1_percent"), telem.get("fan_2_percent"))
+        if any(type(x) not in (int, float) or not isfinite(float(x)) for x in values):
+            return False
+        if action == "aero_airing_on":
+            return all(x >= 95 for x in values)
+        if action == "aero_airing_off":
+            return all(x < 95 for x in values)
+        if action.startswith("aero_speed_"):
+            target = 30 * int(action.split("_")[-1])
+            return all(abs(x-target) <= 5 for x in values)
+        return False
+
+    def _verify_aero_both(self, service: Any, action: str) -> bool:
+        """Read actual fan 1+2 after AERO accepted a command.
+
+        Existing low-level executor reports physical success on *any* power
+        change: on a real 60->90% ramp one fan reaches the target earlier
+        than the other. Never treat that intermediate response as complete.
+        """
+        until = time.monotonic() + self.aero_target_timeout_seconds
+        while True:
+            with self._lock:
+                if self.paused:
+                    return False
+            state = service.state().to_dict()
+            if self._aero_pair_matches(state, action):
+                return True
+            if time.monotonic() >= until:
+                return False
+            time.sleep(self.aero_target_poll_seconds)
+
+    def supervise(self, service: Any) -> None:
+        """Independent EC watchdog, including during slow AERO RS485 commands.
+
+        Invoked from a separate asyncio task with its own thread. The AERO
+        response (sometimes 60s) must not delay detecting lost EC feedback.
+        Safety HOLD is latched and persisted; a separate *approved* physical
+        fallback remains required before unattended GO.
+        """
+        if not self.enabled:
+            return
+        with self._lock:
+            if self.paused:
+                return
+            s = service.state().to_dict()
+            if not s.get("hardware_ready") or not s.get("output_state_known"):
+                self.last_error = "DAC_NOT_READY"
+                self.hold(self.last_error)
+                return
+            if any(a.get("severity") == "critical" for a in s.get("active_alarms") or []):
+                self.last_error = "CRITICAL_ALARM"
+                self.hold(self.last_error)
+                return
+            try:
+                self._check_tacho(s, self._clock())
+            except RuntimeError as exc:
+                self.last_error = str(exc)
+                self.hold(self.last_error)
+
     def step(self, service: Any) -> None:
         if not self.enabled:
             return
@@ -439,10 +511,18 @@ class ActiveWorkshopAuto:
         # status/hold mutex across this call, or the WebGUI could freeze and an
         # operator would be unable to latch HOLD while AERO is responding.
         result = service.control_aero(command)
+        # AERO driver can acknowledge the first changed fan before the other
+        # reaches the target; use explicit target verification for BOTH fans.
+        pair_ok = bool(result.succeeded and result.physical_confirmation)
+        if pair_ok:
+            pair_ok = self._verify_aero_both(service, action)
         with self._lock:
-            if not result.succeeded:
-                self.last_error = f"AERO_COMMAND_NOT_CONFIRMED:{action}"
+            if self.paused:
+                return  # Manual HOLD may have been requested during AERO transition.
+            if not pair_ok:
+                self.last_error = f"AERO_TARGET_PAIR_NOT_CONFIRMED:{action}"
                 self.hold(self.last_error)
                 return
+            self.last_error = ""
             self.last_action = {"target":action,"at":self.last_evaluated_at_utc}
-            LOGGER.warning("ACTIVE_AUTO AERO %s (physically confirmed)", action)
+            LOGGER.warning("ACTIVE_AUTO AERO %s (both fan powers confirmed)", action)

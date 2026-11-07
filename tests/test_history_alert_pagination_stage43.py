@@ -294,7 +294,7 @@ class HistoryAlertPaginationStage43Test(unittest.TestCase):
         # separate alert persistence and AI transport boundary checks.
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "runtime" / "server.py"),
-            "b72aabb73642ded70b2a09098bda5e9fe813601c",
+            "fe063c03eed2105a0358c6d7ef960c7d70aba829",
         )
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "application" / "alert_registry.py"),

@@ -48,10 +48,13 @@ W obu pomieszczeniach niezależne poziomy:
 - Manualny STOP/SET albo ręczna zmiana AERO blokują kolejne rozkazy AUTO
   do jawnego RESUME. HOLD przetrwa restart CM5.
 - STOP zatrzymuje oba EC, ale NIE jest tym samym co STOP AERO.
-- Kontrola TACHO po rozruchu; nieprawidłowość -> zapamiętany HOLD,
+- Niezależny watchdog TACHO co około 2 s w osobnym zadaniu rdzenia, również gdy AERO
+  czeka na fizyczne potwierdzenie. Kontrola po rozruchu; błąd -> HOLD,
   alarm w stanie AUTO i dzienniku, zachowanie ostatniego wyjścia.
-- AERO: wyłącznie polecenia istniejącą ścieżką control_aero, która
-  wymaga fizycznego potwierdzenia; po niepowodzeniu AUTO przechodzi w HOLD.
+- AERO: wyłącznie polecenia istniejącą ścieżką control_aero;
+  po pierwszym potwierdzeniu fizycznej zmiany AUTO dodatkowo wymaga
+  osiągnięcia docelowej mocy przez OBA wentylatory (maks. 25 s).
+  Nieudane potwierdzenie prowadzi do trwałego HOLD.
 - Monitorowaniu podlega mode AUTO i actual setpoints; każda decyzja
   jest dostępna z CoreState.active_auto i istniejącą historią, bez
   tworzenia oddzielnej usługi obserwacyjnej.
