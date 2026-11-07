@@ -154,7 +154,10 @@ class AutomationStaticContractTest(unittest.TestCase):
             self.assertIn(f'"{asset}"', self.server)
 
     def test_automation_page_has_four_tabs_and_permanent_shadow_warning(self):
-        self.assertIn("SHADOW — BRAK STEROWANIA FIZYCZNYMI WYJŚCIAMI", self.html)
+        self.assertIn("OSOBNY CONTROL ENGINE SHADOW", self.html)
+        self.assertIn("STEROWANIE RZECZYWISTE", self.html)
+        self.assertIn('id="physicalManualBtn"', self.html)
+        self.assertIn('id="physicalAutoBtn"', self.html)
         for tab in ("state", "schedule", "manual", "tuning"):
             self.assertIn(f'data-automation-tab="{tab}"', self.html)
             self.assertIn(f'data-automation-panel="{tab}"', self.html)
@@ -194,6 +197,8 @@ class AutomationStaticContractTest(unittest.TestCase):
             "/api/v1/state",
             "/api/v1/automation/operator",
             "/api/v1/automation/tuning-validation",
+            "/api/v1/auto",
+            "/api/v1/physical-mode",
         }
         discovered = set()
         marker = '"/api/v1/'

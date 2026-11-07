@@ -16,6 +16,8 @@ const GROUP_LABELS = {
 let lastState = null;
 let selectedOperatorMode = "AUTO";
 let pollBusy = false;
+let physicalPinConfigured = false;
+let physicalModePending = false;
 
 function byId(id) { return document.getElementById(id); }
 function text(id, value) {
@@ -79,6 +81,45 @@ function renderOperator(shadow) {
   if (selectedOperatorMode !== "MANUAL" || mode === "AUTO") setSelectedOperatorMode(mode === "MANUAL" ? "MANUAL" : "AUTO", false);
 }
 
+function physicalModeMessage(message, ok = null) {
+  const node = byId("physicalModeMessage");
+  if (!node) return;
+  node.textContent = message || "";
+  node.className = `automation-message${ok === true ? " good" : ok === false ? " bad" : ""}`;
+}
+
+function renderPhysicalMode(state) {
+  const actual = state && state.active_auto && typeof state.active_auto === "object"
+    ? state.active_auto : {};
+  const available = actual.enabled === true;
+  const autoActive = actual.active === true && actual.hold !== true;
+  const faulted = actual.fault_latched === true;
+  const manual = !autoActive;
+  text("physicalModeValue", autoActive ? "AUTO · AKTYWNE" : faulted ? "MANUAL · AWARIA" : "MANUAL");
+  let description;
+  if (faulted) description = `ZATRZYMANA AUTOMATYKA — ${actual.hold_reason || "USTERKA"}. Zatrzymaj szkodliwy proces; wymagane lokalne potwierdzenie serwisowe.`;
+  else if (!available) description = "AUTO jest wyłączone w konfiguracji CM5 lub nie ma zatwierdzonego commissioning. Sterowanie fizyczne jest ręczne.";
+  else if (autoActive) description = "CM5 steruje automatycznie wentylatorami EC i rekuperatorem. MANUAL odbiera uprawnienia automatowi.";
+  else description = `MANUAL — automat nie wydaje poleceń. ${actual.hold_reason || "Możesz korzystać z ręcznych nastaw w STREFACH."}`;
+  text("physicalModeDescription", description);
+  const manBtn = byId("physicalManualBtn");
+  const autoBtn = byId("physicalAutoBtn");
+  const pin = byId("physicalAutoPin");
+  const checkbox = byId("physicalAutoConfirm");
+  const pinAllowed = available && physicalPinConfigured && !faulted && !autoActive && !physicalModePending;
+  if (manBtn) {
+    manBtn.disabled = physicalModePending;
+    manBtn.setAttribute("aria-pressed", manual ? "true" : "false");
+  }
+  if (pin) pin.disabled = !pinAllowed;
+  if (checkbox) checkbox.disabled = !pinAllowed;
+  if (autoBtn) {
+    autoBtn.disabled = !pinAllowed || checkbox?.checked !== true
+      || !/^\d{6,12}$/.test(pin?.value || "");
+    autoBtn.setAttribute("aria-pressed", autoActive ? "true" : "false");
+  }
+}
+
 function renderReadiness(shadow) {
   const readiness = shadow.actuation_readiness && typeof shadow.actuation_readiness === "object"
     ? shadow.actuation_readiness : {};
@@ -119,6 +160,7 @@ function renderState(state) {
   const setpoints = physicalSetpoints(state);
 
   setConnection(true, "CORE ONLINE");
+  renderPhysicalMode(state);
   renderOperator(shadow);
   renderReadiness(shadow);
 
@@ -160,6 +202,14 @@ async function refreshState() {
   try {
     const payload = await automationApi("/api/v1/state");
     renderState(payload.state);
+    try {
+      const physical = await automationApi("/api/v1/auto");
+      physicalPinConfigured = physical.web_auto_pin_configured === true;
+      renderPhysicalMode(payload.state);
+    } catch (_) {
+      physicalPinConfigured = false;
+      renderPhysicalMode(payload.state);
+    }
   } catch (error) {
     setConnection(false, "CORE OFFLINE");
     const node = byId("operatorMessage");
@@ -168,6 +218,54 @@ async function refreshState() {
     pollBusy = false;
   }
 }
+
+byId("physicalAutoPin")?.addEventListener("input", () => {
+  if (lastState) renderPhysicalMode(lastState);
+});
+byId("physicalAutoConfirm")?.addEventListener("change", () => {
+  if (lastState) renderPhysicalMode(lastState);
+});
+
+byId("physicalManualBtn")?.addEventListener("click", async () => {
+  if (physicalModePending) return;
+  physicalModePending = true;
+  if (lastState) renderPhysicalMode(lastState);
+  physicalModeMessage("Przejmuję sterowanie ręczne…");
+  try {
+    await automationApi("/api/v1/physical-mode", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mode:"MANUAL"})
+    });
+    physicalModeMessage("MANUAL — automat został zablokowany. Wartości wyjść nie zostały zmienione; ręczne nastawy są w STREFACH.", true);
+  } catch (error) {
+    physicalModeMessage(`Nie potwierdzono MANUAL: ${error.message}`, false);
+  } finally {
+    physicalModePending = false;
+    await refreshState();
+  }
+});
+byId("physicalAutoBtn")?.addEventListener("click", async () => {
+  if (physicalModePending || !lastState || !lastState.active_auto?.enabled) return;
+  const pin = byId("physicalAutoPin");
+  if (!pin || !/^\d{6,12}$/.test(pin.value) || byId("physicalAutoConfirm")?.checked !== true) return;
+  physicalModePending = true;
+  renderPhysicalMode(lastState);
+  physicalModeMessage("Weryfikuję PIN i zabezpieczenia przed wznowieniem AUTO…");
+  try {
+    await automationApi("/api/v1/physical-mode", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mode:"AUTO", pin:pin.value, confirm:true})
+    });
+    physicalModeMessage("AUTO wznowione przez ventilation-core. Przepływy będą regulowane automatycznie.", true);
+  } catch (error) {
+    physicalModeMessage(`AUTO pozostało zablokowane: ${error.message}`, false);
+  } finally {
+    pin.value = "";
+    byId("physicalAutoConfirm").checked = false;
+    physicalModePending = false;
+    await refreshState();
+  }
+});
 
 function renderTuning(payload) {
   const ledger = payload && payload.tuning_validation ? payload.tuning_validation : {};
