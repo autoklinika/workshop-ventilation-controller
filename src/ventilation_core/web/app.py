@@ -98,6 +98,8 @@ class WebApplication:
         try:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
+            if method == "GET" and path == "/api/v1/auto":
+                return self._command({"command": "auto-status"})
             if method == "GET" and path == "/api/v1/zigbee":
                 return self._zigbee()
             if method == "GET" and path == "/api/v1/zigbee/removal-confirmation":

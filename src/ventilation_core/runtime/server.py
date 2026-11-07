@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ventilation_core.application.active_auto import ActiveWorkshopAuto
 from ventilation_core.application.service import VentilationService
 from ventilation_core.domain.aero_control import AeroControlCommand
 
@@ -26,16 +27,20 @@ class CoreServer:
         service: VentilationService,
         socket_path: Path,
         health_interval_seconds: float,
+        auto_controller: ActiveWorkshopAuto | None = None,
     ) -> None:
         self._service = service
         self._socket_path = socket_path
         self._health_interval = health_interval_seconds
+        self._auto_controller = auto_controller
         self._shutdown = asyncio.Event()
         self._server: asyncio.AbstractServer | None = None
         self._zigbee_remove_confirmation: dict[str, Any] | None = None
 
     async def run(self) -> None:
         health_task: asyncio.Task[None] | None = None
+        auto_task: asyncio.Task[None] | None = None
+        auto_supervision_task: asyncio.Task[None] | None = None
         try:
             self._prepare_socket_path()
             self._server = await asyncio.start_unix_server(
@@ -44,9 +49,23 @@ class CoreServer:
             )
             os.chmod(self._socket_path, 0o660)
             health_task = asyncio.create_task(self._health_monitor())
+            if self._auto_controller is not None and self._auto_controller.enabled:
+                auto_task = asyncio.create_task(self._active_auto_loop())
+                auto_supervision_task = asyncio.create_task(self._active_auto_supervision_loop())
             LOGGER.info("ventilation-core listening on %s", self._socket_path)
             await self._shutdown.wait()
         finally:
+            if auto_supervision_task is not None:
+                auto_supervision_task.cancel()
+                await asyncio.gather(auto_supervision_task, return_exceptions=True)
+            if auto_task is not None:
+                # AERO commands can wait for physical confirmation; let them
+                # finish before shutting down the shared actuator service.
+                try:
+                    await asyncio.wait_for(auto_task, timeout=90.0)
+                except asyncio.TimeoutError:
+                    auto_task.cancel()
+                    await asyncio.gather(auto_task, return_exceptions=True)
             if health_task is not None:
                 health_task.cancel()
                 await asyncio.gather(health_task, return_exceptions=True)
@@ -88,6 +107,38 @@ class CoreServer:
             return None
         return dict(pending)
 
+    async def _active_auto_loop(self) -> None:
+        """Periodic core-owned AUTO. Failure latches a persistent operator hold."""
+        await asyncio.sleep(2.0)
+        while not self._shutdown.is_set():
+            try:
+                await asyncio.to_thread(self._auto_controller.step, self._service)
+            except Exception as exc:
+                LOGGER.exception("ACTIVE_AUTO actuation loop stopped after error")
+                if self._auto_controller is not None:
+                    self._auto_controller.last_error = str(exc)
+                    self._auto_controller.hold("AUTO_EXECUTION_EXCEPTION")
+            try:
+                await asyncio.wait_for(self._shutdown.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _active_auto_supervision_loop(self) -> None:
+        """Supervise EC TACHO regardless of ongoing, slow AERO commands."""
+        await asyncio.sleep(3.0)
+        while not self._shutdown.is_set():
+            try:
+                await asyncio.to_thread(self._auto_controller.supervise, self._service)
+            except Exception as exc:
+                LOGGER.exception("ACTIVE_AUTO independent EC supervision failed")
+                if self._auto_controller is not None:
+                    self._auto_controller.last_error = str(exc)
+                    self._auto_controller.hold("AUTO_SUPERVISION_EXCEPTION")
+            try:
+                await asyncio.wait_for(self._shutdown.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+
     async def _health_monitor(self) -> None:
         while True:
             await asyncio.sleep(self._health_interval)
@@ -123,9 +174,31 @@ class CoreServer:
 
     async def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         command = request.get("command")
+        if command == "auto-status":
+            if self._auto_controller is None:
+                return {"ok": True, "active_auto": {"enabled": False}}
+            return {"ok": True, "active_auto": self._auto_controller.snapshot()}
+        if command == "auto-hold":
+            if self._auto_controller is None:
+                raise RuntimeError("Active AUTO controller is not configured")
+            self._auto_controller.hold("EXPLICIT_OPERATOR_HOLD")
+            return {"ok": True, "active_auto": self._auto_controller.snapshot()}
+        if command == "auto-resume":
+            if self._auto_controller is None:
+                raise RuntimeError("Active AUTO controller is not configured")
+            await asyncio.to_thread(
+                self._auto_controller.resume, self._service.state().to_dict()
+            )
+            return {"ok": True, "active_auto": self._auto_controller.snapshot()}
+        if command in ("set", "stop", "aero-speed", "aero-airing", "shutdown"):
+            if self._auto_controller is not None and self._auto_controller.enabled:
+                self._auto_controller.hold("MANUAL_COMMAND_" + str(command))
         if command == "status":
             state = self._service.state()
-            return {"ok": True, "state": state.to_dict()}
+            payload = state.to_dict()
+            if self._auto_controller is not None:
+                payload["active_auto"] = self._auto_controller.snapshot()
+            return {"ok": True, "state": payload}
         if command == "calendar":
             method = getattr(self._service, "calendar_configuration", None)
             if method is None:

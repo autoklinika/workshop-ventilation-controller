@@ -78,9 +78,12 @@ class HostPowerGuiSystemdTest(unittest.TestCase):
             data = path.read_bytes()
             return hashlib.sha1(f"blob {len(data)}\0".encode("ascii") + data).hexdigest()
 
+        # AUTO V1 intentionally extends the core socket protocol; the pinned
+        # hash below protects its reviewed implementation without relaxing
+        # separate alert persistence and AI transport boundary checks.
         self.assertEqual(
             blob_sha(ROOT / "src" / "ventilation_core" / "runtime" / "server.py"),
-            "7e84987728fba6471bc1220cc3698bc6f8df07db",
+            "fe063c03eed2105a0358c6d7ef960c7d70aba829",
         )
         self.assertEqual(
             blob_sha(ROOT / "src" / "ventilation_core" / "application" / "alert_registry.py"),

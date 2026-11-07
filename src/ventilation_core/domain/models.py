@@ -15,6 +15,7 @@ from ventilation_core.domain.zigbee import ZigbeeMqttState
 class VentilationMode(StrEnum):
     STOP = "STOP"
     MANUAL = "MANUAL"
+    AUTO = "AUTO"
     FAULT = "FAULT"
 
 

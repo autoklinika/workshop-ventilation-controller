@@ -100,6 +100,14 @@ class VentilationServiceTest(unittest.TestCase):
         self.assertEqual(self.actuator.applied, FanSetpoints(2.0, 3.0))
         self.assertEqual(state.mode, VentilationMode.MANUAL)
 
+    def test_automatic_command_is_distinct_from_manual_and_uses_dac_safety(self) -> None:
+        state = self.service.set_automatic(7.0, 5.0)
+        self.assertEqual(state.mode, VentilationMode.AUTO)
+        self.assertEqual(self.actuator.applied, FanSetpoints(7.0, 5.0))
+        with self.assertRaises(ValueError):
+            self.service.set_automatic(0.5, 0.5)
+        self.assertEqual(self.actuator.applied, FanSetpoints(7.0, 5.0))
+
     def test_stop_is_explicit_state(self) -> None:
         self.service.set_manual(2, 3)
         state = self.service.stop()

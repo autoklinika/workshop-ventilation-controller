@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "presets": {
+    "ECO": {"supply_v": 2.0, "extract_v": 1.0, "aero_speed": 1, "airing": false},
+    "NORMAL": {"supply_v": 4.0, "extract_v": 3.0, "aero_speed": 1, "airing": false},
+    "BOOST": {"supply_v": 7.0, "extract_v": 5.0, "aero_speed": 2, "airing": false},
+    "HIGH": {"supply_v": 9.0, "extract_v": 6.0, "aero_speed": 3, "airing": false},
+    "MAX": {"supply_v": 10.0, "extract_v": 7.0, "aero_speed": 3, "airing": true},
+    "SENSOR_FAULT": {"supply_v": 4.0, "extract_v": 3.0, "aero_speed": 2, "airing": false}
+  },
+  "thresholds": {
+    "pm2_5": [15.0, 25.0, 50.0],
+    "voc_index": [150.0, 200.0, 300.0],
+    "nox_index": [10.0, 50.0, 100.0]
+  },
+  "dynamics": {
+    "up_boost_seconds": 15.0,
+    "up_high_seconds": 5.0,
+    "decay_seconds": 180.0,
+    "thermal_eco_celsius": 18.0
+  }
+}
