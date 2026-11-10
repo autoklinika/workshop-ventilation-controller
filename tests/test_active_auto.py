@@ -120,11 +120,15 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         ctrl.step(occupied)
         self.assertEqual(occupied.fan_calls,[(4.0,3.0)])
 
-    def test_max_threshold_is_strictly_above_70_pm25(self):
+    def test_new_pm25_thresholds_respect_all_boundaries(self):
         for pm, expected_ec, expected_level in (
-            (69.9, (9.0, 6.0), "HIGH"),
-            (70.0, (9.0, 6.0), "HIGH"),
-            (70.1, (10.0, 7.0), "MAX"),
+            (80.0, (2.0, 1.0), "ECO"),
+            (80.1, (7.0, 5.0), "BOOST"),
+            (100.0, (7.0, 5.0), "BOOST"),
+            (110.0, (7.0, 5.0), "BOOST"),
+            (110.1, (9.0, 6.0), "HIGH"),
+            (140.0, (9.0, 6.0), "HIGH"),
+            (140.1, (10.0, 7.0), "MAX"),
         ):
             with self.subTest(pm=pm), TemporaryDirectory() as tmp:
                 ctrl = ActiveWorkshopAuto(
@@ -136,19 +140,20 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
                 core = StubCore(state(pm1=pm, pm2=pm))
                 ctrl.step(core)
                 self.assertEqual(core.fan_calls, [expected_ec])
-                self.assertEqual(core.aero_calls, [("speed", 3)])
+                expected_speed = {"ECO": 1, "BOOST": 2, "HIGH": 3, "MAX": 3}[expected_level]
+                self.assertEqual(core.aero_calls, [("speed", expected_speed)])
                 self.assertEqual(ctrl.snapshot()["zones"]["ec"]["level"], expected_level)
                 self.assertEqual(ctrl.snapshot()["zones"]["aero"]["level"], expected_level)
 
     def test_high_pm_without_calendar_window_runs_high_both_zones(self):
-        core=StubCore(state(pm1=38,pm2=35))
+        core=StubCore(state(pm1=125,pm2=120))
         self.auto.step(core)
         self.assertEqual(core.fan_calls,[(9.0,6.0)])
         self.assertEqual(core.aero_calls,[("speed",3)])
         self.assertEqual(self.auto.snapshot()["zones"]["aero"]["level"],"HIGH")
 
     def test_cold_never_blocks_high_quality_demand(self):
-        core=StubCore(state(pm1=31,pm2=20,t1=15))
+        core=StubCore(state(pm1=125,pm2=20,t1=15))
         self.auto.step(core)
         self.assertEqual(core.fan_calls,[(9.0,6.0)])
         self.assertNotEqual(self.auto.snapshot()["zones"]["ec"]["reason"],"THERMAL_ECO_WHEN_AIR_NORMAL")
@@ -181,7 +186,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
                 ctrl=ActiveWorkshopAuto(
                     enabled=True,startup_manual_hold=False,hold_path=hold,
                     clock=lambda:self.now)
-                core=StubCore(state(pm1=75,pm2=75))
+                core=StubCore(state(pm1=160,pm2=160))
                 ctrl.step(core)
                 self.assertEqual(core.fan_calls,[(10.0,7.0)])
                 self.assertEqual(core.aero_calls,[("speed",3)])
@@ -223,7 +228,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.assertEqual(core.stop_calls,0)
 
     def test_aero_connection_failure_detected_by_separate_supervisor(self):
-        core=StubCore(state(pm1=75,pm2=75))
+        core=StubCore(state(pm1=160,pm2=160))
         self.auto.step(core)
         before=list(core.fan_calls)
         core.value["aero_bus"]["usable"]=False
@@ -259,7 +264,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         core=StubCore(state())
         self.auto.step(core)
         self.now += 20
-        core.value["sensor_bus"]["nodes"][0]["reading"]["pm2_5_ug_m3"] = 30
+        core.value["sensor_bus"]["nodes"][0]["reading"]["pm2_5_ug_m3"] = 120
         self.auto.step(core)
         self.assertEqual(core.fan_calls,[(2.,1.)])
         self.now += 5.5
@@ -444,7 +449,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.assertTrue(self.hold_path.exists())
 
     def test_aero_max_requests_airing_after_high_speed(self):
-        core=StubCore(state(pm1=75,pm2=75))
+        core=StubCore(state(pm1=160,pm2=160))
         self.auto.step(core)
         self.assertEqual(core.fan_calls,[(10.,7.)])
         self.assertEqual(core.aero_calls,[("speed",3)])
@@ -488,7 +493,7 @@ class ActiveAutoProfileValidationTests(unittest.TestCase):
     def test_checked_in_profile_is_valid(self):
         presets, limits, timings=load_tuning(self.profile)
         self.assertEqual(presets["HIGH"].supply_v,9.0)
-        self.assertEqual(limits["pm2_5"],(15.,25.,70.))
+        self.assertEqual(limits["pm2_5"],(80.,110.,140.))
         self.assertEqual(timings["decay_seconds"],180.0)
 
     def test_wrong_order_or_nan_rejected(self):
