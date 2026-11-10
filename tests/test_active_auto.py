@@ -138,15 +138,102 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.auto.step(core)
         self.assertEqual(core.fan_calls,[(2.0,1.0)])
 
-    def test_sen55_loss_is_explicit_fallback_not_normal(self):
-        s=state()
-        s["sensor_bus"]["nodes"][0]=node(1,valid=False)
-        s["sensor_bus"]["nodes"][1]=node(2,valid=False)
-        core=StubCore(s)
+    def test_sen55_loss_switches_to_manual_without_replacing_commands(self):
+        core=StubCore(state())
+        core.value["sensor_bus"]["nodes"][0]=node(1,valid=False)
+        core.value["sensor_bus"]["nodes"][1]=node(2,valid=False)
         self.auto.step(core)
-        self.assertEqual(core.fan_calls,[(4.0,3.0)])
-        self.assertEqual(core.aero_calls,[("speed",2)])
-        self.assertEqual(self.auto.snapshot()["zones"]["ec"]["level"],"SENSOR_FAULT")
+        snap=self.auto.snapshot()
+        self.assertEqual(snap["mode"],"MANUAL")
+        self.assertTrue(snap["hold"])
+        self.assertEqual(snap["hold_reason"],"SEN55_1_2_UNAVAILABLE")
+        self.assertFalse(snap["fault_latched"])  # Manual must not be PIN/ACK locked.
+        self.assertEqual(snap["operator_action"],"STOP_HAZARDOUS_WORK_AND_CHECK_VENTILATION")
+        self.assertEqual(core.fan_calls,[])
+        self.assertEqual(core.aero_calls,[])
+        self.assertEqual(core.stop_calls,0)
+        self.assertTrue(self.hold_path.exists())
+
+    def test_each_sen55_loss_retains_high_outputs_and_requires_explicit_auto(self):
+        for missing in ((1,), (2,), (1,2)):
+            with self.subTest(missing=missing), TemporaryDirectory() as tmp:
+                hold=Path(tmp)/"sensor-hold.json"
+                ctrl=ActiveWorkshopAuto(
+                    enabled=True,startup_manual_hold=False,hold_path=hold,
+                    clock=lambda:self.now)
+                core=StubCore(state(pm1=65,pm2=65))
+                ctrl.step(core)
+                self.assertEqual(core.fan_calls,[(10.0,7.0)])
+                self.assertEqual(core.aero_calls,[("speed",3)])
+                before_setpoints=dict(core.value["setpoints"])
+                before_aero=dict(core.value["aero_bus"]["telemetry"])
+                for address in missing:
+                    core.value["sensor_bus"]["nodes"][address-1]=node(address,valid=False)
+                ctrl.supervise(core)
+                snap=ctrl.snapshot()
+                self.assertEqual(snap["mode"],"MANUAL")
+                self.assertEqual(snap["hold_reason"],"SEN55_"+"_".join(map(str,missing))+"_UNAVAILABLE")
+                self.assertFalse(snap["fault_latched"])
+                self.assertEqual(core.value["setpoints"],before_setpoints)
+                self.assertEqual(core.value["aero_bus"]["telemetry"],before_aero)
+                self.assertEqual(core.stop_calls,0)
+                ctrl.step(core)
+                self.assertEqual(core.fan_calls,[(10.0,7.0)])
+                self.assertEqual(core.aero_calls,[("speed",3)])
+                restored=ActiveWorkshopAuto(
+                    enabled=True,startup_manual_hold=False,hold_path=hold)
+                self.assertEqual(restored.snapshot()["mode"],"MANUAL")
+                with self.assertRaisesRegex(RuntimeError,"SEN55"):
+                    restored.resume(core.value)
+                for address in missing:
+                    core.value["sensor_bus"]["nodes"][address-1]=node(address)
+                restored.step(core)
+                self.assertEqual(core.fan_calls,[(10.0,7.0)])  # No silent restart.
+                restored.resume(core.value)
+                self.assertFalse(restored.paused)
+
+    def test_aero_connection_failure_transfers_to_manual(self):
+        core=StubCore(state())
+        core.value["aero_bus"]["online"]=False
+        self.auto.step(core)
+        self.assertEqual(self.auto.snapshot()["mode"],"MANUAL")
+        self.assertEqual(self.auto.snapshot()["hold_reason"],"AERO_UNAVAILABLE")
+        self.assertEqual(core.fan_calls,[])
+        self.assertEqual(core.aero_calls,[])
+        self.assertEqual(core.stop_calls,0)
+
+    def test_aero_connection_failure_detected_by_separate_supervisor(self):
+        core=StubCore(state(pm1=65,pm2=65))
+        self.auto.step(core)
+        before=list(core.fan_calls)
+        core.value["aero_bus"]["usable"]=False
+        self.auto.supervise(core)
+        self.assertEqual(self.auto.snapshot()["mode"],"MANUAL")
+        self.assertEqual(self.auto.snapshot()["hold_reason"],"AERO_UNAVAILABLE")
+        self.assertEqual(core.fan_calls,before)
+
+    def test_operator_manual_commands_remain_available_after_latched_tacho_fault(self):
+        class ManualEnabled(StubCore):
+            def set_manual(self, supply, extract):
+                self.value["mode"]="MANUAL"
+                self.value["setpoints"]={
+                    "supply_voltage":supply,"extract_voltage":extract}
+                return self.state()
+
+        core=ManualEnabled(state())
+        self.auto.hold("TACHO_SUPPLY_FEEDBACK_MISSING",fault=True,fault_mask="SUPPLY")
+        srv=CoreServer(service=core,socket_path=Path(self.tmp.name)/"core.sock",
+                       health_interval_seconds=1,auto_controller=self.auto)
+        response=asyncio.run(srv._dispatch({
+            "command":"set","supply_voltage":4.0,"extract_voltage":3.0}))
+        self.assertTrue(response["ok"])
+        self.assertEqual(core.value["setpoints"],{
+            "supply_voltage":4.0,"extract_voltage":3.0})
+        self.assertTrue(self.auto.snapshot()["fault_latched"])  # Only AUTO gated.
+        self.assertEqual(self.auto.snapshot()["mode"],"MANUAL")
+        self.assertTrue(asyncio.run(srv._dispatch({"command":"stop"}))["ok"])
+        self.assertEqual(core.value["setpoints"],{
+            "supply_voltage":0.0,"extract_voltage":0.0})
 
     def test_higher_level_after_confirmation_and_slow_decay(self):
         core=StubCore(state())
@@ -422,8 +509,12 @@ class ActiveAutoProfileValidationTests(unittest.TestCase):
         core=StubCore(s)
         auto=ActiveWorkshopAuto(startup_manual_hold=False,enabled=True,hold_path=Path(self.tmp.name)/"hold")
         auto.step(core)
-        self.assertEqual(core.fan_calls,[(4.,3.)])
-        self.assertEqual(auto.snapshot()["zones"]["ec"]["level"],"SENSOR_FAULT")
+        self.assertEqual(core.fan_calls,[])
+        self.assertEqual(core.aero_calls,[])
+        self.assertEqual(auto.snapshot()["mode"],"MANUAL")
+        self.assertEqual(auto.snapshot()["hold_reason"],"SEN55_1_UNAVAILABLE")
+        with self.assertRaisesRegex(RuntimeError, "SEN55"):
+            auto.resume(core.value)
 
     def test_browser_api_uses_explicit_wvc_commands(self):
         class CoreClientFake:

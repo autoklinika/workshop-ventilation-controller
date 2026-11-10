@@ -31,9 +31,11 @@ class CoreFake:
             "aero_bus": {"usable": True},
             "sensor_bus": {"nodes": [
                 {"slave_address": 1, "online": True, "usable": True,
-                 "measurement_valid": True, "measurement_stale": False},
+                 "measurement_valid": True, "measurement_stale": False,
+                 "reading": {"pm2_5_ug_m3": 8.0, "voc_index": 100.0, "nox_index": 1.0}},
                 {"slave_address": 2, "online": True, "usable": True,
-                 "measurement_valid": True, "measurement_stale": False},
+                 "measurement_valid": True, "measurement_stale": False,
+                 "reading": {"pm2_5_ug_m3": 8.0, "voc_index": 100.0, "nox_index": 1.0}},
             ]},
         }
 
