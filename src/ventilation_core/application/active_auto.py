@@ -347,8 +347,11 @@ class ActiveWorkshopAuto:
                 raise RuntimeError("Cannot resume AUTO: TACHO unavailable")
             if not (state.get("aero_bus") or {}).get("usable"):
                 raise RuntimeError("Cannot resume AUTO: AERO unavailable")
-            if not all(_usable_node(state, address) for address in (1, 2)):
-                raise RuntimeError("Cannot resume AUTO: both SEN55 must be available")
+            if any(
+                _air_quality(_usable_node(state, address), self._thresholds)[0]
+                == "SENSOR_FAULT" for address in (1, 2)
+            ):
+                raise RuntimeError("Cannot resume AUTO: both SEN55 must have valid readings")
             self._hold_path.unlink(missing_ok=True)
             self.paused = False
             self.pause_reason = ""
@@ -359,6 +362,37 @@ class ActiveWorkshopAuto:
             self._zones = {1: _ZoneDynamics(), 2: _ZoneDynamics()}
             self._tacho_missing_since = {"supply": None, "extract": None}
             LOGGER.warning("ACTIVE_AUTO resumed by explicit operator command")
+
+    def _handoff_if_inputs_unavailable(self, state: Mapping[str, Any]) -> bool:
+        """Fail over to operator MANUAL without issuing replacement fan commands.
+
+        Losing SEN55 readings or AERO feedback means AUTO can no longer make
+        reliable decisions. Preserve the last *physical* settings rather than
+        silently reducing an existing HIGH/MAX demand to a generic fallback.
+
+        This persistent HOLD blocks only the automatic writer; it does not
+        disable WebGUI manual EC/AERO controls or the physical STOP command.
+        A new AUTO resume is explicit and uses the existing health preflight.
+        """
+        missing = [
+            str(address) for address in (1, 2)
+            if _air_quality(_usable_node(state, address), self._thresholds)[0]
+            == "SENSOR_FAULT"
+        ]
+        if missing:
+            reason = "SEN55_" + "_".join(missing) + "_UNAVAILABLE"
+            self.last_error = reason
+            self.hold(reason)
+            LOGGER.error("ACTIVE_AUTO handoff to MANUAL: %s", reason)
+            return True
+        aero = state.get("aero_bus") or {}
+        if not (aero.get("ready") and aero.get("online") and aero.get("usable")):
+            reason = "AERO_UNAVAILABLE"
+            self.last_error = reason
+            self.hold(reason)
+            LOGGER.error("ACTIVE_AUTO handoff to MANUAL: %s", reason)
+            return True
+        return False
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -371,7 +405,9 @@ class ActiveWorkshopAuto:
                 "fault_mask": self._fault_mask,
                 "operator_action": (
                     "STOP_HAZARDOUS_WORK_AND_CHECK_VENTILATION"
-                    if self._fault_latched else None
+                    if (self._fault_latched or self.pause_reason.startswith(
+                        ("SEN55_", "AERO_UNAVAILABLE")
+                    )) else None
                 ),
                 "last_error": self.last_error, "last_action": self.last_action,
                 "evaluated_at_utc": self.last_evaluated_at_utc,
@@ -538,6 +574,8 @@ class ActiveWorkshopAuto:
                 reason = str(exc)
                 mask = reason.removeprefix("TACHO_").split("_")[0]
                 self._fault_stop_ec(service, reason, mask=mask)
+                return
+            self._handoff_if_inputs_unavailable(s)
 
     def step(self, service: Any) -> None:
         if not self.enabled:
@@ -547,7 +585,6 @@ class ActiveWorkshopAuto:
                 return
             state = service.state().to_dict()
             now = self._clock()
-            ec, aero = self._evaluate(state, now)
             if not state.get("hardware_ready") or not state.get("output_state_known"):
                 self._fault_stop_ec(service, "DAC_NOT_READY")
                 return
@@ -561,6 +598,11 @@ class ActiveWorkshopAuto:
                 mask = reason.removeprefix("TACHO_").split("_")[0]
                 self._fault_stop_ec(service, reason, mask=mask)
                 return
+            # Before ANY new EC/AERO command, require reliable input streams.
+            # TACHO safety is checked above first and still forces both EC OFF.
+            if self._handoff_if_inputs_unavailable(state):
+                return
+            ec, aero = self._evaluate(state, now)
 
             current = state.get("setpoints") or {}
             supply = float(current.get("supply_voltage") or 0)
