@@ -120,6 +120,26 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         ctrl.step(occupied)
         self.assertEqual(occupied.fan_calls,[(4.0,3.0)])
 
+    def test_max_threshold_is_strictly_above_70_pm25(self):
+        for pm, expected_ec, expected_level in (
+            (69.9, (9.0, 6.0), "HIGH"),
+            (70.0, (9.0, 6.0), "HIGH"),
+            (70.1, (10.0, 7.0), "MAX"),
+        ):
+            with self.subTest(pm=pm), TemporaryDirectory() as tmp:
+                ctrl = ActiveWorkshopAuto(
+                    enabled=True,
+                    startup_manual_hold=False,
+                    hold_path=Path(tmp)/"hold.json",
+                    profile_path=Path("config/active-auto-v1.json"),
+                )
+                core = StubCore(state(pm1=pm, pm2=pm))
+                ctrl.step(core)
+                self.assertEqual(core.fan_calls, [expected_ec])
+                self.assertEqual(core.aero_calls, [("speed", 3)])
+                self.assertEqual(ctrl.snapshot()["zones"]["ec"]["level"], expected_level)
+                self.assertEqual(ctrl.snapshot()["zones"]["aero"]["level"], expected_level)
+
     def test_high_pm_without_calendar_window_runs_high_both_zones(self):
         core=StubCore(state(pm1=38,pm2=35))
         self.auto.step(core)
@@ -161,7 +181,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
                 ctrl=ActiveWorkshopAuto(
                     enabled=True,startup_manual_hold=False,hold_path=hold,
                     clock=lambda:self.now)
-                core=StubCore(state(pm1=65,pm2=65))
+                core=StubCore(state(pm1=75,pm2=75))
                 ctrl.step(core)
                 self.assertEqual(core.fan_calls,[(10.0,7.0)])
                 self.assertEqual(core.aero_calls,[("speed",3)])
@@ -203,7 +223,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.assertEqual(core.stop_calls,0)
 
     def test_aero_connection_failure_detected_by_separate_supervisor(self):
-        core=StubCore(state(pm1=65,pm2=65))
+        core=StubCore(state(pm1=75,pm2=75))
         self.auto.step(core)
         before=list(core.fan_calls)
         core.value["aero_bus"]["usable"]=False
@@ -424,7 +444,7 @@ class ActiveWorkshopAutoTests(unittest.TestCase):
         self.assertTrue(self.hold_path.exists())
 
     def test_aero_max_requests_airing_after_high_speed(self):
-        core=StubCore(state(pm1=65,pm2=65))
+        core=StubCore(state(pm1=75,pm2=75))
         self.auto.step(core)
         self.assertEqual(core.fan_calls,[(10.,7.)])
         self.assertEqual(core.aero_calls,[("speed",3)])
@@ -468,7 +488,7 @@ class ActiveAutoProfileValidationTests(unittest.TestCase):
     def test_checked_in_profile_is_valid(self):
         presets, limits, timings=load_tuning(self.profile)
         self.assertEqual(presets["HIGH"].supply_v,9.0)
-        self.assertEqual(limits["pm2_5"],(15.,25.,50.))
+        self.assertEqual(limits["pm2_5"],(15.,25.,70.))
         self.assertEqual(timings["decay_seconds"],180.0)
 
     def test_wrong_order_or_nan_rejected(self):

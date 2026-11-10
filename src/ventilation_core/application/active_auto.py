@@ -46,7 +46,7 @@ AQ_ORDER = {"ECO": 0, "NORMAL": 1, "BOOST": 2, "HIGH": 3, "MAX": 4}
 AQ_LEVELS = ("NORMAL", "BOOST", "HIGH", "MAX")
 
 DEFAULT_THRESHOLDS = {
-    "pm2_5": [15.0, 25.0, 50.0],
+    "pm2_5": [15.0, 25.0, 70.0],
     "voc_index": [150.0, 200.0, 300.0],
     "nox_index": [10.0, 50.0, 100.0],
 }
