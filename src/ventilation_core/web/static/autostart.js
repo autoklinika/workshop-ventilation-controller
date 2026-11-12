@@ -140,8 +140,8 @@
     }
     $("Counts").textContent = "Rok " + state.year + ": " + working + " dni włączonych · " + resting + " wyłączonych.";
     $("Year").textContent = String(state.year);
-    $("YearPrev").disabled = state.year <= 2025 || state.busy;
-    $("YearNext").disabled = state.year >= 2100 || state.busy;
+    $("YearPrev").disabled = state.year <= 2025;
+    $("YearNext").disabled = state.year >= 2100;
   }
 
   function renderSelected() {
@@ -204,6 +204,7 @@
   }
 
   async function switchYear(offset) {
+    if (state.busy) return;
     if (state.dirty && !window.confirm("Masz niezapisane zmiany. Odrzucić je i zmienić rok?")) return;
     const year = state.year + offset;
     if (year < 2025 || year > 2100) return;
