@@ -119,6 +119,8 @@ class WebApplication:
                 return self._alerts()
             if method == "GET" and path == "/api/v1/calendar":
                 return self._calendar()
+            if method == "GET" and path.startswith("/api/v1/autostart/"):
+                return self._autostart_read(path)
             if method == "GET" and path == "/api/v1/config":
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
@@ -139,6 +141,8 @@ class WebApplication:
                 return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/calendar":
                 return self._calendar_replace(body)
+            if method == "POST" and path == "/api/v1/autostart":
+                return self._autostart_write(body)
             if method == "POST" and path == "/api/v1/zigbee/permit-join":
                 return self._zigbee_permit_join(body)
             if method == "POST" and path == "/api/v1/zigbee/pairing/ack":
@@ -214,6 +218,35 @@ class WebApplication:
         ):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _autostart_read(self, path: str) -> ApiResponse:
+        raw_year = path.removeprefix('/api/v1/autostart/')
+        if not raw_year.isascii() or len(raw_year) != 4 or not raw_year.isdecimal():
+            raise ValueError('Autostart year must be YYYY')
+        year = int(raw_year)
+        if not 2025 <= year <= 2100:
+            raise ValueError('Autostart year outside 2025..2100')
+        response = self._core.request({'command': 'autostart', 'year': year})
+        if response.get('ok') is not True or not isinstance(response.get('autostart'), dict):
+            return self._core_rejection(response)
+        return ApiResponse(200, response)
+
+    def _autostart_write(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        if set(data) != {'year', 'expected_revision', 'config'}:
+            raise ValueError('Autostart update requires year, expected_revision, config')
+        if type(data['year']) is not int or not 2025 <= data['year'] <= 2100:
+            raise ValueError('Autostart year outside 2025..2100')
+        if type(data['expected_revision']) is not int or data['expected_revision'] < 1:
+            raise ValueError('expected_revision must be a positive integer')
+        if not isinstance(data['config'], dict):
+            raise ValueError('Autostart config must be an object')
+        return self._command({
+            'command': 'autostart-replace',
+            'year': data['year'],
+            'expected_revision': data['expected_revision'],
+            'config': data['config'],
+        })
 
     def _calendar(self) -> ApiResponse:
         response = self._core.request({"command": "calendar"})

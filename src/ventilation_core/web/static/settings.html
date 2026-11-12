@@ -9,8 +9,10 @@
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/sidebar.css">
   <link rel="stylesheet" href="/calendar.css">
+  <link rel="stylesheet" href="/autostart.css">
   <script src="/zigbee-settings.js" defer></script>
   <script src="/calendar.js" defer></script>
+  <script src="/autostart.js" defer></script>
 </head>
 <body class="v2-body">
   <aside class="v2-sidebar" aria-label="Główna nawigacja">
@@ -31,6 +33,9 @@
     <section class="settings-tabs-shell" aria-label="Podzakładki ustawień">
       <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabCalendar" checked>
       <label class="settings-tab-label" for="settingsTabCalendar"><span>KALENDARZ</span></label>
+
+      <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabAutostart">
+      <label class="settings-tab-label" for="settingsTabAutostart"><span>AUTOSTART</span></label>
 
       <input class="settings-tab-radio" type="radio" name="settings-tab" id="settingsTabZigbee">
       <label class="settings-tab-label" for="settingsTabZigbee"><span>ZIGBEE</span></label>
@@ -77,6 +82,45 @@
               <div class="calendar-actions"><span id="calendarMessage" class="calendar-message"></span><button type="button" class="calendar-btn ghost" data-calendar-action="reload">Wczytaj ponownie</button><button type="button" class="calendar-btn primary" data-calendar-action="save">Zapisz kalendarz</button></div>
             </div>
           </section>
+        </section>
+
+        <section class="settings-tab-panel" data-settings-panel="autostart" aria-label="Autostart">
+          <div class="autostart" id="autostartApp">
+            <section class="autostart-summary">
+              <div><span>STATUS KONFIGURACJI</span><strong id="autostartStatus">Łączenie…</strong></div>
+              <div><span>STREFA CZASOWA</span><strong>Europe/Warsaw</strong></div>
+              <div><span>TRYB WYKONAWCZY</span><strong>PROJEKT · BEZ AKTUACJI</strong></div>
+            </section>
+            <section class="autostart-card autostart-switches" aria-label="Przełączniki Autostartu">
+              <label class="autostart-switch"><input type="checkbox" id="autostartEnabled" disabled><span><strong>Autostart</strong><small>Główny przełącznik funkcji</small></span></label>
+              <label class="autostart-switch"><input type="checkbox" id="autostartScheduleEnabled" disabled><span><strong>Harmonogram</strong><small>Planowane uruchomienie i wyłączenie według kalendarza</small></span></label>
+              <p>Konfiguracja jest zapisywana w CM5. Sterowanie zasilaniem i RTC pozostaje odłączone do osobnej walidacji sprzętowej. Zapis nie uruchomi ani nie zatrzyma wentylacji.</p>
+            </section>
+            <section class="autostart-card" aria-label="Godziny całego tygodnia">
+              <header><div><span class="autostart-kicker">SZABLON TYGODNIOWY</span><h2>Godziny włączenia i wyłączenia</h2></div><small>Ważne dla każdego tygodnia, o ile dzień nie jest wyłączony</small></header>
+              <div class="autostart-week" id="autostartWeek"></div>
+            </section>
+            <section class="autostart-card" aria-label="Kalendarz roczny">
+              <header class="autostart-calendar-header">
+                <div><span class="autostart-kicker">HARMONOGRAM ROCZNY</span><h2>Kalendarz dni pracy</h2></div>
+                <div class="autostart-year-nav"><button type="button" id="autostartYearPrev" aria-label="Poprzedni rok">‹</button><strong id="autostartYear">—</strong><button type="button" id="autostartYearNext" aria-label="Następny rok">›</button></div>
+              </header>
+              <div class="autostart-legend"><span><i class="autostart-legend-on"></i> Włączony</span><span><i class="autostart-legend-off"></i> Wyłączony</span><span><i class="autostart-legend-holiday"></i> Święto</span><span><i class="autostart-legend-override"></i> Ręcznie zmieniony</span></div>
+              <div class="autostart-calendar-grid" id="autostartMonths"></div>
+              <div class="autostart-selected" id="autostartSelected" hidden>
+                <div><strong id="autostartSelectedTitle">—</strong><small id="autostartSelectedDescription">—</small></div>
+                <button type="button" id="autostartToggleDay">Zmień status</button>
+                <button type="button" id="autostartResetDay">Przywróć domyślny</button>
+              </div>
+              <p class="autostart-calendar-hint">Niedziele i ustawowe polskie święta są domyślnie wyłączone. Pozostałe dni są domyślnie włączone, zgodnie z szablonem tygodniowym. Dotknij daty, aby zmienić jej stan.</p>
+              <p id="autostartCounts" class="autostart-counts">—</p>
+            </section>
+            <div class="autostart-bottom">
+              <span id="autostartMessage" role="status" aria-live="polite"></span>
+              <button type="button" id="autostartReload" class="autostart-secondary">Wczytaj ponownie</button>
+              <button type="button" id="autostartSave" class="autostart-primary" disabled>Zapisz Autostart</button>
+            </div>
+          </div>
         </section>
 
         <section class="settings-tab-panel" data-settings-panel="zigbee" aria-label="Zigbee">

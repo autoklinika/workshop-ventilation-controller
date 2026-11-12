@@ -28,11 +28,13 @@ class CoreServer:
         socket_path: Path,
         health_interval_seconds: float,
         auto_controller: ActiveWorkshopAuto | None = None,
+        autostart_store: Any | None = None,
     ) -> None:
         self._service = service
         self._socket_path = socket_path
         self._health_interval = health_interval_seconds
         self._auto_controller = auto_controller
+        self._autostart_store = autostart_store
         self._shutdown = asyncio.Event()
         self._server: asyncio.AbstractServer | None = None
         self._zigbee_remove_confirmation: dict[str, Any] | None = None
@@ -75,7 +77,11 @@ class CoreServer:
             try:
                 await asyncio.to_thread(self._service.close)
             finally:
-                self._remove_socket()
+                try:
+                    if self._autostart_store is not None:
+                        await asyncio.to_thread(self._autostart_store.close)
+                finally:
+                    self._remove_socket()
 
     def request_shutdown(self) -> None:
         self._shutdown.set()
@@ -174,6 +180,20 @@ class CoreServer:
 
     async def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         command = request.get("command")
+        if command in ("autostart", "autostart-replace"):
+            if self._autostart_store is None:
+                raise RuntimeError("Autostart planning storage unavailable")
+            year = request.get("year")
+            if type(year) is not int or not 2025 <= year <= 2100:
+                raise ValueError("year must be an integer in 2025..2100")
+            if command == "autostart":
+                plan = await asyncio.to_thread(self._autostart_store.get, year)
+            else:
+                plan = await asyncio.to_thread(
+                    self._autostart_store.replace,
+                    request.get("config"), request.get("expected_revision"), year,
+                )
+            return {"ok": True, "autostart": plan}
         if command == "auto-status":
             if self._auto_controller is None:
                 return {"ok": True, "active_auto": {"enabled": False}}

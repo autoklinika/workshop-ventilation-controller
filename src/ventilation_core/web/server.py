@@ -51,7 +51,7 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path == "/api/v1/physical-mode":
+        if path in ("/api/v1/physical-mode", "/api/v1/autostart"):
             # A physical-mode write must originate from our own WVC page,
             # not a malicious website submitting a cross-origin request.
             origin = self.headers.get("Origin")
@@ -127,8 +127,8 @@ class WebUiRequestHandler(BaseHTTPRequestHandler):
             relative = request_path.lstrip("/")
         allowed = {
             "index.html", "control.html", "settings.html", "automation.html", "styles.css", "dashboard.css", "ai-detail.css", "zone-detail.css", "history.css", "history-h21.css", "history-h22.css", "history-h4.css", "history-h41-alerts.css", "history-h42-alert-folders.css", "history-h43-alert-pagination.css", "service-dashboard.css", "host-power.css", "sidebar.css", "v2-weather.css",
-            "cm5-watchdog.css", "calendar.css", "automation.css", "zigbee-settings.css", "zigbee-stage13.css",
-            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "service-dashboard.js", "host-power.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "calendar.js", "automation.js", "zigbee-settings.js",
+            "cm5-watchdog.css", "calendar.css", "autostart.css", "automation.css", "zigbee-settings.css", "zigbee-stage13.css",
+            "dashboard.js", "dashboard-live.js", "ai-operator-view.js", "zone-detail.js", "history.js", "history-h21.js", "history-h22.js", "history-h23.js", "history-h3.js", "history-h4.js", "history-h4-storage.js", "history-h41-alerts.js", "history-h42-alert-folders.js", "history-h43-alert-pagination.js", "service-dashboard.js", "host-power.js", "cm5-watchdog.js", "app.js", "tacho.js", "alerts.js", "calendar.js", "autostart.js", "automation.js", "zigbee-settings.js",
         }
         if relative not in allowed:
             self.send_error(HTTPStatus.NOT_FOUND)

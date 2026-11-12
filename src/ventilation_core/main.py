@@ -37,6 +37,7 @@ from ventilation_core.infrastructure.rtc_wake_client import (
 from ventilation_core.infrastructure.sensor_bus_worker import ProcessSensorBus, SensorBusConfig
 from ventilation_core.infrastructure.sqlite_alert_store import SqliteAlertStore
 from ventilation_core.infrastructure.sqlite_calendar_store import SqliteCalendarStore
+from ventilation_core.infrastructure.sqlite_autostart_store import SqliteAutostartStore
 from ventilation_core.infrastructure.system_power_monitor import RaspberryPiSystemPowerMonitor
 from ventilation_core.infrastructure.tacho_monitor import TachoMonitor, TachoMonitorConfig
 from ventilation_core.infrastructure.zigbee_capability_monitor import CapabilityManagedZigbeeMqttMonitor
@@ -172,6 +173,7 @@ async def run_core(args: argparse.Namespace) -> None:
     alert_registry = None
     service_plane_registry = None
     calendar_engine = None
+    autostart_store = None
     actuator = None
     sensor_bus = None
     aero_bus = None
@@ -208,6 +210,11 @@ async def run_core(args: argparse.Namespace) -> None:
                 "Persistent Calendar Engine store unavailable; continuing with explicit unavailable calendar state"
             )
             calendar_engine = UnavailableCalendarEngine(str(exc))
+
+        try:
+            autostart_store = SqliteAutostartStore(args.automation_db)
+        except Exception:
+            LOGGER.exception('Autostart plan storage unavailable; host power scheduling remains unchanged')
 
         actuator = ProcessIsolatedActuator(
             bus=args.bus,
@@ -398,6 +405,7 @@ async def run_core(args: argparse.Namespace) -> None:
             socket_path=args.socket,
             health_interval_seconds=args.health_interval,
             auto_controller=auto_controller,
+            autostart_store=autostart_store,
         )
     except BaseException:
         if service is not None:
