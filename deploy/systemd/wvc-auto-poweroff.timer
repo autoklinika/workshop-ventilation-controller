@@ -1,0 +1,12 @@
+[Unit]
+Description=WVC daily automatic shutdown at 19:00 Europe/Warsaw
+
+[Timer]
+OnCalendar=*-*-* 19:00:00
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=wvc-auto-poweroff.service
+
+[Install]
+WantedBy=timers.target
