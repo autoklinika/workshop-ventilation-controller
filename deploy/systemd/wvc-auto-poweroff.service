@@ -1,0 +1,18 @@
+[Unit]
+Description=WVC scheduled safe host shutdown (arm next 08:00 RTC wake first)
+Documentation=file:/home/wentylacja/workshop-ventilation-controller/docs/POWER_ON_OFF_ARCHITECTURE_PL.md
+Wants=time-sync.target
+After=time-sync.target wvc-host-power.service ventilation-core.service
+Requires=wvc-host-power.service
+ConditionPathExists=/sys/class/rtc/rtc0/wakealarm
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/wvc-power-schedule.py shutdown
+TimeoutStartSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
