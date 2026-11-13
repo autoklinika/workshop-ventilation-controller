@@ -356,7 +356,8 @@ class ServiceDashboardStage1Test(unittest.TestCase):
 
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "runtime" / "server.py"),
-            "bb906449e7aa4582c97d9db60655dd3a9fc101ce",
+            # Approved core protocol extension: autostart / autostart-replace only.
+            "4fae8dc7773016c6b6b5ff34b2f7e7bfdb59b5b6",
         )
         self.assertEqual(
             git_blob_sha(ROOT / "src" / "ventilation_core" / "application" / "alert_registry.py"),
