@@ -26,6 +26,7 @@ rollback() {
   if [[ "$APPLIED" == 1 ]]; then
     echo "Installation failed; rolling back AUTO resume files" >&2
     systemctl disable wvc-rtc-auto-resume.service >/dev/null 2>&1 || true
+    rm -f "$GATE.new" "$RESUME.new" || true
     for entry in "$GATE" "$RESUME" "$UNIT"; do
       fname="$(basename "$entry")"
       if [[ -f "$BACKUP/$fname.old" ]]; then
@@ -106,8 +107,12 @@ if [[ -e "$MARKER_DIR/next-wake.json" ]]; then
   echo "ERROR: existing pending resume ticket; refusing installation" >&2
   exit 1
 fi
-install -o root -g root -m 0755 "$NEW_RESUME" "$RESUME"
-install -o root -g root -m 0755 "$NEW_GATE" "$GATE"
+# Both scripts are updated with atomic renames: the timer runs every minute,
+# and must never read a partially copied Python file.
+install -o root -g root -m 0755 "$NEW_RESUME" "$RESUME.new"
+install -o root -g root -m 0755 "$NEW_GATE" "$GATE.new"
+mv -f "$RESUME.new" "$RESUME"
+mv -f "$GATE.new" "$GATE"
 install -o root -g root -m 0644 "$NEW_UNIT" "$UNIT"
 
 echo '[4/5] Register next-boot service (DO NOT start it now)'
