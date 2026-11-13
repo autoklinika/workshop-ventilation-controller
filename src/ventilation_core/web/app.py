@@ -74,6 +74,8 @@ class WebApplication:
         try:
             if method == "GET" and path == "/api/v1/state":
                 return self._state()
+            if method == "GET" and path == "/api/v1/auto":
+                return self._command({"command": "auto-status"})
             if method == "GET" and path == "/api/v1/zigbee":
                 return self._zigbee()
             if method == "GET" and path == "/api/v1/zigbee/removal-confirmation":
@@ -82,6 +84,8 @@ class WebApplication:
                 return self._alerts()
             if method == "GET" and path == "/api/v1/schedule":
                 return self._schedule()
+            if method == "GET" and path.startswith("/api/v1/autostart/"):
+                return self._autostart_read(path)
             if method == "GET" and path == "/api/v1/config":
                 return ApiResponse(200, {"ok": True, "config": self._config.to_public_dict()})
             if method == "GET" and path == "/api/v1/weather":
@@ -102,6 +106,8 @@ class WebApplication:
                 return self._ack_alert(body)
             if method == "POST" and path == "/api/v1/schedule/zone":
                 return self._schedule_replace(body)
+            if method == "POST" and path == "/api/v1/autostart":
+                return self._autostart_write(body)
             if method == "POST" and path == "/api/v1/zigbee/permit-join":
                 return self._zigbee_permit_join(body)
             if method == "POST" and path == "/api/v1/zigbee/pairing/ack":
@@ -114,6 +120,8 @@ class WebApplication:
                 return self._zigbee_rename(body)
             if method == "POST" and path == "/api/v1/zigbee/role":
                 return self._zigbee_role(body)
+            if method == "POST" and path == "/api/v1/physical-mode":
+                return self._physical_mode(body)
             if method == "POST" and path == "/api/v1/manual/fans":
                 return self._fans(body)
             if method == "POST" and path == "/api/v1/manual/stop":
@@ -160,6 +168,35 @@ class WebApplication:
         if response.get("ok") is not True or not isinstance(response.get("active"), list) or not isinstance(response.get("history"), list):
             return self._core_rejection(response)
         return ApiResponse(200, response)
+
+    def _autostart_read(self, path: str) -> ApiResponse:
+        raw_year = path.removeprefix('/api/v1/autostart/')
+        if not raw_year.isascii() or len(raw_year) != 4 or not raw_year.isdecimal():
+            raise ValueError('Autostart year must be YYYY')
+        year = int(raw_year)
+        if not 2025 <= year <= 2100:
+            raise ValueError('Autostart year outside 2025..2100')
+        response = self._core.request({'command': 'autostart', 'year': year})
+        if response.get('ok') is not True or not isinstance(response.get('autostart'), dict):
+            return self._core_rejection(response)
+        return ApiResponse(200, response)
+
+    def _autostart_write(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        if set(data) != {'year', 'expected_revision', 'config'}:
+            raise ValueError('Autostart update requires year, expected_revision, config')
+        if type(data['year']) is not int or not 2025 <= data['year'] <= 2100:
+            raise ValueError('Autostart year outside 2025..2100')
+        if type(data['expected_revision']) is not int or data['expected_revision'] < 1:
+            raise ValueError('expected_revision must be a positive integer')
+        if not isinstance(data['config'], dict):
+            raise ValueError('Autostart config must be an object')
+        return self._command({
+            'command': 'autostart-replace',
+            'year': data['year'],
+            'expected_revision': data['expected_revision'],
+            'config': data['config'],
+        })
 
     def _schedule(self) -> ApiResponse:
         response = self._core.request({"command": "schedule"})
@@ -317,6 +354,17 @@ class WebApplication:
         except CoreClientError as exc:
             return ApiResponse(200, {"ok": True, "web": "ok", "core_available": False, "core_error": str(exc)})
         return ApiResponse(200, {"ok": True, "web": "ok", "core_available": response.get("ok") is True})
+
+    def _physical_mode(self, body: Any) -> ApiResponse:
+        data = self._require_object(body)
+        if data == {"mode": "MANUAL"}:
+            # No PIN and no actuator change. Core persists operator ownership.
+            return self._command({"command": "auto-manual"})
+        if data == {"mode": "AUTO"}:
+            # No PIN. This does NOT grant actuator authority. The core remains
+            # authoritative over commissioning, sensor and fault preflight.
+            return self._command({"command": "auto-resume"})
+        raise ValueError("mode must be exactly MANUAL or AUTO")
 
     def _fans(self, body: Any) -> ApiResponse:
         data = self._require_object(body)

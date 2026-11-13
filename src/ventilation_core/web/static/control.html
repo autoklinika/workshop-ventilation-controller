@@ -8,8 +8,10 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/dashboard.css">
   <link rel="stylesheet" href="/sidebar.css">
+  <link rel="stylesheet" href="/physical-mode.css">
   <script src="/app.js" defer></script>
   <script src="/tacho.js" defer></script>
+  <script src="/physical-mode.js" defer></script>
 </head>
 <body class="v2-body">
   <header class="v2-topbar">
@@ -49,7 +51,14 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">STREFY</p>
-          <h1>Sterowanie ręczne</h1>
+          <div class="wvc-mode-heading">
+            <h1 id="wvcModeHeading">Sterowanie ręczne</h1>
+            <div class="wvc-mode-toggle" role="group" aria-label="Rzeczywisty tryb pracy wentylacji">
+              <button id="wvcManualMode" class="wvc-mode-button" type="button" aria-pressed="true">MANUAL</button>
+              <button id="wvcAutoMode" class="wvc-mode-button" type="button" aria-pressed="false">AUTO</button>
+            </div>
+            <small id="wvcModeNote" class="wvc-mode-note" role="status" aria-live="polite"></small>
+          </div>
         </div>
       </header>
 
