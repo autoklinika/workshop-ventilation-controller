@@ -99,9 +99,11 @@ async function hydrateSettingsView() {
     if (!source) throw new Error("Brak źródła widoku USTAWIENIA");
 
     loadV2Style("/schedule.css");
+    loadV2Style("/autostart.css");
     host.innerHTML = source.innerHTML;
     await loadV2Script("/zigbee-settings.js");
     await loadV2Script("/schedule.js");
+    await loadV2Script("/autostart.js");
   } catch (error) {
     host.innerHTML = `<section class="v2-page-heading"><h1>USTAWIENIA</h1><p>Nie udało się załadować ustawień: ${String(error.message || error)}</p></section>`;
   }
