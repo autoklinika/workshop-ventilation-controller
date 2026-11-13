@@ -242,8 +242,9 @@
     }
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    if (!$("App")) return;
+  function initializeAutostart() {
+    if (!$("App") || $("App").dataset.autostartInitialized === "true") return;
+    $("App").dataset.autostartInitialized = "true";
     $("Enabled").addEventListener("change", event => {state.draft.enabled = event.target.checked; markDirty();});
     $("ScheduleEnabled").addEventListener("change", event => {state.draft.schedule_enabled = event.target.checked; markDirty();});
     $("YearPrev").addEventListener("click", () => switchYear(-1));
@@ -258,5 +259,11 @@
     });
     $("Save").addEventListener("click", save);
     load();
-  });
+  }
+  // The production /settings route injects this script after DOMContentLoaded.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initializeAutostart, {once: true});
+  } else {
+    initializeAutostart();
+  }
 })();
