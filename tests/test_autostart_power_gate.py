@@ -152,10 +152,12 @@ class AutostartPowerGateTest(unittest.TestCase):
     def test_due_tick_delegates_to_existing_power_script_once(self):
         from unittest.mock import patch
         due = gate.build_plan(at(2026, 11, 13, 18, 30), self.loader)
-        with patch.object(gate, "trusted_existing_shutdown") as hardware:
+        with patch.object(gate, "trusted_existing_shutdown") as hardware, \
+             patch.object(gate, "prepare_next_boot_auto_resume", return_value=True) as ticket:
             with patch.object(gate, "build_plan", return_value=due):
                 with patch.object(sys, "argv", ["wvc-autostart-gate.py", "tick"]):
                     self.assertEqual(gate.main(), 0)
+            ticket.assert_called_once()
             hardware.assert_called_once()
             wake, = hardware.call_args.args
             self.assertEqual(wake.isoformat(), "2026-11-14T08:00:00+01:00")

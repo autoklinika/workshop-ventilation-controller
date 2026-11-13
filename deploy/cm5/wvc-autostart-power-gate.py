@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 ZONE = ZoneInfo("Europe/Warsaw")
 BASE_URL = "http://127.0.0.1:18091/api/v1/autostart/"
 TRUSTED_POWER_SCRIPT = Path("/usr/local/libexec/wvc-power-schedule.py")
+TRUSTED_AUTO_RESUME_SCRIPT = Path("/usr/local/libexec/wvc-rtc-auto-resume.py")
 MIN_LEAD_SECONDS = 900
 MAX_FUTURE_DAYS = 370
 
@@ -193,6 +194,44 @@ def trusted_existing_shutdown(wake: datetime) -> None:
     module.request_safe_shutdown()
 
 
+def prepare_next_boot_auto_resume(wake: datetime, revision: int) -> bool:
+    """One-time authorization only if AUTO was running before planned poweroff.
+
+    The existing safe host-power STOP produces a persistent MANUAL_COMMAND
+    HOLD. A separately installed, boot-only service may restore AUTO after
+    the *next* expected wake, subject to the original AUTO resume interlocks.
+    """
+    if not TRUSTED_AUTO_RESUME_SCRIPT.is_file():
+        raise RuntimeError("Scheduled AUTO resume service is not installed")
+    info = TRUSTED_AUTO_RESUME_SCRIPT.stat()
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        raise RuntimeError("Scheduled AUTO resume helper has insecure ownership")
+    spec = importlib.util.spec_from_file_location(
+        "wvc_scheduled_auto_resume", TRUSTED_AUTO_RESUME_SCRIPT,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Cannot load installed scheduled AUTO helper")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    # Discard any previous one-shot ticket before the shutdown decision.
+    module.clear_ticket()
+    response = module.core_request({"command": "status"})
+    state = response.get("state")
+    if not isinstance(state, dict):
+        raise RuntimeError("Core state unavailable before scheduled shutdown")
+    if not module.auto_pre_shutdown_active(state):
+        print("WVC_RTC_AUTO_RESUME_SKIP_NOT_ACTIVE_BEFORE_SHUTDOWN", flush=True)
+        return False
+    ticket = module.make_ticket(
+        wake, revision, now=datetime.now(timezone.utc),
+        source_boot_id=module.boot_id(),
+    )
+    module.write_ticket(ticket)
+    print("WVC_RTC_AUTO_RESUME_TICKET_ARMED_NEXT_BOOT", flush=True)
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("plan", "tick"))
@@ -205,7 +244,22 @@ def main() -> int:
         if plan.next_wake_local is None:
             raise RuntimeError("Due shutdown with no verified next wake: fail closed")
         # Explicit timer service dispatch only; this check does not change RTC.
-        trusted_existing_shutdown(datetime.fromisoformat(plan.next_wake_local))
+        wake = datetime.fromisoformat(plan.next_wake_local)
+        if plan.configuration_revision is None:
+            raise RuntimeError("Autostart revision is required for scheduled AUTO ticket")
+        marked = prepare_next_boot_auto_resume(wake, plan.configuration_revision)
+        try:
+            trusted_existing_shutdown(wake)
+        except BaseException:
+            # If safe shutdown fails, never leave a future AUTO grant behind.
+            if marked:
+                try:
+                    # The helper is already installed if a ticket was marked.
+                    from pathlib import Path as _Path
+                    _Path("/var/lib/wvc-scheduled-auto/next-wake.json").unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
         print("WVC_AUTOSTART_SHUTDOWN_ACCEPTED_BY_EXISTING_HOST_POWER", flush=True)
         return 0
     except Exception as exc:

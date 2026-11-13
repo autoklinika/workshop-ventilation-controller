@@ -1,0 +1,29 @@
+[Unit]
+Description=WVC restore AUTO only after validated scheduled RTC wake
+Documentation=file:/home/wentylacja/workshop-ventilation-controller/docs/WVC_RTC_SCHEDULED_AUTO_RESUME_PL.md
+Wants=time-sync.target
+After=local-fs.target time-sync.target ventilation-core.service
+Requires=ventilation-core.service
+ConditionPathExists=/var/lib/wvc-scheduled-auto/next-wake.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/wvc-rtc-auto-resume.py run
+TimeoutStartSec=240
+Restart=no
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/wvc-scheduled-auto
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

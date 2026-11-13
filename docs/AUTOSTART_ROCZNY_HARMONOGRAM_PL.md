@@ -56,9 +56,11 @@ Niedziela i święta pozostają wyłączone; ręczny wyjątek jest nadrzędny.
 
 **Aktualny stan produkcyjnego wykonawcy ustala się przez systemd**, nie
 samą wartość `actuation_enabled`. Pozostałe niezależne automatyki i
-zabezpieczenia wentylacji nie ulegają zmianie. Po wybudzeniu CM5
-AUTO wentylacji nadal wymaga potwierdzenia/operatora, jeśli Core
-pozostaje w HOLD/MANUAL — nie przełączamy go bez audytu interlocków.
+zabezpieczenia wentylacji nie ulegają zmianie. Po planowym wybudzeniu CM5 opcjonalna usługa `wvc-rtc-auto-resume`
+może automatycznie przywrócić AUTO, ale wyłącznie gdy przed poprzednim
+planowym shutdownem AUTO było aktywne i potwierdzona jest gotowość
+wszystkich czujników oraz brak blokad bezpieczeństwa. Ręczny MANUAL i
+awarie nie są kasowane. Patrz `docs/WVC_RTC_SCHEDULED_AUTO_RESUME_PL.md`.
 
 Dokumentacja instalacji, walidacji i rollbacku:
 `docs/AUTOSTART_HOST_POWER_RUNTIME_INTEGRATION_PL.md`.
