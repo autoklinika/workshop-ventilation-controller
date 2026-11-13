@@ -1,3 +1,6 @@
+/* Keep the accessible, visually hidden tab radio fixed at viewport origin.
+   Otherwise Chromium scrolls to the end of the long calendar on tab focus. */
+.settings-tab-radio{position:fixed;top:0;left:0}
 .settings-tabs-shell{grid-template-columns:auto auto auto 1fr}
 #settingsTabAutostart:checked+label{border-color:#3b7fa6;border-bottom-color:#102230;background:linear-gradient(180deg,rgba(20,73,108,.78),rgba(10,34,51,.94));color:#c9f0ff}
 #settingsTabAutostart:focus-visible+label{outline:2px solid #62c8ff;outline-offset:2px}
