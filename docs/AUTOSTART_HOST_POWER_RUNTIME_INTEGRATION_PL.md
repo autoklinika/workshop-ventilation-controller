@@ -3,9 +3,12 @@
 ## Stan przed integracją (potwierdzony na fizycznym CM5)
 
 - WVC Core/WebUI działają produkcyjnie, w oddzielnych nakładkach źródeł.
-- `/api/v1/autostart/2026`: rewizja 3; `enabled=true`,
-  `schedule_enabled=true`, poniedziałek–sobota `08:00–18:30`,
-  niedziela wyłączona i ustawowe święta wyłączone, bez ręcznych wyjątków.
+- **Historyczny stan podczas instalacji mechanizmu:** `/api/v1/autostart/2026`,
+  rewizja 3; `enabled=true`, `schedule_enabled=true`,
+  poniedziałek–sobota `08:00–18:30`, niedziela i święta wyłączone.
+  **Nie traktować tego wpisu jako aktualnej konfiguracji.**
+  Aktualizacja użytkownika 13.11.2026 (rewizja 4) wyłączyła sobotę;
+  aktualny zapis kontrolny: `config/autostart-production-20261113.snapshot.json`.
 - Istniejący `wvc-auto-poweroff.timer` miał `OnCalendar=*-*-* 19:00:00`,
   uruchamiał `wvc-auto-poweroff.service`, a ten
   `/usr/local/libexec/wvc-power-schedule.py shutdown`.
@@ -54,14 +57,17 @@ Następnie importuje **bez zmian** istniejący, root-owned plik
 
 RTC nie jest uzbrajany przy samym zapisie konfiguracji ani przy instalacji.
 
-### Przykłady dla aktualnej konfiguracji
+### Przykłady dla aktualnej konfiguracji (rewizja 4, 13.11.2026)
+
+Sobota jest wyłączona świadomą decyzją operatora w szablonie tygodniowym;
+samo zachowanie godzin `08:00–18:30` w nieaktywnym dniu nie włącza go.
 
 | Zakończenie | Następne wybudzenie |
 | --- | --- |
-| Piątek 13.11.2026, 18:30 | Sobota 14.11.2026, 08:00 |
-| Sobota 14.11.2026, 18:30 | Poniedziałek 16.11.2026, 08:00 |
+| Piątek 13.11.2026, 18:30 | **Poniedziałek 16.11.2026, 08:00** (sobota i niedziela OFF) |
+| Sobota 14.11.2026 | Brak automatycznego wyłączenia / wybudzenia — dzień nieaktywny |
 | Środa 23.12.2026, 18:30 | Poniedziałek 28.12.2026, 08:00 |
-| Czwartek 31.12.2026, 18:30 | Sobota 02.01.2027, 08:00 |
+| Czwartek 31.12.2026, 18:30 | **Poniedziałek 04.01.2027, 08:00** (Nowy Rok, weekend) |
 
 Wyjątki dzienne z UI mają pierwszeństwo nad dniem tygodnia i świętem.
 Aby wyjątkowo automatycznie uruchomić CM5 w niedzielę, trzeba również

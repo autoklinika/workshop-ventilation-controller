@@ -13,10 +13,27 @@ zakładek **HARMONOGRAMY** (obecność w strefach) i **ZIGBEE**.
   świąt i ręcznych wyjątków.
 - Domyślnie **niedziele i polskie ustawowe święta są wyłączone**; pozostałe
   dni, **w tym soboty**, są włączone. Godziny są **nieustawione**, aby nie
-  zgadywać czasu pracy warsztatu.
+  zgadywać czasu pracy warsztatu. To **domyślna wartość nowego planu**,
+  a nie koniecznie aktualna konfiguracja operatora.
 - Święta ruchome: Wielkanoc, Poniedziałek Wielkanocny, Zesłanie Ducha
   Świętego, Boże Ciało. Święta stałe obejmują także Wigilię (dzień wolny
   ustawowo od 2025 roku).
+
+## Aktualna konfiguracja produkcyjna (snapshot 13.11.2026)
+
+Odczytano z działającego CM5: **rewizja 4**, Autostart ON, Harmonogram ON,
+**poniedziałek–piątek 08:00–18:30**, **sobota OFF**, **niedziela OFF**,
+ustawowe święta OFF, **0 ręcznych wyjątków**.
+
+Pełny eksport kontrolny (bez danych wrażliwych):
+`config/autostart-production-20261113.snapshot.json`.
+Ten plik jest **historyczną kopią konfiguracji**, nie nadpisuje bazy na CM5.
+Źródłem prawdy dla kolejnych zmian jest zawsze
+`GET /api/v1/autostart/YYYY` i `automation.sqlite3`.
+
+Dla tego stanu plan z piątku 13.11.2026, 18:30 wskazuje następne
+wybudzenie na **poniedziałek 16.11.2026, 08:00**, a nie na sobotę.
+Sprawdzone w symulacji rzeczywistego algorytmu bez wykonywania shutdown.
 
 ## Kontrakt i przechowywanie
 

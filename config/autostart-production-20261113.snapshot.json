@@ -1,0 +1,56 @@
+{
+  "snapshot_schema_version": 1,
+  "captured_at_local": "2026-11-13T12:30:06+01:00",
+  "source": "live CM5 /api/v1/autostart/2026",
+  "source_revision": 4,
+  "year": 2026,
+  "config": {
+    "enabled": true,
+    "schedule_enabled": true,
+    "week": [
+      {
+        "weekday": 1,
+        "enabled": true,
+        "start_local": "08:00",
+        "end_local": "18:30"
+      },
+      {
+        "weekday": 2,
+        "enabled": true,
+        "start_local": "08:00",
+        "end_local": "18:30"
+      },
+      {
+        "weekday": 3,
+        "enabled": true,
+        "start_local": "08:00",
+        "end_local": "18:30"
+      },
+      {
+        "weekday": 4,
+        "enabled": true,
+        "start_local": "08:00",
+        "end_local": "18:30"
+      },
+      {
+        "weekday": 5,
+        "enabled": true,
+        "start_local": "08:00",
+        "end_local": "18:30"
+      },
+      {
+        "weekday": 6,
+        "enabled": false,
+        "start_local": "08:00",
+        "end_local": "18:30"
+      },
+      {
+        "weekday": 7,
+        "enabled": false,
+        "start_local": null,
+        "end_local": null
+      }
+    ],
+    "overrides": []
+  }
+}
