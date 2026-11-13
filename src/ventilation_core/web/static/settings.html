@@ -83,12 +83,12 @@
             <section class="autostart-summary">
               <div><span>STATUS KONFIGURACJI</span><strong id="autostartStatus">Łączenie…</strong></div>
               <div><span>STREFA CZASOWA</span><strong>Europe/Warsaw</strong></div>
-              <div><span>TRYB WYKONAWCZY</span><strong>PROJEKT · BEZ AKTUACJI</strong></div>
+              <div><span>MECHANIZM ZASILANIA</span><strong>SYSTEMD · RTC / HOST-POWER</strong></div>
             </section>
             <section class="autostart-card autostart-switches" aria-label="Przełączniki Autostartu">
               <label class="autostart-switch"><input type="checkbox" id="autostartEnabled" disabled><span><strong>Autostart</strong><small>Główny przełącznik funkcji</small></span></label>
               <label class="autostart-switch"><input type="checkbox" id="autostartScheduleEnabled" disabled><span><strong>Harmonogram</strong><small>Planowane uruchomienie i wyłączenie według kalendarza</small></span></label>
-              <p>Konfiguracja jest zapisywana w CM5. Sterowanie zasilaniem i RTC pozostaje odłączone do osobnej walidacji sprzętowej. Zapis nie uruchomi ani nie zatrzyma wentylacji.</p>
+              <p>Konfiguracja jest zapisywana w CM5. Po aktywacji usługi wvc-auto-poweroff.timer harmonogram steruje planowym wyłączeniem CM5 i wybudzeniem RTC. Zmiany nie uruchamiają od razu wentylatorów. Aktualny status wykonawcy sprawdzamy w systemd.</p>
             </section>
             <section class="autostart-card" aria-label="Godziny całego tygodnia">
               <header><div><span class="autostart-kicker">SZABLON TYGODNIOWY</span><h2>Godziny włączenia i wyłączenia</h2></div><small>Ważne dla każdego tygodnia, o ile dzień nie jest wyłączony</small></header>
