@@ -4,6 +4,11 @@
 
 Obowiązujący harmonogram CM5 z `Ustawienia → Autostart` włącza CM5
 o 08:00 i wyłącza o 18:30 w aktywne dni pracy.
+**Bieżąca decyzja operatora (rewizja 4, 13.11.2026):**
+sobota i niedziela OFF. Dlatego po piątkowym shutdown o 18:30
+kolejne wybudzenie RTC jest planowane na **poniedziałek o 08:00**.
+Źródło: `config/autostart-production-20261113.snapshot.json`.
+Sobota nie wyzwala automatycznego startu, dopóki jest wyłączona.
 Zapis z HMI trafia do `automation.sqlite3` i jest odczytywany przez
 `wvc-auto-poweroff.timer` → `wvc-auto-poweroff.service` →
 `/usr/local/libexec/wvc-autostart-gate.py` →
