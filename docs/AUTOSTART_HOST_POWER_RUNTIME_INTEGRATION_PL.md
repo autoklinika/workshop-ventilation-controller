@@ -136,7 +136,9 @@ python3 deploy/cm5/wvc-autostart-power-gate.py plan
 
 **Granice**: harmonogram dotyczy zasilania CM5, a nie poleceń start/stop
 wentylatorów. Bezpieczny shutdown przez `wvc-host-power` zatrzymuje
-urządzenia według dotychczasowej procedury. Po wybudzeniu tryb AUTO
-wentylacji może pozostać w HOLD/MANUAL do świadomego wznowienia; niniejszy
-etap nie zmienia tej zasady. Nie łączyć równolegle z Core PowerScheduler
+urządzenia według dotychczasowej procedury. Po wybudzeniu tryb AUTO wentylacji pozostaje w HOLD/MANUAL, chyba że
+osobna root-owned usługa jednorazowego wznowienia AUTO została
+zainstalowana i zweryfikowała planowy boot, potwierdzone wcześniejsze
+AUTO i wszystkie interlocki. Dokumentacja:
+`docs/WVC_RTC_SCHEDULED_AUTO_RESUME_PL.md`. Nie łączyć równolegle z Core PowerScheduler
 bez jawnej decyzji architektonicznej.
