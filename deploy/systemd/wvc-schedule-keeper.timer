@@ -1,0 +1,13 @@
+[Unit]
+Description=WVC calendar RTC/AUTO continuity every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:05
+OnBootSec=20s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=wvc-schedule-keeper.service
+
+[Install]
+WantedBy=timers.target

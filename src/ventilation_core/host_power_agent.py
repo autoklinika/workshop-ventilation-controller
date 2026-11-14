@@ -20,6 +20,7 @@ DEFAULT_CORE_SOCKET = Path("/run/workshop-ventilation/ventilation-core.sock")
 MAX_REQUEST_BYTES = 1024
 MAX_CORE_RESPONSE_BYTES = 1024 * 1024
 CORE_REQUEST_TIMEOUT_SECONDS = 10.0
+SCHEDULE_ARM_UNIT = Path("/etc/systemd/system/wvc-schedule-keeper-arm.service")
 
 
 CommandLauncher = Callable[[tuple[str, ...]], None]
@@ -147,6 +148,8 @@ class HostPowerAgent:
                 self._action_pending = True
 
             try:
+                if action == "shutdown":
+                    self._refresh_next_scheduled_wake()
                 self._prepare_for_host_power_action()
             except Exception as exc:
                 LOGGER.exception("safe host power preparation failed")
@@ -173,6 +176,28 @@ class HostPowerAgent:
             self._send(connection, {"ok": False, "error": str(exc)})
         except (OSError, TimeoutError) as exc:
             LOGGER.warning("host-power request failed: %s", exc)
+
+    @staticmethod
+    def _refresh_next_scheduled_wake() -> None:
+        """Best-effort RTC refresh for manual UI shutdowns.
+
+        Calendar keeper runs as its own privileged unit because the host-power
+        agent intentionally cannot write sysfs. An RTC problem must never
+        prevent the final safety STOP and host shutdown.
+        """
+        if not SCHEDULE_ARM_UNIT.is_file():
+            return  # Backward compatible until the new unit is installed.
+        try:
+            subprocess.run(
+                ("/usr/bin/systemctl", "start", "--wait",
+                 "wvc-schedule-keeper-arm.service"),
+                check=True, capture_output=True, text=True, timeout=35,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            LOGGER.error(
+                "RTC next-workday rearm could not be confirmed before shutdown: %s; "
+                "continuing required safe shutdown sequence", exc,
+            )
 
     def _prepare_for_host_power_action(self) -> None:
         self._prepare_peripherals_for_poweroff()
