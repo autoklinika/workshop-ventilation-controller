@@ -1,7 +1,7 @@
 [Unit]
 Description=WVC event-driven calendar setup at every CM5 boot
-After=local-fs.target time-sync.target ventilation-core.service
-Wants=time-sync.target
+After=local-fs.target time-sync.target ventilation-core.service wvc-rtc-auto-resume.service
+Wants=time-sync.target wvc-rtc-auto-resume.service
 Requires=ventilation-core.service
 ConditionPathExists=/sys/class/rtc/rtc0/wakealarm
 
