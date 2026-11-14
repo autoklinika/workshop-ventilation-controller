@@ -113,3 +113,26 @@ PYTHONPATH=src python3 -m unittest discover -s tests -q
 
 Nie wykonywać `wvc-autostart-gate.py tick` ręcznie o godzinie
 zakończenia: byłoby to realne polecenie wyłączenia CM5.
+
+## Korekta potwierdzania timera systemd-run (14.11.2026)
+
+Pierwsza próba instalacji około 09:36 utworzyła transient timer START,
+ale skrypt błędnie uznał brak standardowego wyjścia `stdout` za błąd.
+Logi systemd potwierdziły utworzenie jednostki i późniejsze
+anulowanie jej podczas rollbacku. Stary minutowy timer pozostał aktywny,
+RTC dalej wskazywał poniedziałek 16.11.2026 o 08:00, a Core i WebGUI
+nie zostały wyłączone.
+
+Po poprawce `systemd-run` jest uznawany za skuteczny wyłącznie gdy:
+- jego kod zakończenia oznacza sukces (komunikat na stderr lub brak
+  komunikatu nie stanowi błędu),
+- `systemctl is-active --quiet <unit>.timer` potwierdza aktywny timer,
+- `systemctl show -p Unit --value <unit>.timer` wskazuje oczekiwaną
+  usługę `<unit>.service`.
+
+Na niepowodzenie skrypt próbuje zatrzymać nową jednostkę i nie aktualizuje
+zapisu trwałego. Do testów dołożono wariant poprawnego `systemd-run`
+z pustym stdout oraz scenariusze braku aktywnego timera i błędnej
+jednostki wykonawczej. Instalator przy ponownej próbie tworzy
+i weryfikuje **zarówno START, jak i STOP**, zanim wyłączy
+dotychczasowy timer.

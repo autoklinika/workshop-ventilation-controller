@@ -140,6 +140,13 @@ systemctl list-timers --all --no-pager | grep -E 'wvc-scheduled-(start|close)' |
   echo "ERROR: no exact next start/close was scheduled" >&2
   exit 1
 }
+for kind in start close; do
+  if ! systemctl list-timers --all --no-pager --no-legend |
+       grep -qE "wvc-scheduled-${kind}-[0-9]{8}-[0-9]{4}-[0-9]+[.]timer"; then
+    echo "ERROR: one-time ${kind} timer is missing; keeping legacy timer" >&2
+    exit 1
+  fi
+done
 systemctl disable --now wvc-auto-poweroff.timer
 if systemctl is-enabled --quiet wvc-schedule-keeper.timer 2>/dev/null; then
   systemctl disable --now wvc-schedule-keeper.timer
