@@ -6,7 +6,10 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
+import subprocess
 
+import ventilation_core.host_power_agent as host_module
 from ventilation_core.host_power_agent import HostPowerAgent
 from ventilation_core.web.host_power import HostPowerClient
 
@@ -72,6 +75,24 @@ class _FakePowerDomain:
 
 
 class HostPowerAgentTest(unittest.TestCase):
+    def test_manual_shutdown_rtc_rearm_best_effort(self):
+        with patch.object(host_module, "SCHEDULE_ARM_UNIT") as unit, \
+             patch.object(host_module.subprocess, "run") as process:
+            unit.is_file.return_value = True
+            HostPowerAgent._refresh_next_scheduled_wake()
+            process.assert_called_once()
+            self.assertEqual(process.call_args.args[0][-1], "wvc-schedule-keeper-arm.service")
+            process.reset_mock()
+            process.side_effect = subprocess.CalledProcessError(1, "systemctl")
+            # Shutdown must remain possible when RTC cannot be rearmed.
+            HostPowerAgent._refresh_next_scheduled_wake()
+            process.assert_called_once()
+        with patch.object(host_module, "SCHEDULE_ARM_UNIT") as unit, \
+             patch.object(host_module.subprocess, "run") as process:
+            unit.is_file.return_value = False
+            HostPowerAgent._refresh_next_scheduled_wake()
+            process.assert_not_called()
+
     def _serve_agent(
         self,
         socket_path: Path,

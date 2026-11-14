@@ -1,0 +1,22 @@
+[Unit]
+Description=WVC preserve next Autostart RTC wake and AUTO calendar start
+Documentation=file:/home/wentylacja/workshop-ventilation-controller/docs/WVC_MANUAL_SCHEDULE_CONTINUITY_PL.md
+Wants=time-sync.target
+After=local-fs.target time-sync.target ventilation-core.service
+Requires=ventilation-core.service
+ConditionPathExists=/sys/class/rtc/rtc0/wakealarm
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/wvc-schedule-keeper.py tick
+TimeoutStartSec=55
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
