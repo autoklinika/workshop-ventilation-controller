@@ -155,11 +155,28 @@ fi
 # We deliberately DO NOT restart ventilation-core, wvc-host-power or HMI.
 systemctl restart wvc-web-ui.service
 
-echo "[5/5] Final readback, tests of operational boundaries"
+echo "[5/5] Wait for WebGUI HTTP readiness and verify live services"
 systemctl is-active --quiet ventilation-core.service
 systemctl is-active --quiet wvc-host-power.service
-systemctl is-active --quiet wvc-web-ui.service
-curl -fsS --max-time 8 http://127.0.0.1:18091/api/v1/health >/dev/null
+# Type=simple becomes 'active' before the HTTP listener binds to port 18091.
+# Restarting WebGUI can take several seconds. A transient connection refusal
+# is not a failure of the RTC or the already verified START/STOP timers.
+WEB_READY=0
+for attempt in $(seq 1 45); do
+  if systemctl is-active --quiet wvc-web-ui.service &&
+     curl -fsS --connect-timeout 1 --max-time 2 \
+       http://127.0.0.1:18091/api/v1/health >/dev/null 2>&1; then
+    WEB_READY=1
+    echo "WVC_WEBGUI_POST_RESTART_READY_PASS attempt=${attempt}"
+    break
+  fi
+  sleep 1
+done
+if [[ "$WEB_READY" != 1 ]]; then
+  echo "ERROR: WebGUI did not become ready within 45 seconds" >&2
+  systemctl status wvc-web-ui.service --no-pager -l >&2 || true
+  exit 1
+fi
 systemctl is-active --quiet wvc-schedule-change.path
 systemctl is-enabled --quiet wvc-schedule-boot.service
 if systemctl is-active --quiet wvc-auto-poweroff.timer; then

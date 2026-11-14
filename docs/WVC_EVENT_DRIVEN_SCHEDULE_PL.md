@@ -136,3 +136,29 @@ z pustym stdout oraz scenariusze braku aktywnego timera i błędnej
 jednostki wykonawczej. Instalator przy ponownej próbie tworzy
 i weryfikuje **zarówno START, jak i STOP**, zanim wyłączy
 dotychczasowy timer.
+
+## Korekta WebGUI readiness po restarcie (14.11.2026, 09:47)
+
+Druga próba instalacji poprawnie uzbroiła RTC i utworzyła dwa
+jednorazowe timery, START na 16.11.2026 o 08:00 i STOP na 18:30.
+Oryginalny minutowy timer został wtedy wyłączony, natomiast
+końcowy pojedynczy `curl /api/v1/health` uruchomiony **natychmiast**
+po `systemctl restart wvc-web-ui.service` zwrócił `connection refused`
+(`curl: (7)`). Usługa `Type=simple` przechodzi w systemd do ACTIVE,
+zanim proces rzeczywiście nasłuchuje na porcie 18091.
+
+Zachowany rollback anulował oba nowe timery i przywrócił
+`wvc-auto-poweroff.timer`. Weryfikacja po rollbacku wykazała:
+Core, WebGUI i host-power ACTIVE, `/api/v1/health` HTTP 200,
+RTC nadal wskazuje poniedziałek 16.11.2026, 08:00.
+
+**Poprawka:** instalator nadal sprawdza Core i host-power, ale
+po restarcie samego WebGUI daje mu **do 45 prób, w odstępach 1 s**,
+z `curl --connect-timeout 1 --max-time 2`. Dopiero po poprawnej
+odpowiedzi health API uznaje stan za PASS. Przy rzeczywistym braku
+odpowiedzi w tym oknie wypisuje stan jednostki i wykonuje rollback.
+Nie ma to wpływu na czas wykonania timerów ani na tryb pracy AUTO.
+
+Testy bez sprzętu symulują (1) gotowość WebGUI dopiero za trzecim
+razem, (2) brak gotowości przez wszystkie 45 prób, (3) brak jakichkolwiek
+operacji sprzętowych w samym mechanizmie oczekiwania.
