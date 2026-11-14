@@ -20,6 +20,9 @@ import socket
 import stat
 import sys
 import tempfile
+import subprocess
+import logging
+import time as time_module
 from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
@@ -32,8 +35,10 @@ CLAIM_FILE = STATE_DIR / "scheduled-start-claim.json"
 OLD_TICKET = STATE_DIR / "next-wake.json"
 HOLD_FILE = Path("/var/lib/workshop-ventilation/active-auto-hold.json")
 LOCK_FILE = Path("/run/wvc-schedule-keeper.lock")
+TIMER_STATE = STATE_DIR / "next-start-timer.json"
+CLOSE_TIMER_STATE = STATE_DIR / "next-close-timer.json"
 MAX_LOOKAHEAD_DAYS = 370
-WAKE_LEAD_SECONDS = 60
+WAKE_LEAD_SECONDS = 1
 START_WINDOW_MINUTES = 20
 ORDINARY_HOLDS = frozenset({
     "MANUAL_COMMAND_stop", "MANUAL_COMMAND_set", "MANUAL_COMMAND_aero-speed",
@@ -124,6 +129,7 @@ def plan(now: datetime, loader: Callable[[int], dict[str, Any]]) -> dict[str, An
         "enabled": cfg["enabled"],
         "schedule_enabled": cfg["schedule_enabled"],
         "next_wake_local": None,
+        "next_close_local": None,
         "start_today_local": None,
         "end_today_local": None,
         "start_due": False,
@@ -148,13 +154,19 @@ def plan(now: datetime, loader: Callable[[int], dict[str, Any]]) -> dict[str, An
         if not doc["config"]["enabled"] or not doc["config"]["schedule_enabled"]:
             continue
         row = doc["days"][day.timetuple().tm_yday - 1]
-        if row["enabled"] is not True or row["start_local"] is None:
+        if row["enabled"] is not True or row["start_local"] is None or row["end_local"] is None:
             continue
         future = local_start(day, row["start_local"])
-        if (future.astimezone(timezone.utc) - local.astimezone(timezone.utc)).total_seconds() < WAKE_LEAD_SECONDS:
-            continue
-        output["next_wake_local"] = future.isoformat()
-        output["reason"] = "next_start_found"
+        close = local_start(day, row["end_local"])
+        if (future.astimezone(timezone.utc) - local.astimezone(timezone.utc)).total_seconds() >= WAKE_LEAD_SECONDS and output["next_wake_local"] is None:
+            output["next_wake_local"] = future.isoformat()
+        if (close.astimezone(timezone.utc) - local.astimezone(timezone.utc)).total_seconds() >= WAKE_LEAD_SECONDS and output["next_close_local"] is None:
+            output["next_close_local"] = close.isoformat()
+        if output["next_wake_local"] is not None and output["next_close_local"] is not None:
+            output["reason"] = "next_start_and_end_found"
+            return output
+    if output["next_wake_local"] is not None or output["next_close_local"] is not None:
+        output["reason"] = "next_events_found"
         return output
     output["reason"] = "no_future_start"
     return output
@@ -334,6 +346,95 @@ def maybe_start_auto(info: Mapping[str, Any]) -> str:
     return "rejected_resume_not_confirmed"
 
 
+def _atomic_private_json(path: Path, payload: Mapping[str, Any]) -> None:
+    validate_state_directory()
+    fd, temporary = tempfile.mkstemp(prefix=".schedule-", dir=STATE_DIR)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(dict(payload), stream, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _run_systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(("/usr/bin/systemctl", *args), check=check,
+                          capture_output=True, text=True, timeout=15)
+
+
+def schedule_one_event(start_iso: str | None, *, kind: str = "start") -> str:
+    """Program a single systemd calendar event, not a minute-by-minute poll.
+
+    Record the exact timer unit to cancel it after HMI calendar edits.
+    Service re-arms the next event on execution, including across years.
+    A reboot installs a fresh transient event via wvc-schedule-boot.service.
+    """
+    if kind not in ("start", "close"):
+        raise ValueError("unsupported scheduled event")
+    state_path = TIMER_STATE if kind == "start" else CLOSE_TIMER_STATE
+    validate_state_directory()
+    old = None
+    try:
+        old = json.loads(state_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        pass
+    if old is not None and (not isinstance(old, dict) or old.get("schema") != 1 or
+                            (old.get("unit") is not None and not re.fullmatch(
+                                r"wvc-scheduled-(start|close)-[0-9]{8}-[0-9]{4}-[0-9]+",
+                                str(old.get("unit"))))):
+        raise RuntimeError("invalid persistent systemd timer bookkeeping")
+    new_unit = None
+    if start_iso:
+        target = datetime.fromisoformat(start_iso)
+        if target.tzinfo is None or target.astimezone(WARSAW).isoformat() != start_iso:
+            raise ValueError("invalid scheduled start timezone")
+        target = target.astimezone(WARSAW)
+        # The PID suffix avoids reusing a previously stopped transient unit.
+        new_unit = f"wvc-scheduled-{kind}-{target:%Y%m%d-%H%M}-{os.getpid()}"
+        # On another boot the transient systemd unit has vanished.
+        if (old is not None and old.get("unit") and old.get("start_local") == start_iso and
+                _run_systemctl("is-active", "--quiet", old["unit"] + ".timer", check=False).returncode == 0):
+            return "already_scheduled"
+        calendar = target.strftime("%Y-%m-%d %H:%M:%S Europe/Warsaw")
+        command = (("/usr/bin/python3", "/usr/local/libexec/wvc-schedule-keeper.py", "start")
+                   if kind == "start" else
+                   ("/usr/bin/python3", "/usr/local/libexec/wvc-autostart-gate.py", "tick"))
+        result = subprocess.run(
+            ("/usr/bin/systemd-run", "--unit=" + new_unit,
+             "--description=WVC one-time calendar " + kind,
+             "--on-calendar=" + calendar,
+             "--timer-property=AccuracySec=1s",
+             "--timer-property=Persistent=false",
+             "--property=Type=oneshot", *command),
+            check=True, capture_output=True, text=True, timeout=15,
+        )
+        if not result.stdout:
+            raise RuntimeError("systemd did not confirm transient timer")
+    if old is not None and old.get("unit") and old.get("unit") != new_unit:
+        _run_systemctl("stop", old["unit"] + ".timer", check=False)
+    _atomic_private_json(state_path, {"schema": 1, "unit": new_unit, "start_local": start_iso})
+    return "scheduled" if new_unit else "cleared"
+
+
+def attempt_auto_at_event(info: Mapping[str, Any]) -> str:
+    if info.get("start_due") is not True:
+        return "outside_start_window"
+    limit = time_module.monotonic() + 135
+    last = "not_ready"
+    while time_module.monotonic() < limit:
+        outcome = maybe_start_auto(info)
+        if outcome in {"resumed_auto", "already_auto", "already_processed",
+                       "outside_start_window"} or outcome.startswith("rejected_"):
+            return outcome
+        last = outcome
+        time_module.sleep(4)
+    return "timeout_" + last
+
+
 def run(action: str) -> int:
     now = datetime.now(timezone.utc)
     info = plan(now, lambda year: core_request({"command": "autostart", "year": year}))
@@ -347,15 +448,22 @@ def run(action: str) -> int:
         active = info["enabled"] and info["schedule_enabled"]
         result = reconcile_rtc(info["next_wake_local"], active_schedule=active)
         print("WVC_KEEPER_RTC " + result, flush=True)
-        if action == "tick" and active:
-            result = maybe_start_auto(info)
+        if action != "arm":
+            result = schedule_one_event(info["next_wake_local"] if active else None, kind="start")
+            print("WVC_KEEPER_NEXT_START " + result, flush=True)
+            result = schedule_one_event(info["next_close_local"] if active else None, kind="close")
+            print("WVC_KEEPER_NEXT_CLOSE " + result, flush=True)
+        # Prepare the *next* RTC/timers before waiting on AUTO readiness.
+        # A missing SEN55 must never prevent the next boot from being planned.
+        if action in ("boot", "start", "sync") and active and info["start_due"]:
+            result = attempt_auto_at_event(info)
             print("WVC_KEEPER_AUTO " + result, flush=True)
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("plan", "arm", "tick"))
+    parser.add_argument("action", choices=("plan", "arm", "boot", "sync", "start"))
     args = parser.parse_args()
     try:
         return run(args.action)

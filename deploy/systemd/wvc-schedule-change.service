@@ -1,0 +1,19 @@
+[Unit]
+Description=WVC recompute RTC and one-time systemd timers on saved Autostart change
+After=ventilation-core.service
+Requires=ventilation-core.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/wvc-schedule-keeper.py sync
+TimeoutStartSec=215
+Restart=on-failure
+RestartSec=10
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX

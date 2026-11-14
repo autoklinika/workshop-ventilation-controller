@@ -1,3 +1,10 @@
+> **Wersja historyczna (14.11.2026 rano).** Ten dokument opisuje poprzedni
+> projekt sprawdzania kalendarza co minutę. Projekt został zastąpiony
+> rozwiązaniem wyzwalanym zdarzeniowo; aktualna dokumentacja operacyjna:
+> [WVC_EVENT_DRIVEN_SCHEDULE_PL.md](WVC_EVENT_DRIVEN_SCHEDULE_PL.md).
+> Jednostki `wvc-schedule-keeper.timer` i `wvc-schedule-keeper.service`
+> zostały wycofane. Nie instalować starego skryptu `install_wvc_schedule_keeper.sh`.
+
 # WVC — uniwersalna ciągłość harmonogramu po ręcznej pracy (14.11.2026)
 
 ## Problem potwierdzony na CM5
