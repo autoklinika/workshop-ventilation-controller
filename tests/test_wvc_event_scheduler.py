@@ -65,7 +65,10 @@ class EventSchedulerTests(unittest.TestCase):
                 recorded.append(command)
                 class R:
                     returncode = 0
-                    stdout = "Running timer"
+                    stdout = (command[-1].removesuffix(".timer") + ".service"
+                              if "show" in command else "")
+                    stderr = ("Running as unit" if command[0] == "/usr/bin/systemd-run"
+                              else "")
                 return R()
             with patch.object(keeper, "STATE_DIR", directory), \
                  patch.object(keeper, "TIMER_STATE", directory / "start.json"), \
@@ -73,7 +76,10 @@ class EventSchedulerTests(unittest.TestCase):
                  patch.object(keeper, "validate_state_directory"), \
                  patch.object(keeper.subprocess, "run", side_effect=pretend):
                 self.assertEqual(keeper.schedule_one_event("2026-11-16T18:30:00+01:00", kind="close"), "scheduled")
-            self.assertEqual(len(recorded), 1)
+            self.assertEqual(len(recorded), 3)
+            self.assertEqual(recorded[0][0], "/usr/bin/systemd-run")
+            self.assertEqual(recorded[1][0:3], ("/usr/bin/systemctl", "is-active", "--quiet"))
+            self.assertEqual(recorded[2][0:4], ("/usr/bin/systemctl", "show", "-p", "Unit"))
             self.assertIn("/usr/local/libexec/wvc-autostart-gate.py", recorded[0])
             self.assertIn("--on-calendar=2026-11-16 18:30:00 Europe/Warsaw", recorded[0])
             state = json.loads((directory / "close.json").read_text())
@@ -87,7 +93,10 @@ class EventSchedulerTests(unittest.TestCase):
                 commands.append(cmd)
                 class R:
                     returncode = 0
-                    stdout = "Running timer"
+                    stdout = (cmd[-1].removesuffix(".timer") + ".service"
+                              if "show" in cmd else "")
+                    stderr = ("Running as unit" if cmd[0] == "/usr/bin/systemd-run"
+                              else "")
                 return R()
             with patch.object(keeper, "STATE_DIR", directory), \
                  patch.object(keeper, "TIMER_STATE", directory / "start.json"), \
@@ -156,7 +165,10 @@ class EventChangeCancellationTests(unittest.TestCase):
             calls = []
             def run(cmd, **kwargs):
                 calls.append(tuple(cmd))
-                return subprocess.CompletedProcess(cmd, 0, stdout='Running as unit', stderr='')
+                stdout = (cmd[-1].removesuffix(".timer") + ".service"
+                          if "show" in cmd else "")
+                stderr = "Running as unit" if cmd[0] == "/usr/bin/systemd-run" else ""
+                return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr=stderr)
             with patch.object(keeper, 'STATE_DIR', root), \
                  patch.object(keeper, 'TIMER_STATE', root/'start.json'), \
                  patch.object(keeper, 'CLOSE_TIMER_STATE', root/'close.json'), \
@@ -184,3 +196,73 @@ class EventChangeCancellationTests(unittest.TestCase):
                 keeper.schedule_one_event('2026-11-16T08:00:00', kind='start')
             with self.assertRaises(ValueError):
                 keeper.schedule_one_event('2026-11-16T08:00:00+01:00', kind='restart')
+
+class TransientTimerVerificationTests(unittest.TestCase):
+    def test_success_banner_only_on_stderr_is_valid_when_systemd_timer_active(self):
+        import subprocess
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            calls = []
+            def fake_subprocess(args, **kwargs):
+                calls.append(tuple(args))
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="Running as unit...")
+            def fake_systemctl(*args, **kwargs):
+                calls.append(("/usr/bin/systemctl", *args))
+                response = (args[-1].removesuffix(".timer") + ".service"
+                            if args[0] == "show" else "")
+                return subprocess.CompletedProcess(args, 0, stdout=response, stderr="")
+            with patch.object(keeper, "STATE_DIR", directory), \
+                 patch.object(keeper, "TIMER_STATE", directory / "start.json"), \
+                 patch.object(keeper, "validate_state_directory"), \
+                 patch.object(keeper.subprocess, "run", side_effect=fake_subprocess), \
+                 patch.object(keeper, "_run_systemctl", side_effect=fake_systemctl):
+                result = keeper.schedule_one_event("2026-11-16T08:00:00+01:00")
+            self.assertEqual(result, "scheduled")
+            self.assertTrue((directory / "start.json").is_file())
+            self.assertEqual([c[0] for c in calls],
+                             ["/usr/bin/systemd-run", "/usr/bin/systemctl",
+                              "/usr/bin/systemctl"])
+
+    def test_nonactive_timer_fails_before_bookkeeping_and_requests_cleanup(self):
+        import subprocess
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            calls = []
+            def fake_run(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="Running as unit...")
+            def fake_ctl(*args, **kwargs):
+                calls.append(tuple(args))
+                if args[0] == "is-active":
+                    return subprocess.CompletedProcess(args, 3, stdout="", stderr="inactive")
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            with patch.object(keeper, "STATE_DIR", directory), \
+                 patch.object(keeper, "TIMER_STATE", directory / "start.json"), \
+                 patch.object(keeper, "validate_state_directory"), \
+                 patch.object(keeper.subprocess, "run", side_effect=fake_run), \
+                 patch.object(keeper, "_run_systemctl", side_effect=fake_ctl):
+                with self.assertRaisesRegex(RuntimeError, "not active"):
+                    keeper.schedule_one_event("2026-11-16T08:00:00+01:00")
+            self.assertEqual(calls[0][:2], ("is-active", "--quiet"))
+            self.assertEqual(calls[1][0], "stop")
+            self.assertFalse((directory / "start.json").exists())
+
+    def test_wrong_timer_service_fails_before_bookkeeping_and_requests_cleanup(self):
+        import subprocess
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            calls = []
+            def fake_run(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="Running as unit...")
+            def fake_ctl(*args, **kwargs):
+                calls.append(tuple(args))
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=("unrelated.service" if args[0] == "show" else ""), stderr="")
+            with patch.object(keeper, "STATE_DIR", directory), \
+                 patch.object(keeper, "TIMER_STATE", directory / "start.json"), \
+                 patch.object(keeper, "validate_state_directory"), \
+                 patch.object(keeper.subprocess, "run", side_effect=fake_run), \
+                 patch.object(keeper, "_run_systemctl", side_effect=fake_ctl):
+                with self.assertRaisesRegex(RuntimeError, "unexpected service"):
+                    keeper.schedule_one_event("2026-11-16T08:00:00+01:00")
+            self.assertEqual([c[0] for c in calls], ["is-active", "show", "stop"])
+            self.assertFalse((directory / "start.json").exists())

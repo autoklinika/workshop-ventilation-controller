@@ -403,7 +403,10 @@ def schedule_one_event(start_iso: str | None, *, kind: str = "start") -> str:
         command = (("/usr/bin/python3", "/usr/local/libexec/wvc-schedule-keeper.py", "start")
                    if kind == "start" else
                    ("/usr/bin/python3", "/usr/local/libexec/wvc-autostart-gate.py", "tick"))
-        result = subprocess.run(
+        # systemd-run writes its success banner to stderr on some versions.
+        # Only the subprocess exit status and actual systemd unit state are
+        # authoritative; an empty stdout is NOT a deployment failure.
+        subprocess.run(
             ("/usr/bin/systemd-run", "--unit=" + new_unit,
              "--description=WVC one-time calendar " + kind,
              "--on-calendar=" + calendar,
@@ -412,8 +415,23 @@ def schedule_one_event(start_iso: str | None, *, kind: str = "start") -> str:
              "--property=Type=oneshot", *command),
             check=True, capture_output=True, text=True, timeout=15,
         )
-        if not result.stdout:
-            raise RuntimeError("systemd did not confirm transient timer")
+        # Verify the transient timer is really active before recording it
+        # in the persistent bookkeeping file or disabling a fallback timer.
+        if _run_systemctl("is-active", "--quiet", new_unit + ".timer",
+                          check=False).returncode != 0:
+            # Don't leave a possibly half-created timer active.
+            _run_systemctl("stop", new_unit + ".timer", check=False)
+            raise RuntimeError(
+                "systemd-run exited successfully but transient timer is not active: "
+                + new_unit + ".timer"
+            )
+        assigned = _run_systemctl("show", "-p", "Unit", "--value",
+                                  new_unit + ".timer")
+        if assigned.stdout.strip() != new_unit + ".service":
+            _run_systemctl("stop", new_unit + ".timer", check=False)
+            raise RuntimeError("Transient timer targets an unexpected service")
+        print("WVC_KEEPER_TRANSIENT_TIMER_ACTIVE unit=" + new_unit + ".timer",
+              flush=True)
     if old is not None and old.get("unit") and old.get("unit") != new_unit:
         _run_systemctl("stop", old["unit"] + ".timer", check=False)
     _atomic_private_json(state_path, {"schema": 1, "unit": new_unit, "start_local": start_iso})
