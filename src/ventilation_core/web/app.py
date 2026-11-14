@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import logging
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -191,12 +193,22 @@ class WebApplication:
             raise ValueError('expected_revision must be a positive integer')
         if not isinstance(data['config'], dict):
             raise ValueError('Autostart config must be an object')
-        return self._command({
+        result = self._command({
             'command': 'autostart-replace',
             'year': data['year'],
             'expected_revision': data['expected_revision'],
             'config': data['config'],
         })
+        if result.status == 200 and result.payload.get('ok') is True:
+            # The root-owned systemd.path detects this *event* after commit.
+            # The WebUI never arms RTC or changes privileged hardware itself.
+            marker = Path('/srv/wvc-data/workshop-ventilation/autostart-changed.signal')
+            if marker.is_file():
+                try:
+                    marker.write_text(str(result.payload['autostart']['revision']) + '\n', encoding='ascii')
+                except (OSError, KeyError, TypeError) as exc:
+                    logging.getLogger(__name__).error('Cannot notify RTC calendar event watcher: %s', exc)
+        return result
 
     def _schedule(self) -> ApiResponse:
         response = self._core.request({"command": "schedule"})

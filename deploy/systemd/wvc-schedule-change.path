@@ -1,0 +1,9 @@
+[Unit]
+Description=WVC Autostart calendar change event watcher
+
+[Path]
+PathModified=/srv/wvc-data/workshop-ventilation/autostart-changed.signal
+Unit=wvc-schedule-change.service
+
+[Install]
+WantedBy=multi-user.target

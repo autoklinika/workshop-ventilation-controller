@@ -1,0 +1,24 @@
+[Unit]
+Description=WVC event-driven calendar setup at every CM5 boot
+After=local-fs.target time-sync.target ventilation-core.service
+Wants=time-sync.target
+Requires=ventilation-core.service
+ConditionPathExists=/sys/class/rtc/rtc0/wakealarm
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/libexec/wvc-schedule-keeper.py boot
+TimeoutStartSec=230
+Restart=on-failure
+RestartSec=15
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
